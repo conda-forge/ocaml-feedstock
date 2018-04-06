@@ -15,7 +15,7 @@ source:
   sha256: {{ sha256 }}
 
 build:
-  number: 0
+  number: 1
   skip: True  # [win]
 
 requirements:
@@ -25,6 +25,42 @@ requirements:
 test:
   commands:
     - ocaml -version
+    - ocamlc -version
+    - ocamlc.byte -version
+    - ocamlc.opt -version
+    - ocamlcmt -help
+    - ocamlcp -version
+    - ocamlcp.byte -version
+    - ocamlcp.opt -version
+    - ocamldebug -version
+    - ocamldep -version
+    - ocamldep.byte -version
+    - ocamldep.opt -version
+    - ocamldoc -version
+    - ocamldoc.opt -version
+    - ocamllex -version
+    - ocamllex.byte -version
+    - ocamllex.opt -version
+    - ocamlmklib -version
+    - ocamlmklib.byte -version
+    - ocamlmklib.opt -version
+    - ocamlmktop -version
+    - ocamlmktop.byte -version
+    - ocamlmktop.opt -version
+    - ocamlobjinfo -help
+    - ocamlobjinfo.byte -help
+    - ocamlobjinfo.opt -help
+    - ocamlopt -version
+    - ocamlopt.byte -version
+    - ocamlopt.opt -version
+    - ocamloptp -version
+    - ocamloptp.byte -version
+    - ocamloptp.opt -version
+    - ocamlprof -version
+    - ocamlprof.byte -version
+    - ocamlprof.opt -version
+    - ocamlrun -version
+    - ocamlyacc -version
 
 about:
   home: https://ocaml.org/
