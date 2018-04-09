@@ -2,4 +2,4 @@
 ./configure -prefix $PREFIX
 make world.opt
 make tests
-make installopt
+make install
