@@ -15,7 +15,7 @@ source:
   sha256: {{ sha256 }}
 
 build:
-  number: 0
+  number: 1
   skip: True  # [win]
 
 requirements:
@@ -25,6 +25,21 @@ requirements:
 test:
   commands:
     - ocaml -version
+    - ocamlc -version
+    - ocamlcmt -help
+    - ocamlcp -version
+    - ocamldep -version
+    - ocamllex -version
+    - ocamlmklib -version
+    - ocamlmktop -version
+    - ocamlobjinfo -help
+    - ocamlobjinfo.byte -help
+    - ocamlobjinfo.opt -help
+    - ocamlopt -version
+    - ocamloptp -version
+    - ocamlprof -version
+    - ocamlrun -version
+    - ocamlyacc -version
 
 about:
   home: https://ocaml.org/
