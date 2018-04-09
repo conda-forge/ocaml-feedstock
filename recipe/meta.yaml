@@ -28,7 +28,7 @@ test:
     - ocamlc -version
     - ocamlcmt -help
     - ocamlcp -version
-    - ocamldebug -debug
+    - ocamldebug -version
     - ocamldep -version
     - ocamldoc -version
     - ocamllex -version
