@@ -33,8 +33,6 @@ test:
     - ocamlmklib -version
     - ocamlmktop -version
     - ocamlobjinfo -help
-    - ocamlobjinfo.byte -help
-    - ocamlobjinfo.opt -help
     - ocamlopt -version
     - ocamloptp -version
     - ocamlprof -version
