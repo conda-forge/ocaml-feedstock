@@ -46,9 +46,7 @@ about:
   license: LGPL-2.1
   license_family: LGPL
   license_file: LICENSE
-  summary: 'Simple, fast, extensible JSON encoder/decoder for Python'
-
-  # The remaining entries in this section are optional, but recommended
+  summary: 'Objective Caml (OCaml) is an implementation of the ML language.'
   description: |
     OCaml is an implementation of the ML language, based on the Caml Light
     dialect extended with a complete class-based object system and a powerful
