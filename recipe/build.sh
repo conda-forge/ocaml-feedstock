@@ -6,3 +6,7 @@ make install
 echo $PREFIX
 head -n 1 $PREFIX/bin/ocamldebug
 head -n 1 $PREFIX/bin/ocamldoc
+head -n 1 $PREFIX/bin/ocamldoc.opt
+file $PREFIX/bin/ocamldebug
+file $PREFIX/bin/ocamldoc
+file $PREFIX/bin/ocamldoc.opt
