@@ -40,6 +40,7 @@ test:
     - ocamlprof -version
     - ocamlrun -version
     - ocamlyacc -version
+    - ocamldoc.opt -version
     - head -n 1 `which ocamldebug` && ocamlrun ocamldebug -version
     - head -n 1 `which ocamldoc` && ocamlrun ocamldoc -version
 
