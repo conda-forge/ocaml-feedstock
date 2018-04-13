@@ -41,12 +41,12 @@ test:
     - ocamlrun -version
     - ocamlyacc -version
     - ocamldoc.opt -version
-    - head -n 1 `which ocamldebug` && ocamlrun ocamldebug -version
-    - head -n 1 `which ocamldoc` && ocamlrun ocamldoc -version
-    - head -n 1 `which ocamldoc.opt` && ocamlrun ocamldoc.opt -version
     - file `which ocamldebug`
     - file `which ocamldoc`
     - file `which ocamldoc.opt`
+    - head -n 1 `which ocamldebug` && ocamlrun ocamldebug -version
+    - head -n 1 `which ocamldoc` && ocamlrun ocamldoc -version
+    - head -n 1 `which ocamldoc.opt` && ocamlrun ocamldoc.opt -version
 
 about:
   home: https://ocaml.org/
