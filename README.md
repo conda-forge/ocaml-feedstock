@@ -7,7 +7,7 @@ Package license: LGPL-2.1
 
 Feedstock license: BSD 3-Clause
 
-Summary: Simple, fast, extensible JSON encoder/decoder for Python
+Summary: Objective Caml (OCaml) is an implementation of the ML language.
 
 OCaml is an implementation of the ML language, based on the Caml Light
 dialect extended with a complete class-based object system and a powerful
