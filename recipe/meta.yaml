@@ -1,8 +1,7 @@
 {% set name = "ocaml" %}
 {% set version = "4.06.1" %}
-
-{% set version_major   = version.split(".")[0] %}
-{% set version_minor   = version.split(".")[1] %}
+{% set version_major = version.split(".")[0] %}
+{% set version_minor = version.split(".")[1] %}
 
 package:
   name: {{ name|lower }}
