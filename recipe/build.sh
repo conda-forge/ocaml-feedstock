@@ -1,5 +1,5 @@
 #!/bin/bash
-bash -x ./configure -prefix $PREFIX -cc $CC
-make world.opt ASPP="$CC -c"
+bash -x ./configure -prefix $PREFIX -cc $CC -aspp "$CC -c" -as "$AS"
+make world.opt -j${CPU_COUNT}
 make tests
 make install
