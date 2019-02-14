@@ -3,7 +3,7 @@ export CC=$(basename "$CC")
 if [[ "$(uname)" == "Linux" ]]; then
    export HASHBANGSCRIPTS=false
 else
-   export HASHBANGSCRIPTS=false
+   export HASHBANGSCRIPTS=true
 fi
 bash -x ./configure -prefix $PREFIX -cc $CC -aspp "$CC -c" -as "$AS"
 make world.opt -j${CPU_COUNT} HASHBANGSCRIPTS=${HASHBANGSCRIPTS}
