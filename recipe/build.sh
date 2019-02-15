@@ -1,5 +1,6 @@
 #!/bin/bash
 export CC=$(basename "$CC")
+export AS=$(basename "$AS")
 bash -x ./configure -prefix $PREFIX -cc $CC -aspp "$CC -c" -as "$AS"
 make world.opt -j${CPU_COUNT}
 make tests
