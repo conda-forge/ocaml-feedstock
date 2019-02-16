@@ -16,7 +16,7 @@ source:
     - ocamlmklib_prefix_fix.diff
 
 build:
-  number: 1005
+  number: 1006
   skip: True  # [win]
   detect_binary_files_with_prefix: False
   merge_build_host: True
