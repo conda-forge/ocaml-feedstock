@@ -15,7 +15,7 @@ source:
     - prefix_fix.diff
 
 build:
-  number: 1007
+  number: 1008
   skip: True  # [win]
   run_exports:
     - {{ pin_subpackage("ocaml") }}
