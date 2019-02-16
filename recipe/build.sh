@@ -1,7 +1,10 @@
 #!/bin/bash
 export CC=$(basename "$CC")
 export AS=$(basename "$AS")
-bash -x ./configure -prefix $PREFIX -cc $CC -aspp "$CC -c" -as "$AS"
+export OCAML_PREFIX=$PREFIX
+export OCAMLLIB=$PREFIX/lib/ocaml
+
+bash -x ./configure -prefix $OCAML_PREFIX -cc $CC -aspp "$CC -c" -as "$AS"
 make world.opt -j${CPU_COUNT}
 make tests
 make install
