@@ -16,10 +16,12 @@ source:
     - ocamlmklib_prefix_fix.diff
 
 build:
-  number: 1004
+  number: 1005
   skip: True  # [win]
   detect_binary_files_with_prefix: False
   merge_build_host: True
+  run_exports:
+    - {{ pin_subpackage("ocaml") }}
 
 requirements:
   build:
