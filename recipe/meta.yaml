@@ -50,7 +50,7 @@ test:
 
 about:
   home: https://ocaml.org/
-  license: LGPL-2.1
+  license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
   license_family: LGPL
   license_file: LICENSE
   summary: 'Objective Caml (OCaml) is an implementation of the ML language.'
