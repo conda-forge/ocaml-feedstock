@@ -1,48 +1,57 @@
-diff --git a/byterun/dynlink.c b/byterun/dynlink.c
-index 7c339bf51..19aa2456d 100644
---- a/byterun/dynlink.c
-+++ b/byterun/dynlink.c
+diff --git a/runtime/dynlink.c b/runtime/dynlink.c
+index 2d61f53cc..c2ad12485 100644
+--- a/runtime/dynlink.c
++++ b/runtime/dynlink.c
 @@ -88,7 +88,6 @@ static char_os * parse_ld_conf(void)
  
-   stdlib = caml_secure_getenv(_T("OCAMLLIB"));
-   if (stdlib == NULL) stdlib = caml_secure_getenv(_T("CAMLLIB"));
+   stdlib = caml_secure_getenv(T("OCAMLLIB"));
+   if (stdlib == NULL) stdlib = caml_secure_getenv(T("CAMLLIB"));
 -  if (stdlib == NULL) stdlib = OCAML_STDLIB_DIR;
-   ldconfname = caml_stat_strconcat_os(3, stdlib, _T("/"), LD_CONF_NAME);
+   ldconfname = caml_stat_strconcat_os(3, stdlib, T("/"), LD_CONF_NAME);
    if (stat_os(ldconfname, &st) == -1) {
      caml_stat_free(ldconfname);
 diff --git a/stdlib/Makefile b/stdlib/Makefile
-index 5f7bde13e..590badff8 100644
+index fb24d28e8..f25c26777 100644
 --- a/stdlib/Makefile
 +++ b/stdlib/Makefile
-@@ -127,8 +127,8 @@ CAMLHEADERS =\
- ifeq "$(HASHBANGSCRIPTS)" "true"
- $(CAMLHEADERS): ../config/Makefile
- 	for suff in '' d i; do \
--	  echo '#!$(BINDIR)/ocamlrun'$$suff > camlheader$$suff && \
--	  echo '#!$(TARGET_BINDIR)/ocamlrun'$$suff >target_camlheader$$suff; \
-+	  echo '#!/usr/bin/env ocamlrun'$$suff > camlheader$$suff && \
-+	  echo '#!/usr/bin/env ocamlrun'$$suff >target_camlheader$$suff; \
- 	done && \
- 	echo '#!' | tr -d '\012' > camlheader_ur;
- else # Hashbang scripts not supported
+@@ -114,17 +114,12 @@ CAMLHEADERS =\
+ # patterns and $(subst ...) since `camlheader%:` wouldn't match `camlheader`
+ ifeq "$(SHEBANGSCRIPTS)" "true"
+ camlhead%: $(ROOTDIR)/Makefile.config Makefile
+-ifeq "$(LONG_SHEBANG)" "true"
+-	echo '#!/bin/sh' > $@
+-	echo 'exec "$(BINDIR)/ocamlrun$(subst er,,$*)" "$$0" "$$@"' >> $@
+-else
+-	echo '#!$(BINDIR)/ocamlrun$(subst er,,$*)' > $@
+-endif
++	echo '#!/usr/bin/env ocamlrun$(subst er,,$*)' > $@
+ 
+ # TODO This does not take long shebangs into account (since TARGET_BINDIR is not
+ #      yet processed by configure)
+ target_%: $(ROOTDIR)/Makefile.config Makefile
+-	echo '#!$(TARGET_BINDIR)/ocamlrun$(subst camlheader,,$*)' > $@
++	echo '#!/usr/bin/env ocamlrun$(subst camlheader,,$*)' > $@
+ 
+ camlheader_ur: Makefile
+ 	echo '#!' | tr -d '\012' > $@
 diff --git a/tools/Makefile b/tools/Makefile
-index 92d9e99e7..94c141c30 100644
+index 07e2eda1a..943ab7639 100644
 --- a/tools/Makefile
 +++ b/tools/Makefile
-@@ -154,7 +154,7 @@ $(call byte_and_opt,ocamlmklib,ocamlmklibconfig.cmo config.cmo misc.cmo \
+@@ -144,7 +144,7 @@ $(call byte_and_opt,ocamlmklib,ocamlmklibconfig.cmo config.cmo \
  
  
- ocamlmklibconfig.ml: ../config/Makefile Makefile
+ ocamlmklibconfig.ml: $(ROOTDIR)/Makefile.config Makefile
 -	(echo 'let bindir = "$(BINDIR)"'; \
 +	(echo 'let bindir = (Sys.getenv "OCAML_PREFIX") ^ "/bin"'; \
           echo 'let supports_shared_libraries = $(SUPPORTS_SHARED_LIBRARIES)';\
           echo 'let default_rpath = "$(RPATH)"'; \
           echo 'let mksharedlibrpath = "$(MKSHAREDLIBRPATH)"'; \
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
-index 3d7fdd6d5..1f2bff91e 100644
+index d5bb84cac..a8895c326 100644
 --- a/tools/ocamlmklib.ml
 +++ b/tools/ocamlmklib.ml
-@@ -18,8 +18,7 @@ open Ocamlmklibconfig
+@@ -33,8 +33,7 @@ let mklib out files opts =
  
  (* PR#4783: under Windows, don't use absolute paths because we do
     not know where the binary distribution will be installed. *)
@@ -51,9 +60,9 @@ index 3d7fdd6d5..1f2bff91e 100644
 +let compiler_path name = name
  
  let bytecode_objs = ref []  (* .cmo,.cma,.ml,.mli files to pass to ocamlc *)
- and native_objs = ref []    (* .cmx,.cmxa,.ml,.mli files to pass to ocamlopt *)
+ and native_objs = ref []    (* .cmx,.ml,.mli files to pass to ocamlopt *)
 diff --git a/utils/config.mlp b/utils/config.mlp
-index 434283b58..ea8628692 100644
+index 5bfa30d69..c467d8e55 100644
 --- a/utils/config.mlp
 +++ b/utils/config.mlp
 @@ -17,7 +17,7 @@
@@ -65,12 +74,3 @@ index 434283b58..ea8628692 100644
  
  let standard_library =
    try
-@@ -28,7 +28,7 @@ let standard_library =
-   with Not_found ->
-     standard_library_default
- 
--let standard_runtime = "%%BYTERUN%%"
-+let standard_runtime = (Sys.getenv "OCAML_PREFIX") ^ "/bin/ocamlrun"
- let ccomp_type = "%%CCOMPTYPE%%"
- let c_compiler = "%%CC%%"
- let c_output_obj = "%%OUTPUTOBJ%%"

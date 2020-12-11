@@ -1,17 +1,17 @@
-<!--
-# -*- mode: jinja -*-
--->
-
 About ocaml
 ===========
 
 Home: https://ocaml.org/
 
-Package license: LGPL-2.1
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
 
-Feedstock license: BSD 3-Clause
+Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/master/LICENSE.txt)
 
 Summary: Objective Caml (OCaml) is an implementation of the ML language.
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
 
 OCaml is an implementation of the ML language, based on the Caml Light
 dialect extended with a complete class-based object system and a powerful
@@ -34,9 +34,41 @@ moderate memory requirements of the bytecode compiler.
 Current build status
 ====================
 
-[![Linux](https://img.shields.io/circleci/project/github/conda-forge/ocaml-feedstock/master.svg?label=Linux)](https://circleci.com/gh/conda-forge/ocaml-feedstock)
-[![OSX](https://img.shields.io/travis/conda-forge/ocaml-feedstock/master.svg?label=macOS)](https://travis-ci.org/conda-forge/ocaml-feedstock)
-![Windows disabled](https://img.shields.io/badge/Windows-disabled-lightgrey.svg)
+
+<table>
+    
+  <tr>
+    <td>Azure</td>
+    <td>
+      <details>
+        <summary>
+          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=master">
+            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=master">
+          </a>
+        </summary>
+        <table>
+          <thead><tr><th>Variant</th><th>Status</th></tr></thead>
+          <tbody><tr>
+              <td>linux_64</td>
+              <td>
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=master">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=master&jobName=linux&configuration=linux_64_" alt="variant">
+                </a>
+              </td>
+            </tr><tr>
+              <td>osx_64</td>
+              <td>
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=master">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=master&jobName=osx&configuration=osx_64_" alt="variant">
+                </a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+    </td>
+  </tr>
+</table>
 
 Current release info
 ====================
@@ -81,7 +113,7 @@ A feedstock is made up of a conda recipe (the instructions on what and how to bu
 the package) and the necessary configurations for automatic building using freely
 available continuous integration services. Thanks to the awesome service provided by
 [CircleCI](https://circleci.com/), [AppVeyor](https://www.appveyor.com/)
-and [TravisCI](https://travis-ci.org/) it is possible to build and upload installable
+and [TravisCI](https://travis-ci.com/) it is possible to build and upload installable
 packages to the [conda-forge](https://anaconda.org/conda-forge)
 [Anaconda-Cloud](https://anaconda.org/) channel for Linux, Windows and OSX respectively.
 
