@@ -15,7 +15,7 @@ source:
     - prefix_fix.diff
 
 build:
-  number: 0
+  number: 1
   skip: true  # [win]
   run_exports:
     - {{ pin_subpackage("ocaml") }}
@@ -77,3 +77,5 @@ about:
 extra:
   recipe-maintainers:
     - peterjc
+    - Zimmi48
+    - isuruf

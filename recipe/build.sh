@@ -2,6 +2,8 @@
 export CC=$(basename "$CC")
 export ASPP="$CC -c"
 export AS=$(basename "$AS")
+export AR=$(basename "$AR")
+export RANLIB=$(basename "$RANLIB")
 export OCAML_PREFIX=$PREFIX
 export OCAMLLIB=$PREFIX/lib/ocaml
 
