@@ -15,10 +15,10 @@ source:
     - prefix_fix.diff
 
 build:
-  number: 0
+  number: 1
   skip: true  # [win]
   run_exports:
-    - {{ pin_subpackage("ocaml") }}
+    - {{ pin_subpackage("ocaml", max_pin="x.x.x") }}
 
 requirements:
   build:
