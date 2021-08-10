@@ -11,10 +11,10 @@ index 2d61f53cc..c2ad12485 100644
    if (stat_os(ldconfname, &st) == -1) {
      caml_stat_free(ldconfname);
 diff --git a/stdlib/Makefile b/stdlib/Makefile
-index fb24d28e8..f25c26777 100644
+index 0b92fe1e2..949c6ebbf 100644
 --- a/stdlib/Makefile
 +++ b/stdlib/Makefile
-@@ -114,17 +114,12 @@ CAMLHEADERS =\
+@@ -123,17 +123,12 @@ CAMLHEADERS =\
  # patterns and $(subst ...) since `camlheader%:` wouldn't match `camlheader`
  ifeq "$(SHEBANGSCRIPTS)" "true"
  camlhead%: $(ROOTDIR)/Makefile.config Makefile
@@ -35,18 +35,21 @@ index fb24d28e8..f25c26777 100644
  camlheader_ur: Makefile
  	echo '#!' | tr -d '\012' > $@
 diff --git a/tools/Makefile b/tools/Makefile
-index 07e2eda1a..943ab7639 100644
+index dbad0b74f..c87794b22 100644
 --- a/tools/Makefile
 +++ b/tools/Makefile
-@@ -144,7 +144,7 @@ $(call byte_and_opt,ocamlmklib,ocamlmklibconfig.cmo config.cmo \
+@@ -152,9 +152,9 @@ $(call byte_and_opt,ocamlmklib,ocamlmklibconfig.cmo config.cmo \
  
  
  ocamlmklibconfig.ml: $(ROOTDIR)/Makefile.config Makefile
 -	(echo 'let bindir = "$(BINDIR)"'; \
 +	(echo 'let bindir = (Sys.getenv "OCAML_PREFIX") ^ "/bin"'; \
           echo 'let supports_shared_libraries = $(SUPPORTS_SHARED_LIBRARIES)';\
-          echo 'let default_rpath = "$(RPATH)"'; \
+-         echo 'let default_rpath = "$(RPATH)"'; \
++         echo 'let default_rpath = (Sys.getenv "OCAML_PREFIX") ^ "/lib"'; \
           echo 'let mksharedlibrpath = "$(MKSHAREDLIBRPATH)"'; \
+          echo 'let toolpref = "$(TOOLPREF)"';) \
+         > ocamlmklibconfig.ml
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 index d5bb84cac..a8895c326 100644
 --- a/tools/ocamlmklib.ml
@@ -62,7 +65,7 @@ index d5bb84cac..a8895c326 100644
  let bytecode_objs = ref []  (* .cmo,.cma,.ml,.mli files to pass to ocamlc *)
  and native_objs = ref []    (* .cmx,.ml,.mli files to pass to ocamlopt *)
 diff --git a/utils/config.mlp b/utils/config.mlp
-index 5bfa30d69..c467d8e55 100644
+index 49ffc5bd7..80ec7fce3 100644
 --- a/utils/config.mlp
 +++ b/utils/config.mlp
 @@ -17,7 +17,7 @@
