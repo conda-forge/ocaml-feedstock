@@ -46,7 +46,7 @@ index dbad0b74f..c87794b22 100644
 +	(echo 'let bindir = (Sys.getenv "OCAML_PREFIX") ^ "/bin"'; \
           echo 'let supports_shared_libraries = $(SUPPORTS_SHARED_LIBRARIES)';\
 -         echo 'let default_rpath = "$(RPATH)"'; \
-+         echo 'let default_rpath = (Sys.getenv "OCAML_PREFIX") ^ "/bin"'; \
++         echo 'let default_rpath = (Sys.getenv "OCAML_PREFIX") ^ "/lib"'; \
           echo 'let mksharedlibrpath = "$(MKSHAREDLIBRPATH)"'; \
           echo 'let toolpref = "$(TOOLPREF)"';) \
          > ocamlmklibconfig.ml
