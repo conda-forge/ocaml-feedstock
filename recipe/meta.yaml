@@ -21,6 +21,9 @@ build:
 requirements:
   build:
     - {{ compiler('c') }}
+    - make  # [unix]
+    - m2-make  # [win]
+    - posix  # [win]
   host:
   run:
     - {{ compiler('c') }}
