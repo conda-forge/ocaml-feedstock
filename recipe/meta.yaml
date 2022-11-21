@@ -1,15 +1,13 @@
-{% set name = "ocaml" %}
 {% set version = "4.14.0" %}
 {% set version_major = version.split(".")[0] %}
 {% set version_minor = version.split(".")[1] %}
 
 package:
-  name: {{ name|lower }}
+  name: ocaml
   version: {{ version }}
 
 source:
-  fn: {{ name }}-{{ version }}.tar.gz
-  url: http://caml.inria.fr/pub/distrib/{{ name }}-{{ version_major }}.{{ version_minor }}/{{ name }}-{{ version }}.tar.gz
+  url: http://caml.inria.fr/pub/distrib/ocaml-{{ version_major }}.{{ version_minor }}/ocaml-{{ version }}.tar.gz
   sha256: 2df5b42d82099ad4eb1c1b9b77ab00ae52f8c19c9b20d20cefd953738ecf4586
   patches:
     - prefix_fix.diff
@@ -49,7 +47,7 @@ test:
     - ocamlyacc -version
 
 about:
-  home: https://ocaml.org/
+  home: https://ocaml.org
   license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
   license_family: LGPL
   license_file: LICENSE
@@ -71,7 +69,7 @@ about:
     processors. Compilation takes longer and generates bigger code, but the
     generated programs deliver excellent performance, while retaining the
     moderate memory requirements of the bytecode compiler.
-  doc_url: https://ocaml.org/docs/
+  doc_url: https://ocaml.org/docs
   dev_url: https://github.com/ocaml/ocaml
 
 extra:
@@ -79,3 +77,4 @@ extra:
     - peterjc
     - Zimmi48
     - isuruf
+    - bollwyvl
