@@ -1,7 +1,7 @@
 About ocaml
 ===========
 
-Home: https://ocaml.org/
+Home: https://ocaml.org
 
 Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
 
@@ -11,7 +11,7 @@ Summary: Objective Caml (OCaml) is an implementation of the ML language.
 
 Development: https://github.com/ocaml/ocaml
 
-Documentation: https://ocaml.org/docs/
+Documentation: https://ocaml.org/docs
 
 OCaml is an implementation of the ML language, based on the Caml Light
 dialect extended with a complete class-based object system and a powerful
@@ -52,14 +52,14 @@ Current build status
               <td>linux_64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=linux&configuration=linux_64_" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>osx_64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx_64_" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_" alt="variant">
                 </a>
               </td>
             </tr>
@@ -192,6 +192,7 @@ Feedstock Maintainers
 =====================
 
 * [@Zimmi48](https://github.com/Zimmi48/)
+* [@bollwyvl](https://github.com/bollwyvl/)
 * [@isuruf](https://github.com/isuruf/)
 * [@peterjc](https://github.com/peterjc/)
 
