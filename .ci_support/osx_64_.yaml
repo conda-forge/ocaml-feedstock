@@ -3,12 +3,28 @@ MACOSX_DEPLOYMENT_TARGET:
 c_compiler:
 - clang
 c_compiler_version:
-- '11'
+- '14'
 channel_sources:
-- conda-forge,defaults
+- conda-forge
 channel_targets:
 - conda-forge main
 macos_machine:
 - x86_64-apple-darwin13.4.0
 target_platform:
 - osx-64
+
+CONDA_BUILD_SYSROOT:
+- SDKs/MacOSX10.9.sdk
+
+
+CONDA_BUILD_SYSROOT:
+- SDKs/MacOSX10.9.sdk
+
+
+CONDA_BUILD_SYSROOT:
+- SDKs/MacOSX10.9.sdk
+
+
+CONDA_BUILD_SYSROOT:
+- SDKs/MacOSX10.9.sdk
+
