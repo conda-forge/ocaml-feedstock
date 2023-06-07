@@ -1,11 +1,11 @@
-About ocaml
-===========
+About ocaml-feedstock
+=====================
+
+Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/main/LICENSE.txt)
 
 Home: https://ocaml.org/
 
 Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
-
-Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/main/LICENSE.txt)
 
 Summary: Objective Caml (OCaml) is an implementation of the ML language.
 
