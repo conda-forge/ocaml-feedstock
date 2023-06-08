@@ -1,4 +1,6 @@
 #!/bin/bash
+# Get an updated config.sub and config.guess
+cp $BUILD_PREFIX/share/gnuconfig/config.* ./build-aux
 export CC=$(basename "$CC")
 export ASPP="$CC -c"
 export AS=$(basename "$AS")
@@ -11,7 +13,9 @@ export OCAMLLIB=$PREFIX/lib/ocaml
 rm testsuite/tests/lib-threads/beat.ml
 bash -x ./configure -prefix $OCAML_PREFIX
 make world.opt -j${CPU_COUNT}
+if [[ "${CONDA_BUILD_CROSS_COMPILATION:-}" != "1" || "${CROSSCOMPILING_EMULATOR}" != "" ]]; then
 make tests
+fi
 make install
 
 for CHANGE in "activate" "deactivate"
