@@ -22,8 +22,9 @@ build:
 
 requirements:
   build:
-    - gnuconfig  # [unix]
     - {{ compiler('c') }}
+    - gnuconfig  # [unix]
+    - make  # [unix]
   host:
   run:
     - {{ compiler('c') }}
