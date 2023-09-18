@@ -1,12 +1,5 @@
 #!/bin/bash
 
-if [[ "${CONDA_BUILD_CROSS_COMPILATION}" == "1" ]]; then
-    # ARCH is not set for macOS ARM architecture
-    export ARCH="arm64"
-fi
-
-echo "Targeted architecture: $ARCH"
-
 # Get an updated config.sub and config.guess
 cp $BUILD_PREFIX/share/gnuconfig/config.* ./build-aux
 export CC=$(basename "$CC")
@@ -19,12 +12,17 @@ export OCAMLLIB=$PREFIX/lib/ocaml
 
 # Test failing on macOS. Seems to be a known issue.
 rm testsuite/tests/lib-threads/beat.ml
-bash -x ./configure -prefix $OCAML_PREFIX
-make world.opt -j${CPU_COUNT}
 if [[ "${CONDA_BUILD_CROSS_COMPILATION:-}" != "1" || "${CROSSCOMPILING_EMULATOR}" != "" ]]; then
-make tests
+    bash -x ./configure -prefix $OCAML_PREFIX
+    make world.opt -j${CPU_COUNT}
+    make tests
+    make install
+else
+    echo "Cross-compiling for arm64"
+    bash -x ./configure -prefix $OCAML_PREFIX --host=arm64
+    make world.opt -j${CPU_COUNT}
+    make install ARCH=arm64
 fi
-make install ARCH=$ARCH
 
 for CHANGE in "activate" "deactivate"
 do
