@@ -1,4 +1,12 @@
 #!/bin/bash
+
+if [[ "${CONDA_BUILD_CROSS_COMPILATION}" == "1" ]]; then
+    # ARCH is not set for macOS ARM architecture
+    export ARCH="arm64"
+fi
+
+echo "Targeted architecture: $ARCH"
+
 # Get an updated config.sub and config.guess
 cp $BUILD_PREFIX/share/gnuconfig/config.* ./build-aux
 export CC=$(basename "$CC")
