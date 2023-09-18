@@ -24,7 +24,7 @@ make world.opt -j${CPU_COUNT}
 if [[ "${CONDA_BUILD_CROSS_COMPILATION:-}" != "1" || "${CROSSCOMPILING_EMULATOR}" != "" ]]; then
 make tests
 fi
-make install
+make install ARCH=$ARCH
 
 for CHANGE in "activate" "deactivate"
 do
