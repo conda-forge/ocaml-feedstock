@@ -9,7 +9,7 @@ export OCAMLLIB=$PREFIX/lib/ocaml
 
 # Test failing on macOS. Seems to be a known issue.
 rm testsuite/tests/lib-threads/beat.ml
-bash -x ./configure -prefix $OCAML_PREFIX
+bash -x ./configure -prefix $OCAML_PREFIX --enable-ocamltest
 make world.opt -j${CPU_COUNT}
 make tests
 make install
