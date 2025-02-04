@@ -23,9 +23,11 @@ build:
 requirements:
   build:
     - {{ compiler('c') }}
+    - {{ stdlib('c') }}
   host:
   run:
     - {{ compiler('c') }}
+    - {{ stdlib('c') }}
 
 test:
   commands:
