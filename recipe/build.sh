@@ -11,6 +11,7 @@ export OCAMLLIB=$PREFIX/lib/ocaml
 rm testsuite/tests/lib-threads/beat.ml
 bash -x ./configure -prefix $OCAML_PREFIX
 make world.opt -j${CPU_COUNT}
+make ocamltest
 make tests
 make install
 
