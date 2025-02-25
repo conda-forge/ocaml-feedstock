@@ -1,20 +1,28 @@
-diff --git a/runtime/dynlink.c b/runtime/dynlink.c
-index 2d61f53cc..c2ad12485 100644
---- a/runtime/dynlink.c
-+++ b/runtime/dynlink.c
-@@ -88,7 +88,6 @@ static char_os * parse_ld_conf(void)
- 
+--- runtime/dynlink.c.orig	2025-02-24 23:46:11.078717010 +0000
++++ runtime/dynlink.c	2025-02-24 23:46:14.238681558 +0000
+@@ -82,7 +82,6 @@
+   char_os * stdlib;
    stdlib = caml_secure_getenv(T("OCAMLLIB"));
    if (stdlib == NULL) stdlib = caml_secure_getenv(T("CAMLLIB"));
 -  if (stdlib == NULL) stdlib = OCAML_STDLIB_DIR;
-   ldconfname = caml_stat_strconcat_os(3, stdlib, T("/"), LD_CONF_NAME);
-   if (stat_os(ldconfname, &st) == -1) {
-     caml_stat_free(ldconfname);
-diff --git a/stdlib/Makefile b/stdlib/Makefile
-index 0b92fe1e2..949c6ebbf 100644
---- a/stdlib/Makefile
-+++ b/stdlib/Makefile
-@@ -123,17 +123,12 @@ CAMLHEADERS =\
+   return stdlib;
+ }
+ 
+--- tools/ocamlmklib.ml.orig	2025-02-24 23:53:31.217791019 +0000
++++ tools/ocamlmklib.ml	2025-02-24 23:53:51.373565862 +0000
+@@ -30,8 +30,7 @@
+ 
+ (* PR#4783: under Windows, don't use absolute paths because we do
+    not know where the binary distribution will be installed. *)
+-let compiler_path name =
+-  if Sys.os_type = "Win32" then name else Filename.concat Config.bindir name
++let compiler_path name = name
+ 
+ let bytecode_objs = ref []  (* .cmo,.cma,.ml,.mli files to pass to ocamlc *)
+ and native_objs = ref []    (* .cmx,.ml,.mli files to pass to ocamlopt *)
+--- ./stdlib/Makefile.orig	2025-02-24 23:47:01.974146199 +0000
++++ ./stdlib/Makefile	2025-02-24 23:49:20.080599122 +0000
+@@ -130,12 +130,7 @@
  # patterns and $(subst ...) since `camlheader%:` wouldn't match `camlheader`
  ifeq "$(SHEBANGSCRIPTS)" "true"
  camlhead%: $(ROOTDIR)/Makefile.config Makefile
@@ -28,49 +36,11 @@ index 0b92fe1e2..949c6ebbf 100644
  
  # TODO This does not take long shebangs into account (since TARGET_BINDIR is not
  #      yet processed by configure)
- target_%: $(ROOTDIR)/Makefile.config Makefile
--	echo '#!$(TARGET_BINDIR)/ocamlrun$(subst camlheader,,$*)' > $@
-+	echo '#!/usr/bin/env ocamlrun$(subst camlheader,,$*)' > $@
+--- ./utils/config.mlp.orig	2025-02-24 23:54:27.037167528 +0000
++++ ./utils/config.mlp	2025-02-24 23:54:56.692836365 +0000
+@@ -19,7 +19,7 @@
  
- camlheader_ur: Makefile
- 	echo '#!' | tr -d '\012' > $@
-diff --git a/tools/Makefile b/tools/Makefile
-index dbad0b74f..c87794b22 100644
---- a/tools/Makefile
-+++ b/tools/Makefile
-@@ -152,9 +152,9 @@ $(call byte_and_opt,ocamlmklib,ocamlmklibconfig.cmo config.cmo \
- 
- 
- ocamlmklibconfig.ml: $(ROOTDIR)/Makefile.config Makefile
--	(echo 'let bindir = "$(BINDIR)"'; \
-+	(echo 'let bindir = (Sys.getenv "OCAML_PREFIX") ^ "/bin"'; \
-          echo 'let supports_shared_libraries = $(SUPPORTS_SHARED_LIBRARIES)';\
--         echo 'let default_rpath = "$(RPATH)"'; \
-+         echo 'let default_rpath = (Sys.getenv "OCAML_PREFIX") ^ "/lib"'; \
-          echo 'let mksharedlibrpath = "$(MKSHAREDLIBRPATH)"'; \
-          echo 'let toolpref = "$(TOOLPREF)"';) \
-         > ocamlmklibconfig.ml
-diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
-index d5bb84cac..a8895c326 100644
---- a/tools/ocamlmklib.ml
-+++ b/tools/ocamlmklib.ml
-@@ -33,8 +33,7 @@ let mklib out files opts =
- 
- (* PR#4783: under Windows, don't use absolute paths because we do
-    not know where the binary distribution will be installed. *)
--let compiler_path name =
--  if Sys.os_type = "Win32" then name else Filename.concat bindir name
-+let compiler_path name = name
- 
- let bytecode_objs = ref []  (* .cmo,.cma,.ml,.mli files to pass to ocamlc *)
- and native_objs = ref []    (* .cmx,.ml,.mli files to pass to ocamlopt *)
-diff --git a/utils/config.mlp b/utils/config.mlp
-index 49ffc5bd7..80ec7fce3 100644
---- a/utils/config.mlp
-+++ b/utils/config.mlp
-@@ -17,7 +17,7 @@
- (* The main OCaml version string has moved to ../VERSION *)
- let version = Sys.ocaml_version
+ let bindir = "%%BINDIR%%"
  
 -let standard_library_default = "%%LIBDIR%%"
 +let standard_library_default = (Sys.getenv "OCAML_PREFIX") ^ "/lib/ocaml"
