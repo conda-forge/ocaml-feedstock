@@ -1,13 +1,3 @@
---- runtime/dynlink.c.orig	2025-02-24 23:46:11.078717010 +0000
-+++ runtime/dynlink.c	2025-02-24 23:46:14.238681558 +0000
-@@ -82,7 +82,6 @@
-   char_os * stdlib;
-   stdlib = caml_secure_getenv(T("OCAMLLIB"));
-   if (stdlib == NULL) stdlib = caml_secure_getenv(T("CAMLLIB"));
--  if (stdlib == NULL) stdlib = OCAML_STDLIB_DIR;
-   return stdlib;
- }
- 
 --- tools/ocamlmklib.ml.orig	2025-02-24 23:53:31.217791019 +0000
 +++ tools/ocamlmklib.ml	2025-02-24 23:53:51.373565862 +0000
 @@ -30,8 +30,7 @@
