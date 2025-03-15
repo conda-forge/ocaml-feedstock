@@ -12,7 +12,7 @@ source:
   url: https://caml.inria.fr/pub/distrib/{{ name }}-{{ version_major }}.{{ version_minor }}/{{ name }}-{{ version }}.tar.gz
   sha256: 93b4f3ba39d559a963fc10744563b4c6e92e9ffb540ce89e5c5ebf76086b99f3
   patches:
-    - prefix_fix.diff
+    - prefix_fix.diff  # [linux]
 
 build:
   number: 0
