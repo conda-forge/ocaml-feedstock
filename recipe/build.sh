@@ -11,7 +11,7 @@ if [ "$(uname)" = "Darwin" ]; then
 # Tests failing on macOS. Seems to be a known issue.
 rm testsuite/tests/lib-threads/beat.ml
 # see: https://github.com/conda-forge/ocaml-feedstock/pull/45 - this fails on osx-64
-rm testsuite/tests/lib-dynlink-pr4839/test.ml
+# rm testsuite/tests/lib-dynlink-pr4839/test.ml
 fi 
 
 bash -x ./configure -prefix $OCAML_PREFIX
