@@ -7,11 +7,19 @@ export RANLIB=$(basename "$RANLIB")
 export OCAML_PREFIX=$PREFIX
 export OCAMLLIB=$PREFIX/lib/ocaml
 
-# Test failing on macOS. Seems to be a known issue.
-rm testsuite/tests/lib-threads/beat.ml
+if [ "$(uname)" = "Darwin" ]; then
+# Tests failing on macOS. Seems to be a known issue.
+  rm testsuite/tests/lib-threads/beat.ml
+fi 
+
 bash -x ./configure -prefix $OCAML_PREFIX
 make world.opt -j${CPU_COUNT}
-make tests
+make ocamltest
+mkdir -p ${PREFIX}/lib
+# Check if cross-compiling - not testing on build architecture
+if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
+  make tests
+fi
 make install
 
 for CHANGE in "activate" "deactivate"
