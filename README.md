@@ -205,7 +205,7 @@ In order to produce a uniquely identifiable distribution:
 Feedstock Maintainers
 =====================
 
-* [@Zimmi48](https://github.com/Zimmi48/)
+* [@dslarm](https://github.com/dslarm/)
 * [@isuruf](https://github.com/isuruf/)
 * [@peterjc](https://github.com/peterjc/)
 
