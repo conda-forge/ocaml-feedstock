@@ -14,7 +14,7 @@ fi
 
 bash -x ./configure -prefix $OCAML_PREFIX
 make world.opt -j${CPU_COUNT}
-make ocamltest
+make ocamltest -j ${CPU_COUNT}
 mkdir -p ${PREFIX}/lib
 # Check if cross-compiling - not testing on build architecture
 if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
