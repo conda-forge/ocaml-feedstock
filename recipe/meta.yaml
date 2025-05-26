@@ -15,7 +15,7 @@ source:
     - prefix_fix.diff
 
 build:
-  number: 1
+  number: 2
   skip: true  # [win]
   run_exports:
     - {{ pin_subpackage("ocaml", max_pin="x.x.x") }}
@@ -33,24 +33,24 @@ requirements:
 
 test:
   commands:
-    - ocaml -version
-    - ocamlc -version
-    - ocamlcmt -help
-    - ocamlcp -version
-    - ocamldoc -version
-    - ocamldebug -version
-    - ocamldep -version
-    - ocamllex -version
-    - ocamlmklib -version
-    - ocamlmktop -version
-    - ocamlobjinfo -help
-    - ocamlobjinfo.byte -help
-    - ocamlobjinfo.opt -help
-    - ocamlopt -version
-    - ocamloptp -version
-    - ocamlprof -version
-    - ocamlrun -version
-    - ocamlyacc -version
+    - ocaml -version | grep {{ version }}
+    - ocamlc -version| grep {{ version }}
+    - ocamlcmt -help | grep FILE
+    - ocamlcp -version | grep {{ version }}
+    - ocamldoc -version | grep {{ version }}
+    - ocamldebug -version | grep {{ version }}
+    - ocamldep -version | grep {{ version }}
+    - ocamllex -version | grep {{ version }}
+    - ocamlmklib -version | grep {{ version }}
+    - ocamlmktop -version | grep {{ version }}
+    - ocamlobjinfo -help | grep FILES
+    - ocamlobjinfo.byte -help | grep FILES
+    - ocamlobjinfo.opt -help | grep FILES
+    - ocamlopt -version | grep {{ version }}
+    - ocamloptp -version | grep {{ version }}
+    - ocamlprof -version | grep {{ version }}
+    - ocamlrun -version | grep {{ version }}
+    - ocamlyacc -version | grep {{ version }}
 
 about:
   home: https://ocaml.org/
