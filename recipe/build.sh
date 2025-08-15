@@ -12,7 +12,7 @@ if [ "$(uname)" = "Darwin" ]; then
   rm testsuite/tests/lib-threads/beat.ml
 fi 
 
-bash -x ./configure -prefix $OCAML_PREFIX
+bash -x ./configure -prefix $OCAML_PREFIX --enable-ocamltest
 make world.opt -j${CPU_COUNT}
 make ocamltest -j ${CPU_COUNT}
 mkdir -p ${PREFIX}/lib
