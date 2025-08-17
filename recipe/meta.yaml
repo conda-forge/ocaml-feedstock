@@ -21,38 +21,40 @@ build:
   skip: true  # [win]
   run_exports:
     - {{ pin_subpackage("ocaml", max_pin="x.x.x") }}
-  # detect_binary_files_with_prefix: false
+  detect_binary_files_with_prefix: false
 
 requirements:
   build:
     - {{ compiler('c') }}
     - {{ stdlib('c') }}
     - make
-  # host:
-  # run:
-  #   - {{ compiler('c') }}
-  #   - {{ stdlib('c') }}
+    - file
+  host:
+  run:
+    - {{ compiler('c') }}
+    - {{ stdlib('c') }}
 
 test:
   commands:
-    - ocaml -version
-    - ocamlc -version
+    - ocamlc -version | grep {{ version }}
+    - ocamldep -version | grep {{ version }}
+    - ocamllex -version | grep {{ version }}
+    - ocamlobjinfo -help | grep FILES
+    - ocamlobjinfo.opt -help | grep FILES
+    - ocamlopt -version | grep {{ version }}
+    - ocamlrun -version | grep {{ version }}
+    - ocamlyacc -version | grep {{ version }}
+
+    - ocaml -version --debug --verbose | grep {{ version }}
     - ocamlcmt -help
     - ocamlcp -version
     - ocamldoc -version
     - ocamldebug -version
-    - ocamldep -version
-    - ocamllex -version
     - ocamlmklib -version
     - ocamlmktop -version
-    - ocamlobjinfo -help
     - ocamlobjinfo.byte -help
-    - ocamlobjinfo.opt -help
-    - ocamlopt -version
     - ocamloptp -version
     - ocamlprof -version
-    - ocamlrun -version
-    - ocamlyacc -version
 
 about:
   home: https://ocaml.org/

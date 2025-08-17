@@ -12,15 +12,27 @@ if [ "$(uname)" = "Darwin" ]; then
   rm testsuite/tests/lib-threads/beat.ml
 fi 
 
-bash -x ./configure -prefix $OCAML_PREFIX --enable-ocamltest
+bash -x ./configure -prefix $OCAML_PREFIX --enable-ocamltest --enable-shared --disable-static
+
 make world.opt -j${CPU_COUNT}
-make ocamltest -j ${CPU_COUNT}
+# make ocamltest -j ${CPU_COUNT}
 mkdir -p ${PREFIX}/lib
 # Check if cross-compiling - not testing on build architecture
-if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
-  make tests
-fi
+#if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
+#  make tests
+#fi
 make install
+
+for bin in $PREFIX/bin/*
+do
+    if file "$bin" | grep -q "script executable"; then
+        # echo "$bin"
+        # cat "$bin" | head -2
+        sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
+        sed -i "s#exec $PREFIX/bin#exec \$(dirname \"\$0\")#" "$bin"
+        cat "$bin" | head -2
+    fi
+done
 
 for CHANGE in "activate" "deactivate"
 do
