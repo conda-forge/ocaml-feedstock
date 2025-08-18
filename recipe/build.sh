@@ -9,9 +9,7 @@ export RANLIB=$(basename "$RANLIB")
 export OCAML_PREFIX=$PREFIX
 export OCAMLLIB=$PREFIX/lib/ocaml
 
-# Ensure OCAML_STDLIB_DIR is defined for clang on macOS
 if [ "$(uname)" = "Darwin" ]; then
-  export CPPFLAGS="${CPPFLAGS:-} -DOCAML_STDLIB_DIR=\"\\\"\$OCAMLLIB\\\"\""
 # Tests failing on macOS. Seems to be a known issue.
   rm testsuite/tests/lib-threads/beat.ml
 fi 
@@ -23,6 +21,12 @@ bash -x ./configure \
   --mandir=${PREFIX}/share/man \
   --with-target-bindir=/opt/anaconda1anaconda2anaconda3/bin \
   -prefix $OCAML_PREFIX
+
+# Fix OCAML_STDLIB_DIR macro redefinition on macOS
+if [ "$(uname)" = "Darwin" ]; then
+  # Comment out the empty OCAML_STDLIB_DIR definition in build_config.h
+  sed -i.bak 's/^#define OCAML_STDLIB_DIR$/\/\* #define OCAML_STDLIB_DIR \*\//' runtime/build_config.h
+fi
 
 make world.opt -j${CPU_COUNT}
 make ocamltest -j ${CPU_COUNT}
