@@ -35,6 +35,7 @@ requirements:
         - m2-bash
         - m2-coreutils
         - m2-findutils
+        - m2-grep
         - m2-make
         - m2-sed
   run:

@@ -9,7 +9,9 @@ export RANLIB=$(basename "$RANLIB")
 export OCAML_PREFIX=$PREFIX
 export OCAMLLIB=$PREFIX/lib/ocaml
 
+# Ensure OCAML_STDLIB_DIR is defined for clang on macOS
 if [ "$(uname)" = "Darwin" ]; then
+  export CPPFLAGS="${CPPFLAGS:-} -DOCAML_STDLIB_DIR=\"\\\"\$OCAMLLIB\\\"\""
 # Tests failing on macOS. Seems to be a known issue.
   rm testsuite/tests/lib-threads/beat.ml
 fi 
