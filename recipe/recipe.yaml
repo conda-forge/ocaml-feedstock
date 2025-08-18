@@ -1,0 +1,88 @@
+context:
+  name: ocaml
+  version: 5.3.0
+
+package:
+  name: ${{ name|lower }}
+  version: ${{ version }}
+
+source:
+  url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
+  sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+
+build:
+  number: 0
+  skip: win
+  prefix_detection:
+    ignore_binary_files: true
+    force_file_type:
+      text: lib/ocaml/runtime-launch-info
+      
+requirements:
+  run_exports:
+    - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+  build:
+    - ${{ compiler('c') }}
+    - ${{ stdlib('c') }}
+    - make
+    - file
+  run:
+    # We don't seem to have a way to relocate the runtime-launch-info
+    # the 'prefix_detection' does not work since it is a binary but needs a text detection
+    # However, we may not want to patch the other binaries: this recipe build ocamlbuil package
+    - sed
+    
+tests:
+  - script:
+      - ocamlc -version | grep ${{ version }}
+      - ocamldep -version | grep ${{ version }}
+      - ocamllex -version | grep ${{ version }}
+      - ocamlobjinfo -help | grep FILES
+      - ocamlobjinfo.opt -help | grep FILES
+      - ocamlopt -version | grep ${{ version }}
+      - ocamlrun -version | grep ${{ version }}
+      - ocamlyacc -version | grep ${{ version }}
+
+      - ocaml -version | grep ${{ version }}
+      - ocamlcmt -help
+      - ocamlcp -version
+      - ocamldoc -version
+      - ocamldebug -version
+      - ocamlmklib -version
+      - ocamlmktop -version
+      - ocamlobjinfo.byte -help
+      - ocamloptp -version
+      - ocamlprof -version
+
+about:
+  homepage: https://ocaml.org/
+  license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+  license_family: LGPL
+  license_file: LICENSE
+  summary: Objective Caml (OCaml) is an implementation of the ML language.
+  description: |
+    OCaml is an implementation of the ML language, based on the Caml Light
+    dialect extended with a complete class-based object system and a powerful
+    module system in the style of Standard ML.
+
+    OCaml comprises two compilers. One generates bytecode which is then
+    interpreted by a C program. This compiler runs quickly, generates compact
+    code with moderate memory requirements, and is portable to essentially any
+    32 or 64 bit Unix platform. Performance of generated programs is quite good
+    for a bytecoded implementation.  This compiler can be used either as a
+    standalone, batch-oriented compiler that produces standalone programs, or as
+    an interactive, toplevel-based system.
+
+    The other compiler generates high-performance native code for a number of
+    processors. Compilation takes longer and generates bigger code, but the
+    generated programs deliver excellent performance, while retaining the
+    moderate memory requirements of the bytecode compiler.
+  documentation: https://ocaml.org/docs/
+  repository: https://github.com/ocaml/ocaml
+
+extra:
+  recipe-maintainers:
+    - peterjc
+    - isuruf
+    - dslarm
+    - MementoRC

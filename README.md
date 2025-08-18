@@ -30,7 +30,6 @@ processors. Compilation takes longer and generates bigger code, but the
 generated programs deliver excellent performance, while retaining the
 moderate memory requirements of the bytecode compiler.
 
-
 Current build status
 ====================
 
@@ -205,6 +204,7 @@ In order to produce a uniquely identifiable distribution:
 Feedstock Maintainers
 =====================
 
+* [@MementoRC](https://github.com/MementoRC/)
 * [@dslarm](https://github.com/dslarm/)
 * [@isuruf](https://github.com/isuruf/)
 * [@peterjc](https://github.com/peterjc/)

@@ -12,7 +12,13 @@ if [ "$(uname)" = "Darwin" ]; then
   rm testsuite/tests/lib-threads/beat.ml
 fi 
 
-bash -x ./configure -prefix $OCAML_PREFIX --enable-ocamltest --enable-shared --disable-static
+bash -x ./configure \
+  --enable-ocamltest \
+  --enable-shared \
+  --disable-static \
+  --mandir=${PREFIX}/share/man \
+  --with-target-bindir=/opt/anaconda1anaconda2anaconda3/bin \
+  -prefix $OCAML_PREFIX
 
 make world.opt -j${CPU_COUNT}
 # make ocamltest -j ${CPU_COUNT}
@@ -21,6 +27,12 @@ mkdir -p ${PREFIX}/lib
 #if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
 #  make tests
 #fi
+
+# Patch OCaml to generate relocatable bytecode executables
+# Replace hardcoded ocamlrun path with env-based lookup
+#find . -name "*.ml" -exec grep -l "Config\.bytecomp_c_compiler\|ocamlrun" {} \; | \
+#    xargs sed -i 's|output_string oc ("#!" ^ Config\.standard_runtime)|output_string oc "#!/usr/bin/env ocamlrun"|g'
+
 make install
 
 for bin in $PREFIX/bin/*
@@ -33,6 +45,10 @@ do
         cat "$bin" | head -2
     fi
 done
+
+# # Fix hardcoded paths in OCaml configuration files and binaries
+# find $PREFIX -name "*.cmi" -o -name "*.cmo" -o -name "*.cmx" -o -name "*.cma" -o -name "*.cmxa" | \
+#     xargs -I {} sh -c 'if file "{}" | grep -q "text"; then sed -i "s|$BUILD_PREFIX|$PREFIX|g" "{}"; fi'
 
 for CHANGE in "activate" "deactivate"
 do
