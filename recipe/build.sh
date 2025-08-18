@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -eu
+
 export CC=$(basename "$CC")
 export ASPP="$CC -c"
 export AS=$(basename "$AS")
@@ -21,17 +23,13 @@ bash -x ./configure \
   -prefix $OCAML_PREFIX
 
 make world.opt -j${CPU_COUNT}
-# make ocamltest -j ${CPU_COUNT}
+make ocamltest -j ${CPU_COUNT}
 mkdir -p ${PREFIX}/lib
-# Check if cross-compiling - not testing on build architecture
-#if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
-#  make tests
-#fi
 
-# Patch OCaml to generate relocatable bytecode executables
-# Replace hardcoded ocamlrun path with env-based lookup
-#find . -name "*.ml" -exec grep -l "Config\.bytecomp_c_compiler\|ocamlrun" {} \; | \
-#    xargs sed -i 's|output_string oc ("#!" ^ Config\.standard_runtime)|output_string oc "#!/usr/bin/env ocamlrun"|g'
+# Check if cross-compiling - not testing on build architecture
+if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
+  make tests
+fi
 
 make install
 
@@ -45,10 +43,6 @@ do
         cat "$bin" | head -2
     fi
 done
-
-# # Fix hardcoded paths in OCaml configuration files and binaries
-# find $PREFIX -name "*.cmi" -o -name "*.cmo" -o -name "*.cmx" -o -name "*.cma" -o -name "*.cmxa" | \
-#     xargs -I {} sh -c 'if file "{}" | grep -q "text"; then sed -i "s|$BUILD_PREFIX|$PREFIX|g" "{}"; fi'
 
 for CHANGE in "activate" "deactivate"
 do
