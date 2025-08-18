@@ -12,7 +12,7 @@ source:
 
 build:
   number: 0
-  skip: win
+  skip: unix
   prefix_detection:
     ignore_binary_files: true
     force_file_type:
@@ -24,9 +24,19 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ stdlib('c') }}
-    - file
-    - make
-    - sed
+
+    - if: unix
+      then:
+        - file
+        - make
+        - sed
+      else:
+        - binutils
+        - m2-bash
+        - m2-coreutils
+        - m2-findutils
+        - m2-make
+        - m2-sed
   run:
     # We don't seem to have a way to relocate the runtime-launch-info
     # the 'prefix_detection' does not work since it is a binary but needs a text detection

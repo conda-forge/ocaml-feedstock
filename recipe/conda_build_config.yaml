@@ -1,0 +1,13 @@
+c_stdlib:                       # [not unix]
+  - m2w64-sysroot               # [not unix]
+c_stdlib_version:               # [not unix]
+  - 12                          # [not unix]
+
+c_compiler:                     # [not unix]
+  - gcc                         # [not unix]
+c_compiler_version:             # [not unix]
+  - 15                          # [not unix]
+cxx_compiler:                   # [not unix]
+  - gxx                         # [not unix]
+cxx_compiler_version:           # [not unix]
+  - 15                          # [not unix]
