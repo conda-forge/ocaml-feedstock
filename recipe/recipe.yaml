@@ -24,8 +24,9 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ stdlib('c') }}
-    - make
     - file
+    - make
+    - sed
   run:
     # We don't seem to have a way to relocate the runtime-launch-info
     # the 'prefix_detection' does not work since it is a binary but needs a text detection
