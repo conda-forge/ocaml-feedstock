@@ -25,7 +25,8 @@ bash -x ./configure \
 # Fix OCAML_STDLIB_DIR macro redefinition on macOS
 if [ "$(uname)" = "Darwin" ]; then
   # Comment out the empty OCAML_STDLIB_DIR definition in build_config.h
-  sed -i.bak 's/^#define OCAML_STDLIB_DIR$/\/\* #define OCAML_STDLIB_DIR \*\//' runtime/build_config.h
+  _config_h=$(find . -name build_config.h | head -1)
+  sed -i.bak 's/^#define OCAML_STDLIB_DIR$/\/\* #define OCAML_STDLIB_DIR \*\//' "${_config_h}"
 fi
 
 make world.opt -j${CPU_COUNT}
