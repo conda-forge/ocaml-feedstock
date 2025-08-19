@@ -1,14 +1,20 @@
 context:
   name: ocaml
   version: 5.3.0
+  flexdll_version: 0.44
 
 package:
   name: ${{ name|lower }}
   version: ${{ version }}
 
 source:
-  url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-  sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+  - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
+    sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+  - if: win
+    then:
+      url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
+      sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
+      target_repository: flexdll
 
 build:
   number: 0
