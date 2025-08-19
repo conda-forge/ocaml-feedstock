@@ -43,12 +43,17 @@ if [ "$(uname)" = "Darwin" ] && [ "${CONDA_BUILD_CROSS_COMPILATION:-}" = "1" ]; 
   export LDFLAGS="$CROSS_LDFLAGS"
 fi
 
-make world.opt -j${CPU_COUNT}
 
 # Check if cross-compiling - not testing on build architecture
-if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
+if [[ ${CONDA_BUILD_CROSS_COMPILATION:-} != "1" ]]; then
+  make world.opt -j${CPU_COUNT}
   make ocamltest -j ${CPU_COUNT}
   make tests
+elif [[ "$(uname)" = "Darwin" ]]; then
+  CC=${CC_FOR_BUILD} make coldstart -j${CPU_COUNT}
+  make world.opt -j${CPU_COUNT}
+else
+  make world.opt -j${CPU_COUNT}
 fi
 
 mkdir -p ${PREFIX}/lib

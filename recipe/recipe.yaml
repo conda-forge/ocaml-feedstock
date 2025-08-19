@@ -42,6 +42,7 @@ requirements:
         - m2-coreutils
         - m2-diffutils
         - m2-findutils
+        - m2-gawk
         - m2-grep
         - m2-make
         - m2-sed
