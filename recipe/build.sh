@@ -23,29 +23,26 @@ bash -x ./configure \
   -prefix $OCAML_PREFIX
 
 make world.opt -j${CPU_COUNT}
-make ocamltest -j ${CPU_COUNT}
-mkdir -p ${PREFIX}/lib
 
 # Check if cross-compiling - not testing on build architecture
-if [[ -z ${CONDA_BUILD_CROSS_COMPILATION} ]]; then
+if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+  make ocamltest -j ${CPU_COUNT}
   make tests
 fi
 
+mkdir -p ${PREFIX}/lib
 make install
 
 for bin in $PREFIX/bin/*
 do
-    if file "$bin" | grep -q "script executable"; then
-        # echo "$bin"
-        # cat "$bin" | head -2
-        sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
-        sed -i "s#exec $PREFIX/bin#exec \$(dirname \"\$0\")#" "$bin"
-        cat "$bin" | head -2
-    fi
+  if file "$bin" | grep -q "script executable"; then
+    sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
+    sed -i "s#exec $PREFIX/bin#exec \$(dirname \"\$0\")#" "$bin"
+  fi
 done
 
 for CHANGE in "activate" "deactivate"
 do
-    mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
-    cp "${RECIPE_DIR}/${CHANGE}.sh" "${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.sh"
+  mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
+  cp "${RECIPE_DIR}/${CHANGE}.sh" "${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.sh"
 done
