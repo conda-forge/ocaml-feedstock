@@ -25,7 +25,7 @@ bash -x ./configure \
 make world.opt -j${CPU_COUNT}
 
 # Check if cross-compiling - not testing on build architecture
-if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
   make ocamltest -j ${CPU_COUNT}
   make tests
 fi
