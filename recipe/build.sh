@@ -9,9 +9,7 @@ export RANLIB=$(basename "$RANLIB")
 export OCAML_PREFIX=$PREFIX
 export OCAMLLIB=$PREFIX/lib/ocaml
 
-# Fix OCAML_STDLIB_DIR macro redefinition for osx-arm64 cross-compilation
 if [ "$(uname)" = "Darwin" ]; then
-  export CPPFLAGS="${CPPFLAGS:-} -UOCAML_STDLIB_DIR -DOCAML_STDLIB_DIR=\"\\\"\$OCAMLLIB\\\"\""
   # Tests failing on macOS. Seems to be a known issue.
   rm testsuite/tests/lib-threads/beat.ml
 fi 
@@ -23,6 +21,27 @@ bash -x ./configure \
   --mandir=${PREFIX}/share/man \
   --with-target-bindir=/opt/anaconda1anaconda2anaconda3/bin \
   -prefix $OCAML_PREFIX
+
+# Fix cross-compilation: build sak for host architecture first
+if [ "$(uname)" = "Darwin" ] && [ "${CONDA_BUILD_CROSS_COMPILATION:-}" = "1" ]; then
+  # Save cross-compilation flags
+  CROSS_CC="$CC"
+  CROSS_CFLAGS="$CFLAGS"
+  CROSS_LDFLAGS="$LDFLAGS"
+  
+  # Use host compiler for sak
+  export CC="clang"
+  export CFLAGS=""
+  export LDFLAGS=""
+  
+  # Build sak for host
+  make -C runtime sak
+  
+  # Restore cross-compilation flags
+  export CC="$CROSS_CC"
+  export CFLAGS="$CROSS_CFLAGS"
+  export LDFLAGS="$CROSS_LDFLAGS"
+fi
 
 make world.opt -j${CPU_COUNT}
 
