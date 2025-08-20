@@ -50,7 +50,9 @@ requirements:
     # We don't seem to have a way to relocate the runtime-launch-info
     # the 'prefix_detection' does not work since it is a binary but needs a text detection
     # However, we may not want to patch the other binaries: this recipe build ocamlbuil package
-    - sed
+    - if: unix
+      then: sed
+      else: m2-sed
     
 tests:
   - script:
