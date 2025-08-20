@@ -8,4 +8,6 @@
 )
 @set "OCAML_PREFIX=%CONDA_PREFIX%\Library"
 
+set "PATH=%CONDA_PREFIX%\Library\lib\ocaml\stublibs;%PATH%"
+
 sed -i "2s#/opt/anaconda1anaconda2anaconda3#${CONDA_PREFIX}/Library#" ${CONDA_PREFIX}/Library/lib/ocaml/runtime-launch-info
