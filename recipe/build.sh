@@ -28,7 +28,7 @@ CONFIG_ARGS=(
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
-    CONFIG_ARGC+=(
+    CONFIG_ARGS+=(
       --build=x86_64-apple-darwin
       --host=arm64-apple-darwin
       --disable-native-compiler
@@ -36,7 +36,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   fi
 fi
 
-bash -x ./configure "${CONFIG_ARGS[@]}"
+bash ./configure "${CONFIG_ARGS[@]}"
 
 make world.opt -j${CPU_COUNT}
   

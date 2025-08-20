@@ -75,6 +75,10 @@ tests:
       - ocamlobjinfo.byte -help
       - ocamloptp -version
       - ocamlprof -version
+    requirements:
+      run:
+        - if: not unix
+          them: m2-grep
 
 about:
   homepage: https://ocaml.org/
