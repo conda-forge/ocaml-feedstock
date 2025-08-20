@@ -83,8 +83,14 @@ tests:
         - ocamlprof
         - ocamlrun
         - ocamlrund
-        - ocamlruni
         - ocamlyacc
+        - if: unix
+          then:
+            - ocamlruni
+          else:
+            - flexlink
+            - flexlink.byte
+            - flexlink.opt
 
       files:
         - etc/conda/activate.d/ocaml_activate.sh
