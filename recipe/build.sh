@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -eux
 
 export CC=$(basename "$CC")
 export ASPP="$CC -c"
@@ -31,13 +31,18 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     CONFIG_ARGS+=(
       --build=x86_64-apple-darwin
       --host=aarch64-apple-darwin
+      --target=aarch64-apple-darwin
     )
   fi
 fi
 
 bash ./configure "${CONFIG_ARGS[@]}"
 
-CC=${CC_FOR_BUILD} make coldstart
+cat Makefile.config
+cat Makefile.build_config
+
+CC=${CC_FOR_BUILD} make -d coldstart
+
 make world.opt -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
