@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -eux
 
-export CC=$(basename "$CC")
-export ASPP="$CC -c"
-export AS=$(basename "$AS")
-export AR=$(basename "$AR")
-export RANLIB=$(basename "$RANLIB")
+# export CC=$(basename "$CC")
+# export ASPP="$CC -c"
+# export AS=$(basename "$AS")
+# export AR=$(basename "$AR")
+# export RANLIB=$(basename "$RANLIB")
 
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   export OCAML_PREFIX=$PREFIX/Library
@@ -29,9 +29,9 @@ CONFIG_ARGS=(
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
     CONFIG_ARGS+=(
-      --build=x86_64-apple-darwin
-      --host=aarch64-apple-darwin
-      --target=aarch64-apple-darwin
+      --build="x86_64-apple-darwin"
+      --host="aarch64-apple-darwin"
+      --target="aarch64-apple-darwin"
     )
   fi
 fi
@@ -41,7 +41,7 @@ bash ./configure "${CONFIG_ARGS[@]}"
 cat Makefile.config
 cat Makefile.build_config
 
-CC=${CC_FOR_BUILD} make -d coldstart
+CC="${CC_FOR_BUILD}" make coldstart
 
 make world.opt -j${CPU_COUNT}
   
