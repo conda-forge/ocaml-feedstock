@@ -7,10 +7,12 @@ export AS=$(basename "$AS")
 export AR=$(basename "$AR")
 export RANLIB=$(basename "$RANLIB")
 
-SH_EXT="sh"
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
+else
+  export OCAML_PREFIX=$PREFIX
+  SH_EXT="sh"
 fi
 
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
