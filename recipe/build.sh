@@ -31,7 +31,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     CONFIG_ARGS+=(
       --build=x86_64-apple-darwin
       --host=arm64-apple-darwin
-      --disable-native-compiler
     )
   fi
 fi
