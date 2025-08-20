@@ -30,7 +30,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
     CONFIG_ARGS+=(
       --build=x86_64-apple-darwin
-      --host=arm64-apple-darwin
+      --host=aarch64-apple-darwin
     )
   fi
 fi
