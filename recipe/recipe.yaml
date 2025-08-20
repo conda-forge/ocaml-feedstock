@@ -18,7 +18,7 @@ source:
 
 build:
   number: 0
-  skip: unix and not arm64
+  skip: unix
   prefix_detection:
     ignore_binary_files: true
     force_file_type:
