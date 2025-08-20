@@ -37,6 +37,7 @@ fi
 
 bash ./configure "${CONFIG_ARGS[@]}"
 
+CC=${CC_FOR_BUILD} make coldstart
 make world.opt -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
