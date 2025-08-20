@@ -26,18 +26,13 @@ CONFIG_ARGS=(
   -prefix $OCAML_PREFIX
 )
 
-#if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-#  if [[ "${target_platform}" != "osx-arm64" ]]; then
-#  fi
-#fi
-
 bash ./configure "${CONFIG_ARGS[@]}"
 
 make world.opt -j${CPU_COUNT}
 
 # Check if cross-compiling - not testing on build architecture
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
-  if [ "$(uname)" = "Darwin" ]; then
+  if [ "$(uname)" == "Darwin" ]; then
     # Tests failing on macOS. Seems to be a known issue.
     rm testsuite/tests/lib-str/t01.ml
     rm testsuite/tests/lib-threads/beat.ml
@@ -48,7 +43,13 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
   fi
 
   make ocamltest -j ${CPU_COUNT}
-  make tests
+  if [ "$(uname)" == "Darwin" ]; then
+    # Many tests are failing due to -L
+    export LDFLAGS="$LDFLAGS//-L\$PREFIX\/lib/}"
+    make tests
+  else
+    make tests
+  fi
 fi
 
 mkdir -p ${OCAML_PREFIX}/lib
