@@ -78,7 +78,7 @@ tests:
     requirements:
       run:
         - if: not unix
-          them: m2-grep
+          then: m2-grep
 
 about:
   homepage: https://ocaml.org/
