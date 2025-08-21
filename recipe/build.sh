@@ -42,8 +42,8 @@ fi
 mkdir -p ${OCAML_PREFIX}/lib
 
 bash ./configure "${CONFIG_ARGS[@]}"
-sed -i "s/(\$\(MAKE\) coldstart)/\1 CC=x86_64-apple-darwin13.4.0-gcc LD=x86_64-apple-darwin13.4.0-ld/" Makefile
-sed -i "s/(\$\(MAKE\) checkstack)/\1 CC=x86_64-apple-darwin13.4.0-gcc LD=x86_64-apple-darwin13.4.0-ld/" Makefile
+sed -i "s/\$\(MAKE\) coldstart/\$(MAKE) coldstart CC=x86_64-apple-darwin13.4.0-gcc LD=x86_64-apple-darwin13.4.0-ld/" Makefile
+sed -i "s/\$\(MAKE\) checkstack/\$(MAKE) CC=x86_64-apple-darwin13.4.0-gcc LD=x86_64-apple-darwin13.4.0-ld/" Makefile
 grep coldstart Makefile
 grep checkstack Makefile
 # make coldstart CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT}
