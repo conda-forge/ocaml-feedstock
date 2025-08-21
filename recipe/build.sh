@@ -47,6 +47,7 @@ bash ./configure "${CONFIG_ARGS[@]}"
 
 make coldstart -j${CPU_COUNT} || true
 rm runtime/sak.o && make -C runtime CC="${CC_FOR_BUILD}" sak
+make coldstart -j${CPU_COUNT} || true
 
 make world.opt -j${CPU_COUNT}
   
