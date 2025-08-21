@@ -43,11 +43,11 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   fi
 fi
 
-cat Makefile.config
-
 mkdir -p ${OCAML_PREFIX}/lib
 
 bash ./configure "${CONFIG_ARGS[@]}"
+cat Makefile.config
+
 sed -i  -E "s/^(.*)MAKE(.*)(coldstart|checkstack)/\1MAKE\2\3 CC=x86_64-apple-darwin13.4.0-clang LD=x86_64-apple-darwin13.4.0-ld/" Makefile
 grep coldstart Makefile | grep MAKE
 grep checkstack Makefile | grep MAKE
