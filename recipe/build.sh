@@ -45,11 +45,8 @@ export LDFLAGS=${LDFLAGS//-L$PREFIX\/lib/}
 
 bash ./configure "${CONFIG_ARGS[@]}"
 
-cat Makefile.config
-cat Makefile.build_config
-
 make coldstart -j${CPU_COUNT} || true
-make -C runtime CC="${CC_FOR_BUILD}" sak
+rm runtime/sak.o && make -C runtime CC="${CC_FOR_BUILD}" sak
 
 make world.opt -j${CPU_COUNT}
   
