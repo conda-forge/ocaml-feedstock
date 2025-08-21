@@ -34,10 +34,16 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     CONFIG_ARGS+=(
       --build="x86_64-apple-darwin"
       --host="aarch64-apple-darwin"
+      --target="aarch64-apple-darwin"
+      CC_FOR_BUILD=${CC_FOR_BUILD:-"x86_64-apple-darwin13.4.0-clang"}
+      LDFLAGS_FOR_BUILD="$LDFLAGS"
+      CFLAGS_FOR_BUILD="$CFLAGS"
+      CPPFLAGS_FOR_BUILD="$CPPFLAGS"
     )
   fi
 fi
 
+cat Makefile.config
 
 mkdir -p ${OCAML_PREFIX}/lib
 
