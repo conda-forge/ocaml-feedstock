@@ -26,6 +26,7 @@ CONFIG_ARGS=(
   -prefix $OCAML_PREFIX
 )
 
+mkdir -p ${OCAML_PREFIX}/lib
 bash ./configure "${CONFIG_ARGS[@]}"
 
 make world.opt -j${CPU_COUNT}
@@ -43,16 +44,9 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
   fi
 
   make ocamltest -j ${CPU_COUNT}
-  if [ "$(uname)" == "Darwin" ]; then
-    # Many tests are failing due to -L
-    export LDFLAGS=${LDFLAGS//-L$PREFIX\/lib/}
-    make tests || true
-  else
-    make tests
-  fi
+  make tests
 fi
 
-mkdir -p ${OCAML_PREFIX}/lib
 make install
 
 for bin in ${OCAML_PREFIX}/bin/*
