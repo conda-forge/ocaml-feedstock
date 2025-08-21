@@ -43,6 +43,7 @@ mkdir -p ${OCAML_PREFIX}/lib
 
 bash ./configure "${CONFIG_ARGS[@]}"
 make coldstart CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT}
+make checkstack CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT}
 make world.opt -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
