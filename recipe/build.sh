@@ -34,9 +34,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     CONFIG_ARGS+=(
       --build="x86_64-apple-darwin"
       --host="aarch64-apple-darwin"
-      CC="${CC_FOR_BUILD}"
-      CFLAGS="${CFLAGS} -target arm64-apple-darwin" \
-      LDFLAGS="${LDFLAGS} -target arm64-apple-darwin"
     )
   fi
 fi
@@ -45,7 +42,7 @@ export LDFLAGS=${LDFLAGS//-L$PREFIX\/lib/}
 
 bash ./configure "${CONFIG_ARGS[@]}"
 
-make coldstart -j${CPU_COUNT} || true
+make coldstart CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT} || true
 rm runtime/sak.o && make -C runtime CC="${CC_FOR_BUILD}" sak
 make coldstart -j${CPU_COUNT} || true
 
