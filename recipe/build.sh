@@ -32,9 +32,9 @@ CONFIG_ARGS=(
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
     CONFIG_ARGS+=(
-      --build="x86_64-apple-darwin"
-      --host="aarch64-apple-darwin"
-      --target="aarch64-apple-darwin"
+      --build="x86_64-apple-darwin13.4.0"
+      --host="aarch64-apple-darwin20.0.0"
+      --target="aarch64-apple-darwin20.0.0"
       CC_FOR_BUILD=${CC_FOR_BUILD:-"x86_64-apple-darwin13.4.0-clang"}
       LDFLAGS_FOR_BUILD="$LDFLAGS"
       CFLAGS_FOR_BUILD="$CFLAGS"
