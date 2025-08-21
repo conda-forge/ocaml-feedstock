@@ -45,7 +45,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
   make ocamltest -j ${CPU_COUNT}
   if [ "$(uname)" == "Darwin" ]; then
     # Many tests are failing due to -L
-    export LDFLAGS="$LDFLAGS//-L\$PREFIX\/lib/}"
+    export LDFLAGS=${LDFLAGS//-L$PREFIX\/lib/}
     make tests || true
   else
     make tests
