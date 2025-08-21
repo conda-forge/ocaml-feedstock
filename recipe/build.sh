@@ -7,6 +7,9 @@ set -eux
 # export AR=$(basename "$AR")
 # export RANLIB=$(basename "$RANLIB")
 
+unset build_alias
+unset host_alias
+
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
@@ -31,17 +34,22 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     CONFIG_ARGS+=(
       --build="x86_64-apple-darwin"
       --host="aarch64-apple-darwin"
-      --target="aarch64-apple-darwin"
+      CC="${CC_FOR_BUILD}"
+      CFLAGS="${CFLAGS} -target arm64-apple-darwin" \
+      LDFLAGS="${LDFLAGS} -target arm64-apple-darwin"
     )
   fi
 fi
+
+export LDFLAGS=${LDFLAGS//-L$PREFIX\/lib/}
 
 bash ./configure "${CONFIG_ARGS[@]}"
 
 cat Makefile.config
 cat Makefile.build_config
 
-CC="${CC_FOR_BUILD}" make coldstart
+make coldstart -j${CPU_COUNT} || true
+make -C runtime CC="${CC_FOR_BUILD}" sak
 
 make world.opt -j${CPU_COUNT}
   
