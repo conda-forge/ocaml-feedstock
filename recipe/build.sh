@@ -38,14 +38,11 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   fi
 fi
 
-export LDFLAGS=${LDFLAGS//-L$PREFIX\/lib/}
+
+mkdir -p ${OCAML_PREFIX}/lib
 
 bash ./configure "${CONFIG_ARGS[@]}"
-
-make coldstart CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT} || true
-rm runtime/sak.o && make -C runtime CC="${CC_FOR_BUILD}" sak
-make coldstart -j${CPU_COUNT} || true
-
+make coldstart CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT}
 make world.opt -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
@@ -64,7 +61,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
   make tests
 fi
 
-mkdir -p ${OCAML_PREFIX}/lib
 make install
 
 for bin in ${OCAML_PREFIX}/bin/*
