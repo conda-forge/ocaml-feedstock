@@ -56,9 +56,10 @@ make coldstart \
 # --- Cross-compile?
 make world.opt \
   AS="${CC}" \
+  ASM="${CC}" \
   ASPP="${CC} -c" \
   checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
-  -j${CPU_COUNT} >& ${SRC_DIR}/_logs/world.opt.log || true
+  -j${CPU_COUNT} || true
   
 make libraryopt \
   ASM="${CC}"
