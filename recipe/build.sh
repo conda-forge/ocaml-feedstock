@@ -41,6 +41,8 @@ fi
 
 mkdir -p ${OCAML_PREFIX}/lib
 bash ./configure "${CONFIG_ARGS[@]}"
+cat Makefile.build_config | grep -v "^#" | grep -v "^$"
+cat Makefile.config | grep -v "^#" | grep -v "^$"
 
 # --- Try to resolve 'Bad CPU' due to missing host exec
 make checknative
