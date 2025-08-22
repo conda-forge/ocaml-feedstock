@@ -52,7 +52,7 @@ make coldstart \
 
 # --- Cross-compile?
 make world.opt \
-  ASPP="${CC} -c" \
+  ASPP="${AS}" \
   checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
   -j${CPU_COUNT}
   
