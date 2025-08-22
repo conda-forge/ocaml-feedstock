@@ -46,6 +46,7 @@ cat Makefile.build_config | grep -v "^#" | grep -v "^$"
 cat Makefile.config | grep -v "^#" | grep -v "^$"
 
 # --- Try to resolve 'Bad CPU' due to missing host exec
+patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
 make checknative
 make coldstart \
   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
@@ -55,6 +56,31 @@ make coldstart \
   
 # --- Cross-compile?
 make world.opt \
+  AS="${CC}" \
+  ASM="${CC}" \
+  ASPP="${CC} -c" \
+  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
+  -j${CPU_COUNT} || true
+
+make opt.opt.stage0 \
+  AS="${CC}" \
+  ASM="${CC}" \
+  ASPP="${CC} -c" \
+  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
+  -j${CPU_COUNT} || true
+
+make ocaml \
+  AS="${CC}" \
+  ASM="${CC}" \
+  ASPP="${CC} -c" \
+  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
+  -j${CPU_COUNT} || true
+
+for obj in runtime/*.o; do
+  echo "$obj: $(file "$obj" | grep -o 'x86_64\|arm64')"
+done | sort
+
+make opt.opt \
   AS="${CC}" \
   ASM="${CC}" \
   ASPP="${CC} -c" \
