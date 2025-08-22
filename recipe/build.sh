@@ -49,12 +49,11 @@ make coldstart \
   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   CC="x86_64-apple-darwin13.4.0-clang" \
   -j${CPU_COUNT}
-make checkstack \
-  CC="x86_64-apple-darwin13.4.0-clang" \
-  -j${CPU_COUNT}
 
 # --- Cross-compile?
-make world.opt -j${CPU_COUNT}
+make world.opt \
+  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
+  -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
