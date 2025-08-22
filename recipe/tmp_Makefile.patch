@@ -1,5 +1,5 @@
 --- Makefile.orig	2025-08-22 14:47:04.617245588 -0500
-+++ Makefile	2025-08-22 14:52:22.912104898 -0500
++++ Makefile	2025-08-22 15:22:19.793180131 -0500
 @@ -767,6 +767,7 @@
  .PHONY: opt.opt
 -opt.opt: checknative
@@ -14,3 +14,7 @@
  	$(MAKE) coldstart
 -	$(MAKE) opt.opt
  
+@@ -2215,2 +2215,3 @@
+ .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
++tools/checkstack$(EXE): MKEXE := $(CHECKSTACK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)
+ tools/checkstack$(EXE): tools/checkstack.$(O)

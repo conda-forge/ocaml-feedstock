@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eux
+set -eu
 
 # export CC=$(basename "$CC")
 # export ASPP="$CC -c"
@@ -59,21 +59,19 @@ make world.opt \
   AS="${CC}" \
   ASM="${CC}" \
   ASPP="${CC} -c" \
-  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
+  CHECKSTAK_CC="x86_64-apple-darwin13.4.0-clang"
   -j${CPU_COUNT} || true
 
 make opt.opt.stage0 \
   AS="${CC}" \
   ASM="${CC}" \
   ASPP="${CC} -c" \
-  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
   -j${CPU_COUNT} || true
 
 make ocaml \
   AS="${CC}" \
   ASM="${CC}" \
   ASPP="${CC} -c" \
-  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
   -j${CPU_COUNT} || true
 
 for obj in runtime/*.o; do
@@ -84,7 +82,6 @@ make opt.opt \
   AS="${CC}" \
   ASM="${CC}" \
   ASPP="${CC} -c" \
-  checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
   -j${CPU_COUNT} || true
   
 make libraryopt \
