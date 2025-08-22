@@ -1,19 +1,5 @@
 --- Makefile.orig	2025-08-22 14:47:04.617245588 -0500
 +++ Makefile	2025-08-22 18:21:47.452743809 -0500
-@@ -767,6 +767,7 @@
- .PHONY: opt.opt
--opt.opt: checknative
-+opt.opt.stage0: checknative
- 	$(MAKE) checkstack
- 	$(MAKE) coreall
--	$(MAKE) ocaml
-+        
-+opt.opt: checknative
- 	$(MAKE) opt-core
-@@ -850,3 +851,2 @@
- 	$(MAKE) coldstart
--	$(MAKE) opt.opt
- 
 @@ -2216,3 +2216,3 @@
  tools/checkstack$(EXE): tools/checkstack.$(O)
 -	$(V_MKEXE)$(MKEXE) $(OUTPUTEXE)$@ $<
