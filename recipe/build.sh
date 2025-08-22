@@ -50,7 +50,9 @@ make coldstart \
   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   CC="x86_64-apple-darwin13.4.0-clang" \
-  -j${CPU_COUNT}
+  -j${CPU_COUNT} || true
+  
+make libraryopt
 
 # --- Cross-compile?
 make world.opt \
