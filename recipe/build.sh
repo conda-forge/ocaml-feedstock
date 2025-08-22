@@ -43,8 +43,8 @@ mkdir -p ${OCAML_PREFIX}/lib
 
 bash ./configure "${CONFIG_ARGS[@]}"
 make world.opt \
-  SAK_CC=${CC_FOR_BUILD:-"x86_64-apple-darwin13.4.0-clang"} \
-  SAK_LINK="x86_64-apple-darwin13.4.0-clang $LDFLAGS" \
+  SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+  SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
