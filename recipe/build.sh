@@ -39,6 +39,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   fi
 fi
 
+mkdir -p ${SRC_DIR}/_logs
 mkdir -p ${OCAML_PREFIX}/lib
 bash ./configure "${CONFIG_ARGS[@]}"
 cat Makefile.build_config | grep -v "^#" | grep -v "^$"
@@ -57,9 +58,10 @@ make world.opt \
   AS="${CC}" \
   ASPP="${CC} -c" \
   checkstack: CC="x86_64-apple-darwin13.4.0-clang" \
-  -j${CPU_COUNT} || true
+  -j${CPU_COUNT} >& ${SRC_DIR}/_logs/world.opt.log || true
   
-make libraryopt
+make libraryopt \
+  ASM="${CC}"
 
 # Check if cross-compiling - not testing on build architecture
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
