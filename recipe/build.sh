@@ -35,10 +35,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --build="x86_64-apple-darwin13.4.0"
       --host="aarch64-apple-darwin20.0.0"
       --target="aarch64-apple-darwin20.0.0"
-      CC_FOR_BUILD=${CC_FOR_BUILD:-"x86_64-apple-darwin13.4.0-clang"}
-      LDFLAGS_FOR_BUILD="$LDFLAGS"
-      CFLAGS_FOR_BUILD="$CFLAGS"
-      CPPFLAGS_FOR_BUILD="$CPPFLAGS"
+      SAK_CC=${CC_FOR_BUILD:-"x86_64-apple-darwin13.4.0-clang"}
+      SAK_LINK=x86_64-apple-darwin13.4.0-ld
     )
   fi
 fi
@@ -46,13 +44,6 @@ fi
 mkdir -p ${OCAML_PREFIX}/lib
 
 bash ./configure "${CONFIG_ARGS[@]}"
-cat Makefile.build_config
-
-sed -i  -E "s/^(.*)MAKE(.*)(coldstart|checkstack)/\1MAKE\2\3 CC=x86_64-apple-darwin13.4.0-clang LD=x86_64-apple-darwin13.4.0-ld/" Makefile
-grep coldstart Makefile | grep MAKE
-grep checkstack Makefile | grep MAKE
-# make coldstart CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT}
-# make checkstack CC="${CC_FOR_BUILD}" LD="x86_64-apple-darwin13.4.0-ld" -j${CPU_COUNT}
 make world.opt -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
