@@ -46,8 +46,6 @@ make checknative
 make coldstart \
   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-  -j${CPU_COUNT}
-make boot/ocamlrun \
   CC="x86_64-apple-darwin13.4.0-clang" \
   -j${CPU_COUNT}
   
