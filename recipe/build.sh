@@ -35,8 +35,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --build="x86_64-apple-darwin13.4.0"
       --host="aarch64-apple-darwin20.0.0"
       --target="aarch64-apple-darwin20.0.0"
-      SAK_CC=${CC_FOR_BUILD:-"x86_64-apple-darwin13.4.0-clang"}
-      SAK_LINK=x86_64-apple-darwin13.4.0-ld
     )
   fi
 fi
@@ -44,7 +42,7 @@ fi
 mkdir -p ${OCAML_PREFIX}/lib
 
 bash ./configure "${CONFIG_ARGS[@]}"
-make world.opt -j${CPU_COUNT}
+make world.opt SAK_CC=${CC_FOR_BUILD:-"x86_64-apple-darwin13.4.0-clang"} SAK_LINK=x86_64-apple-darwin13.4.0-ld -j${CPU_COUNT}
   
 # Check if cross-compiling - not testing on build architecture
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
