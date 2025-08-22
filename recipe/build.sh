@@ -59,33 +59,8 @@ make world.opt \
   AS="${CC}" \
   ASM="${CC}" \
   ASPP="${CC} -c" \
-  CHECKSTAK_CC="x86_64-apple-darwin13.4.0-clang"
+  CHECKSTAK_CC="x86_64-apple-darwin13.4.0-clang" \
   -j${CPU_COUNT} || true
-
-make opt.opt.stage0 \
-  AS="${CC}" \
-  ASM="${CC}" \
-  ASPP="${CC} -c" \
-  -j${CPU_COUNT} || true
-
-make ocaml \
-  AS="${CC}" \
-  ASM="${CC}" \
-  ASPP="${CC} -c" \
-  -j${CPU_COUNT} || true
-
-for obj in runtime/*.o; do
-  echo "$obj: $(file "$obj" | grep -o 'x86_64\|arm64')"
-done | sort
-
-make opt.opt \
-  AS="${CC}" \
-  ASM="${CC}" \
-  ASPP="${CC} -c" \
-  -j${CPU_COUNT} || true
-  
-make libraryopt \
-  ASM="${CC}"
 
 # Check if cross-compiling - not testing on build architecture
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
