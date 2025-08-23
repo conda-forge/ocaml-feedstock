@@ -31,6 +31,15 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --build="x86_64-apple-darwin13.4.0"
       --host="x86_64-apple-darwin13.4.0"
       --target="arm64-apple-darwin20.0.0"
+      AR="x86_64-apple-darwin13.4.0-ar"
+      AS="${CC}"
+      ASPP="${CC} -c"
+      CC="${CC_FOR_BUILD}"
+      CPP="${CPP_FOR_BUILD}"
+      LD="x86_64-apple-darwin13.4.0-ld"
+      NM="x86_64-apple-darwin13.4.0-nm"
+      RANLIB="x86_64-apple-darwin13.4.0-ranlib"
+      STRIP="x86_64-apple-darwin13.4.0-strip"
     )
     mkdir -p ${OCAML_PREFIX}/lib
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
