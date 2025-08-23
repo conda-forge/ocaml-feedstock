@@ -48,10 +48,11 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     
+    cp "${RECIPE_DIR}"/Makefile.cross .
+    
     echo "."; echo ".";echo "."; echo "."
     cat Makefile.build_config | grep -v "#" | grep -v "^$"
     cat Makefile.config | grep -v "#" | grep -v "^$"
-    cat Makefile | grep -v "#" | grep -v "^$"
     
     echo "."; echo ".";echo "."; echo "."
     echo "Make cross-compiler"
@@ -59,7 +60,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
       SAK_CC="x86_64-apple-darwin13.4.0-clang" \
       SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-      -j${CPU_COUNT}
+      -j${CPU_COUNT} || true
+    
+    echo "."; echo ".";echo "."; echo "."
+    echo "crossopt"
+    make crossopt
+    
+    echo "."; echo ".";echo "."; echo "."
+    echo "Install"
     make install
     make distclean
     
