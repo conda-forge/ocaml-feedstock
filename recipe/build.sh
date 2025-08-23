@@ -47,6 +47,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       STRIP="x86_64-apple-darwin13.4.0-strip"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    
+    echo "."; echo ".";echo "."; echo "."
+    cat Makefile.build_config | grep -v "#" | grep -v "^$"
+    cat Makefile.config | grep -v "#" | grep -v "^$"
+    cat Makefile | grep -v "#" | grep -v "^$"
+    
+    echo "."; echo ".";echo "."; echo "."
+    echo "Make cross-compiler"
     make world.opt  \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
       SAK_CC="x86_64-apple-darwin13.4.0-clang" \
@@ -56,6 +64,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     make distclean
     
     # --- Cross-compile
+    echo "."; echo ".";echo "."; echo "."
+    echo "Cross-compiling"
     export PATH="${OCAML_PREFIX}/bin:$PATH"
     OCAMLRUN="${OCAML_PREFIX}"/bin/ocamlrun
     
