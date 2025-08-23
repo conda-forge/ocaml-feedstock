@@ -27,6 +27,7 @@ CONFIG_ARGS=(
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
+  # --- Attempt cross-compiler
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
       --host="x86_64-apple-darwin13.4.0"
@@ -45,13 +46,13 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     make world.opt  \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      OCAMLRUN="${OCAMLRUN}" \
       SAK_CC="x86_64-apple-darwin13.4.0-clang" \
       SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
       -j${CPU_COUNT}
     make install
     make distclean
     
+    # --- Cross-compile
     export PATH="${OCAML_PREFIX}/bin:$PATH"
     OCAMLRUN="${OCAML_PREFIX}"/bin/ocamlrun
     
