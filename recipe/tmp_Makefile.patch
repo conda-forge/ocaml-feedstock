@@ -3,7 +3,7 @@
 @@ -2215,4 +2215,7 @@
  .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
 +tools/checkstack.$(O): tools/checkstack.c
-+        $(V_CC)$(CHECKSTACK_CC) $(OC_CFLAGS) $(CFLAGS) $(OUTPUTOBJ)$@ -c $<
++	$(V_CC)$(CHECKSTACK_CC) $(OC_CFLAGS) $(CFLAGS) $(OUTPUTOBJ)$@ -c $<
 +
  tools/checkstack$(EXE): tools/checkstack.$(O)
 -	$(V_MKEXE)$(MKEXE) $(OUTPUTEXE)$@ $<
