@@ -34,7 +34,12 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     )
     mkdir -p ${OCAML_PREFIX}/lib
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make world.opt -j${CPU_COUNT}
+    make world.opt  \
+      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+      OCAMLRUN="${OCAMLRUN}" \
+      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+      -j${CPU_COUNT}
     make install
     make distclean
     
@@ -53,7 +58,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     )
     mkdir -p ${OCAML_PREFIX}/lib
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make world.opt
+    make world.opt \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
       OCAMLRUN="${OCAMLRUN}" \
       SAK_CC="x86_64-apple-darwin13.4.0-clang" \
