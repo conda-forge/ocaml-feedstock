@@ -1,9 +1,14 @@
 --- Makefile.orig	2025-08-22 14:47:04.617245588 -0500
-+++ Makefile	2025-08-22 20:21:21.485269075 -0500
-@@ -2215,4 +2215,7 @@
++++ Makefile	2025-08-22 20:55:08.814124361 -0500
+@@ -698,2 +698,4 @@
+ coreall: runtime
++	rm runtime/prims.o
++	$(MAKE) runtime/prims.o
+ 	$(MAKE) ocamlc
+@@ -2215,4 +2217,7 @@
  .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
 +tools/checkstack.$(O): tools/checkstack.c
-+	$(V_CC)$(CHECKSTACK_CC) $(OC_CFLAGS) $(CFLAGS) $(OUTPUTOBJ)$@ -c $<
++        $(V_CC)$(CHECKSTACK_CC) $(OC_CFLAGS) $(CFLAGS) $(OUTPUTOBJ)$@ -c $<
 +
  tools/checkstack$(EXE): tools/checkstack.$(O)
 -	$(V_MKEXE)$(MKEXE) $(OUTPUTEXE)$@ $<
