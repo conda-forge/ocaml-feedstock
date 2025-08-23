@@ -49,6 +49,16 @@ cat Makefile.config | grep -v "^#" | grep -v "^$"
 patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
   
 # --- x86_64 compiler
+make core \
+  AS="${CC}" \
+  ASM="${CC}" \
+  ASPP="${CC} -c" \
+  CC="x86_64-apple-darwin13.4.0-clang" \
+  CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+  SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+  SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+  -j${CPU_COUNT} || true
+
 make coreboot \
   AS="${CC}" \
   ASM="${CC}" \
