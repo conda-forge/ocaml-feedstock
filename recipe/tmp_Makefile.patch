@@ -1,10 +1,10 @@
 --- Makefile.orig	2025-08-22 14:47:04.617245588 -0500
-+++ Makefile	2025-08-22 20:55:08.814124361 -0500
-@@ -698,2 +698,4 @@
- coreall: runtime
++++ Makefile	2025-08-22 21:24:28.395124074 -0500
+@@ -850,2 +850,4 @@
+ 	$(MAKE) coldstart
 +	rm runtime/prims.o
 +	$(MAKE) runtime/prims.o
- 	$(MAKE) ocamlc
+ 	$(MAKE) opt.opt
 @@ -2215,4 +2217,7 @@
  .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
 +tools/checkstack.$(O): tools/checkstack.c
