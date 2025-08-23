@@ -1,9 +1,5 @@
 --- Makefile.orig	2025-08-22 14:47:04.617245588 -0500
 +++ Makefile	2025-08-22 21:36:17.056323027 -0500
-@@ -850,2 +850,3 @@
- 	$(MAKE) coldstart
-+	rm runtime/*.o runtime/libcamlrun.a
- 	$(MAKE) opt.opt
 @@ -2215,4 +2217,7 @@
  .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
 +tools/checkstack.$(O): tools/checkstack.c
