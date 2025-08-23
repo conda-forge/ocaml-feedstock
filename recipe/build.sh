@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
 set -eu
 
-# export CC=$(basename "$CC")
-# export ASPP="$CC -c"
-# export AS=$(basename "$AS")
-# export AR=$(basename "$AR")
-# export RANLIB=$(basename "$RANLIB")
-
 unset build_alias
 unset host_alias
 
-if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-64" ]]; then
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
+elif [[ "${target_platform}" != "osx-arm64" ]]; then
+  export OCAML_PREFIX=${SRC_DIR}/_native
+  SH_EXT="sh"
 else
   export OCAML_PREFIX=$PREFIX
   SH_EXT="sh"
@@ -26,58 +23,77 @@ CONFIG_ARGS=(
   --disable-static
   --mandir=${OCAML_PREFIX}/share/man
   --with-target-bindir=/opt/anaconda1anaconda2anaconda3/bin
-  -prefix $OCAML_PREFIX
 )
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
-    CONFIG_ARGS+=(
+    _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
-      --host="aarch64-apple-darwin20.0.0"
-      --target="aarch64-apple-darwin20.0.0"
+      --host="x86_64-apple-darwin20.0.0"
+      --target="arm64-apple-darwin20.0.0"
     )
+    mkdir -p ${OCAML_PREFIX}/lib
+    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    make world.opt -j${CPU_COUNT}
+    make install
+    make distclean
+    
+    export PATH="${OCAML_PREFIX}/bin:$PATH"
+    OCAMLRUN="${OCAML_PREFIX}"/bin/ocamlrun
+    
+    # Reset install path
+    export OCAML_PREFIX=$PREFIX
+
+    # --- Try to resolve 'Bad CPU' due to missing host exec
+    patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
+    _CONFIG_ARGS=(
+      --build="x86_64-apple-darwin13.4.0"
+      --host="arm64-apple-darwin20.0.0"
+      --target="arm64-apple-darwin20.0.0"
+    )
+    mkdir -p ${OCAML_PREFIX}/lib
+    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    make world.opt
+      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+      OCAMLRUN="${OCAMLRUN}" \
+      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+      -j${CPU_COUNT}
+    make install
   fi
 fi
-
-mkdir -p ${SRC_DIR}/_logs
-mkdir -p ${OCAML_PREFIX}/lib
-bash ./configure "${CONFIG_ARGS[@]}"
-cat Makefile.build_config | grep -v "^#" | grep -v "^$"
-cat Makefile.config | grep -v "^#" | grep -v "^$"
-
-# --- Try to resolve 'Bad CPU' due to missing host exec
-patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
   
-# --- x86_64 compiler
-make core \
-  AS="${CC}" \
-  ASM="${CC}" \
-  ASPP="${CC} -c" \
-  CC="x86_64-apple-darwin13.4.0-clang" \
-  CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-  SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-  SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-  -j${CPU_COUNT} || true
+# # --- x86_64 compiler
+# make core \
+#   AS="${CC}" \
+#   ASM="${CC}" \
+#   ASPP="${CC} -c" \
+#   CC="x86_64-apple-darwin13.4.0-clang" \
+#   CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+#   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+#   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+#   -j${CPU_COUNT} || true
 
-make coreboot \
-  AS="${CC}" \
-  ASM="${CC}" \
-  ASPP="${CC} -c" \
-  CC="x86_64-apple-darwin13.4.0-clang" \
-  CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-  SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-  SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-  -j${CPU_COUNT} || true
+# make coreboot \
+#   AS="${CC}" \
+#   ASM="${CC}" \
+#   ASPP="${CC} -c" \
+#   CC="x86_64-apple-darwin13.4.0-clang" \
+#   CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+#   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+#   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+#   -j${CPU_COUNT} || true
 
-# --- Cross-compile?
-make opt.opt \
-  AS="${CC}" \
-  ASM="${CC}" \
-  ASPP="${CC} -c" \
-  CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-  SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-  SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-  -j${CPU_COUNT} || true
+# # --- Cross-compile?
+# make opt.opt \
+#   AS="${CC}" \
+#   ASM="${CC}" \
+#   ASPP="${CC} -c" \
+#   CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+#   OCAMLRUN=${SRC_DIR}/runtime/ocamlrun \
+#   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+#   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+#   -j${CPU_COUNT} || true
 
 # make opt.opt.stage0 \
 #   AS="${CC}" \
