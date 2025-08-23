@@ -29,7 +29,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
-      --host="x86_64-apple-darwin20.0.0"
+      --host="x86_64-apple-darwin13.4.0"
       --target="arm64-apple-darwin20.0.0"
     )
     mkdir -p ${OCAML_PREFIX}/lib
