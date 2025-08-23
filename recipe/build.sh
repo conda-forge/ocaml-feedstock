@@ -4,6 +4,9 @@ set -eu
 unset build_alias
 unset host_alias
 
+# Avoids an annoying 'directory not found'
+mkdir -p ${PREFIX}/lib
+
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-64" ]]; then
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
@@ -34,6 +37,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --target="arm64-apple-darwin20.0.0"
       AR="x86_64-apple-darwin13.4.0-ar"
       AS="${CC}"
+      ASM="${CC}"
       ASPP="${CC} -c"
       CC="${CC_FOR_BUILD}"
       CPP="${CPP_FOR_BUILD}"
@@ -42,7 +46,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
     )
-    mkdir -p ${OCAML_PREFIX}/lib
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     make world.opt  \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
