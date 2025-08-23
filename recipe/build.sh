@@ -49,7 +49,7 @@ cat Makefile.config | grep -v "^#" | grep -v "^$"
 patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
   
 # --- x86_64 compiler
-make core \
+make coreboot \
   AS="${CC}" \
   ASM="${CC}" \
   ASPP="${CC} -c" \
