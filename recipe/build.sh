@@ -59,8 +59,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     echo "."; echo ".";echo "."; echo "."
     make world.opt \
       AR="x86_64-apple-darwin13.4.0-ar" \
-      AS="x86_64-apple-darwin13.4.0-as" \
-      ASM="x86_64-apple-darwin13.4.0-as" \
+      AS="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-clang" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
       CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
@@ -77,8 +77,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     echo "."; echo ".";echo "."; echo "."
     make runtimeopt \
       AR="x86_64-apple-darwin13.4.0-ar" \
-      AS="x86_64-apple-darwin13.4.0-as" \
-      ASM="x86_64-apple-darwin13.4.0-as" \
+      AS="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-clang" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
       CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
@@ -94,8 +94,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     echo "."; echo ".";echo "."; echo "."
     make world.opt \
       AR="x86_64-apple-darwin13.4.0-ar" \
-      AS="x86_64-apple-darwin13.4.0-as" \
-      ASM="x86_64-apple-darwin13.4.0-as" \
+      AS="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-clang" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
       CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
@@ -123,8 +123,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --host="x86_64-apple-darwin13.4.0"
       --target="arm64-apple-darwin13.4.0"
       AR="x86_64-apple-darwin13.4.0-ar"
-      AS="x86_64-apple-darwin13.4.0-as"
-      ASM="x86_64-apple-darwin13.4.0-as"
+      AS="x86_64-apple-darwin13.4.0-clang"
+      ASM="x86_64-apple-darwin13.4.0-clang"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
       CC="x86_64-apple-darwin13.4.0-clang"
       CPP="x86_64-apple-darwin13.4.0-clang-cpp"
