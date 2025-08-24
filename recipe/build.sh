@@ -64,6 +64,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     
     echo "."; echo ".";echo "."; echo "."
     echo "crossopt"
+    patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
     make crossopt
     
     echo "."; echo ".";echo "."; echo "."
@@ -81,7 +82,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     export OCAML_PREFIX=$PREFIX
 
     # --- Try to resolve 'Bad CPU' due to missing host exec
-    patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
       --host="arm64-apple-darwin20.0.0"
