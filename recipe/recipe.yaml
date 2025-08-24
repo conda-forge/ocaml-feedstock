@@ -46,7 +46,9 @@ requirements:
         - m2-make
         - m2-sed
   host:
-    - zstd
+    - if: unix
+      then: zstd
+      else: m2-libzstd
   run:
     # We don't seem to have a way to relocate the runtime-launch-info
     # the 'prefix_detection' does not work since it is a binary but needs a text detection
