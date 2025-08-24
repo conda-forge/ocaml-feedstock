@@ -43,7 +43,10 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       CC="x86_64-apple-darwin13.4.0-clang"
       CPP="x86_64-apple-darwin13.4.0-clang -E -P"
       LD="x86_64-apple-darwin13.4.0-ld"
+      LIPO="x86_64-apple-darwin13.4.0-lipo"
       NM="x86_64-apple-darwin13.4.0-nm"
+      NMEDIT="x86_64-apple-darwin13.4.0-nmedit"
+      OTOOL="x86_64-apple-darwin13.4.0-otool"
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
     )
@@ -53,12 +56,19 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     cat Makefile.config | grep -v "#" | grep -v "^$"
     echo "."; echo ".";echo "."; echo "."
     make world.opt \
-      CC="x86_64-apple-darwin13.4.0-clang" \
       AR="x86_64-apple-darwin13.4.0-ar" \
-      RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       AS="x86_64-apple-darwin13.4.0-clang" \
       ASM="x86_64-apple-darwin13.4.0-clang" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
+      CC="x86_64-apple-darwin13.4.0-clang" \
+      CPP="x86_64-apple-darwin13.4.0-clang -E -P" \
+      LD="x86_64-apple-darwin13.4.0-ld" \
+      LIPO="x86_64-apple-darwin13.4.0-lipo" \
+      NM="x86_64-apple-darwin13.4.0-nm" \
+      NMEDIT="x86_64-apple-darwin13.4.0-nmedit" \
+      OTOOL="x86_64-apple-darwin13.4.0-otool" \
+      RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
+      STRIP="x86_64-apple-darwin13.4.0-strip" \
       -j${CPU_COUNT}
     make install
     make distclean
