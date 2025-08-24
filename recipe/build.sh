@@ -49,7 +49,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool"
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
-      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs -L../runtime -lasmrun $LDFLAGS"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     echo "."; echo ".";echo "."; echo "."
@@ -70,7 +70,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
-      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs -L../runtime -lasmrun $LDFLAGS" \
       -j${CPU_COUNT} || true
     (cd stdlib && make -n camlinternalFormatBasics.cmx) || true
     (head -1 ocamlopt) || true
