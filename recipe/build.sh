@@ -12,7 +12,7 @@ if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"*
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
 elif [[ "${target_platform}" == "osx-arm64" ]]; then
-  export OCAML_PREFIX=${SRC_DIR}/_native
+  export OCAML_PREFIX=$(echo ${PWD})/_native
   SH_EXT="sh"
 else
   export OCAML_PREFIX=$PREFIX
