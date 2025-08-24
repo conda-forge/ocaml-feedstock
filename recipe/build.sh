@@ -7,10 +7,10 @@ unset host_alias
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
 
-if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-64" ]]; then
+if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
-elif [[ "${target_platform}" != "osx-arm64" ]]; then
+elif [[ "${target_platform}" == "osx-arm64" ]]; then
   export OCAML_PREFIX=${SRC_DIR}/_native
   SH_EXT="sh"
 else
@@ -30,11 +30,11 @@ CONFIG_ARGS=(
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
-  # --- Attempt cross-compiler
+  # --- x86_64 compiler
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
       --host="x86_64-apple-darwin13.4.0"
-      --target="arm64-apple-darwin20.0.0"
+      --target="x86_64-apple-darwin13.4.0"
       AR="x86_64-apple-darwin13.4.0-ar"
       AS="x86_64-apple-darwin13.4.0-clang"
       ASM="x86_64-apple-darwin13.4.0-clang"
@@ -47,8 +47,30 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       STRIP="x86_64-apple-darwin13.4.0-strip"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    make world.opt -j${CPU_COUNT}
+    make install
+    make distclean
     
-    cp "${RECIPE_DIR}"/Makefile.cross .
+    export OCAML_PREFIX=${SRC_DIR}/_cross
+    _CONFIG_ARGS=(
+      --build="x86_64-apple-darwin13.4.0"
+      --host="x86_64-apple-darwin13.4.0"
+      --target="arm64-apple-darwin13.4.0"
+      AR="x86_64-apple-darwin13.4.0-ar"
+      AS="x86_64-apple-darwin13.4.0-clang"
+      ASM="x86_64-apple-darwin13.4.0-clang"
+      ASPP="x86_64-apple-darwin13.4.0-clang -c"
+      CC="x86_64-apple-darwin13.4.0-clang"
+      CPP="x86_64-apple-darwin13.4.0-clang -E -P"
+      LD="x86_64-apple-darwin13.4.0-ld"
+      NM="x86_64-apple-darwin13.4.0-nm"
+      RANLIB="x86_64-apple-darwin13.4.0-ranlib"
+      STRIP="x86_64-apple-darwin13.4.0-strip"
+      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+    )
+    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     
     echo "."; echo ".";echo "."; echo "."
     cat Makefile.build_config | grep -v "#" | grep -v "^$"
@@ -56,14 +78,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     
     echo "."; echo ".";echo "."; echo "."
     echo "Make cross-compiler"
-    make world.opt  \
-      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-      -j${CPU_COUNT} || true
-    
-    echo "."; echo ".";echo "."; echo "."
-    echo "crossopt"
+    cp "${RECIPE_DIR}"/Makefile.cross .
     patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
     make crossopt
     
