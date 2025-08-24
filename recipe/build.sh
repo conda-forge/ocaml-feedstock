@@ -50,7 +50,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
-      OC_LDFLAGS="-L$SRC_DIR/runtime $OC_LDFLAGS"
+      OC_LDFLAGS="-L$SRC_DIR/runtime"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     echo "."; echo ".";echo "."; echo "."
