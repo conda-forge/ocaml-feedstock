@@ -71,7 +71,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       STRIP="x86_64-apple-darwin13.4.0-strip" \
       -j${CPU_COUNT} || true
     (cd stdlib && make -n camlinternalFormatBasics.cmx) || true
-    (head -2 ocamlopt) || true
+    (head -1 ocamlopt) || true
     (boot/ocamlrun ocamlopt -config | grep -E "(standard_library|bytecomp_c_libraries|native_c_libraries)") || true
     (nm runtime/libasmrun.a | grep -E "(caml_call_gc|caml_initialize|caml_curry2)") || true
     exit 1
