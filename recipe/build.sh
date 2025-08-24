@@ -49,7 +49,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool"
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
-      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs -L../runtime -lasmrun $LDFLAGS"
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     echo "."; echo ".";echo "."; echo "."
@@ -70,9 +70,9 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
-      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs -L../runtime -lasmrun $LDFLAGS" \
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
       -j${CPU_COUNT} || true
-    (cd stdlib && make -n camlinternalFormatBasics.cmx) || true
+    (cd stdlib && make -n camlinternalFormatBasics.cmx LDFLAGS="-L../runtime -lasmrun $LDFLAGS") || true
     (head -1 ocamlopt) || true
     (boot/ocamlrun ocamlopt -config | grep -E "(standard_library|bytecomp_c_libraries|native_c_libraries)") || true
     (nm runtime/libasmrun.a | grep -E "(caml_call_gc|caml_initialize|caml_curry2)") || true
