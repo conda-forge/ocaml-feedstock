@@ -41,7 +41,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       ASM="x86_64-apple-darwin13.4.0-clang"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
       CC="x86_64-apple-darwin13.4.0-clang"
-      CPP="x86_64-apple-darwin13.4.0-clang -E -P"
+      CPP="x86_64-apple-darwin13.4.0-clang-cpp"
       LD="x86_64-apple-darwin13.4.0-ld"
       LIPO="x86_64-apple-darwin13.4.0-lipo"
       NM="x86_64-apple-darwin13.4.0-nm"
@@ -63,7 +63,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       ASM="x86_64-apple-darwin13.4.0-clang" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
-      CPP="x86_64-apple-darwin13.4.0-clang -E -P" \
+      CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
       LD="x86_64-apple-darwin13.4.0-ld" \
       LIPO="x86_64-apple-darwin13.4.0-lipo" \
       NM="x86_64-apple-darwin13.4.0-nm" \
@@ -71,6 +71,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
+      OC_LDFLAGS="-L$SRC_DIR/runtime" \
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
       -j${CPU_COUNT} || true
     echo "."; echo ".";echo "."; echo "."
@@ -80,7 +81,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       ASM="x86_64-apple-darwin13.4.0-clang" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
-      CPP="x86_64-apple-darwin13.4.0-clang -E -P" \
+      CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
       LD="x86_64-apple-darwin13.4.0-ld" \
       LIPO="x86_64-apple-darwin13.4.0-lipo" \
       NM="x86_64-apple-darwin13.4.0-nm" \
@@ -97,7 +98,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       ASM="x86_64-apple-darwin13.4.0-clang" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
-      CPP="x86_64-apple-darwin13.4.0-clang -E -P" \
+      CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
       LD="x86_64-apple-darwin13.4.0-ld" \
       LIPO="x86_64-apple-darwin13.4.0-lipo" \
       NM="x86_64-apple-darwin13.4.0-nm" \
@@ -126,7 +127,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       ASM="x86_64-apple-darwin13.4.0-clang"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
       CC="x86_64-apple-darwin13.4.0-clang"
-      CPP="x86_64-apple-darwin13.4.0-clang -E -P"
+      CPP="x86_64-apple-darwin13.4.0-clang-cpp"
       LD="x86_64-apple-darwin13.4.0-ld"
       NM="x86_64-apple-darwin13.4.0-nm"
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
