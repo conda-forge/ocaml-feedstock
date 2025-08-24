@@ -3,7 +3,7 @@ set -eu
 
 unset build_alias
 unset host_alias
-unset HOST
+unset HOST TARGET_ARCH
 
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
@@ -12,7 +12,7 @@ if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"*
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
 elif [[ "${target_platform}" == "osx-arm64" ]]; then
-  export OCAML_PREFIX=$(echo ${PWD})/_native
+  export OCAML_PREFIX=/tmp/_native && mkdir -p /tmp/_native
   SH_EXT="sh"
 else
   export OCAML_PREFIX=$PREFIX
@@ -49,6 +49,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool"
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     echo "."; echo ".";echo "."; echo "."
@@ -69,6 +70,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
       -j${CPU_COUNT} || true
     (cd stdlib && make -n camlinternalFormatBasics.cmx) || true
     (head -1 ocamlopt) || true
