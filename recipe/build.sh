@@ -69,7 +69,17 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
-      -j${CPU_COUNT}
+      -j${CPU_COUNT} || true
+    (cd stdlib && make -n camlinternalFormatBasics.cmx) || true
+    (ocamlopt -config | grep -E "(standard_library|bytecomp_c_libraries|native_c_libraries)") || true
+    (boot/ocamlopt -config | grep -E "(standard_library|bytecomp_c_libraries|native_c_libraries)") || true
+    (runtime/ocamlopt -config | grep -E "(standard_library|bytecomp_c_libraries|native_c_libraries)") || true
+    (nm ../runtime/libasmrun.a | grep -E "(caml_call_gc|caml_initialize|caml_curry2)") || true
+    (ocamlopt -verbose -linkall -c stdlib/camlinternalFormatBasics.ml 2>&1 | grep -E "(ld|clang.*-o)") || true
+    (make -n -C stdlib allopt) || true
+    (make -C stdlib allopt V=1) || true
+    exit 1
+    
     make install
     make distclean
     
