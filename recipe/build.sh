@@ -3,6 +3,7 @@ set -eu
 
 unset build_alias
 unset host_alias
+unset HOST
 
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
@@ -47,7 +48,18 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       STRIP="x86_64-apple-darwin13.4.0-strip"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make world.opt -j${CPU_COUNT}
+    echo "."; echo ".";echo "."; echo "."
+    cat Makefile.build_config | grep -v "#" | grep -v "^$"
+    cat Makefile.config | grep -v "#" | grep -v "^$"
+    echo "."; echo ".";echo "."; echo "."
+    make world.opt \
+      CC="x86_64-apple-darwin13.4.0-clang" \
+      AR="x86_64-apple-darwin13.4.0-ar" \
+      RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
+      AS="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-clang" \
+      ASPP="x86_64-apple-darwin13.4.0-clang -c" \
+      -j${CPU_COUNT}
     make install
     make distclean
     
