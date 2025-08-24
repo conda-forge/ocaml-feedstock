@@ -72,6 +72,39 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       STRIP="x86_64-apple-darwin13.4.0-strip" \
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
       -j${CPU_COUNT} || true
+    make runtime runtimeopt \
+      AR="x86_64-apple-darwin13.4.0-ar" \
+      AS="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-clang" \
+      ASPP="x86_64-apple-darwin13.4.0-clang -c" \
+      CC="x86_64-apple-darwin13.4.0-clang" \
+      CPP="x86_64-apple-darwin13.4.0-clang -E -P" \
+      LD="x86_64-apple-darwin13.4.0-ld" \
+      LIPO="x86_64-apple-darwin13.4.0-lipo" \
+      NM="x86_64-apple-darwin13.4.0-nm" \
+      NMEDIT="x86_64-apple-darwin13.4.0-nmedit" \
+      OTOOL="x86_64-apple-darwin13.4.0-otool" \
+      RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
+      STRIP="x86_64-apple-darwin13.4.0-strip" \
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
+     -j${CPU_COUNT} || true
+
+    make core libraryopt \
+      AR="x86_64-apple-darwin13.4.0-ar" \
+      AS="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-clang" \
+      ASPP="x86_64-apple-darwin13.4.0-clang -c" \
+      CC="x86_64-apple-darwin13.4.0-clang" \
+      CPP="x86_64-apple-darwin13.4.0-clang -E -P" \
+      LD="x86_64-apple-darwin13.4.0-ld" \
+      LIPO="x86_64-apple-darwin13.4.0-lipo" \
+      NM="x86_64-apple-darwin13.4.0-nm" \
+      NMEDIT="x86_64-apple-darwin13.4.0-nmedit" \
+      OTOOL="x86_64-apple-darwin13.4.0-otool" \
+      RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
+      STRIP="x86_64-apple-darwin13.4.0-strip" \
+      LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
+     -j${CPU_COUNT} || true
     (cd stdlib && make -n camlinternalFormatBasics.cmx LDFLAGS="-L../runtime -lasmrun $LDFLAGS") || true
     (head -1 ocamlopt) || true
     (boot/ocamlrun ocamlopt -config | grep -E "(standard_library|bytecomp_c_libraries|native_c_libraries)") || true
