@@ -28,8 +28,6 @@ CONFIG_ARGS=(
 
 mkdir -p ${OCAML_PREFIX}/lib
 bash ./configure "${CONFIG_ARGS[@]}"
-cat Makefile.build_config | grep -v "#" | grep -v "^$"
-cat Makefile.config | grep -v "#" | grep -v "^$"
 
 make world.opt -j${CPU_COUNT}
 
