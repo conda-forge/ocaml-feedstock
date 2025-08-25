@@ -58,6 +58,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     make install
     make distclean
     
+    export PATH="${OCAML_PREFIX}/bin:${PATH}"
+    
     export OCAML_PREFIX=${SRC_DIR}/_cross
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
