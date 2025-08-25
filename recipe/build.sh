@@ -67,14 +67,15 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
     _TARGET=(
       --target="arm64-apple-darwin13.4.0"
-      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang"
-      SAK_CC="x86_64-apple-darwin13.4.0-clang"
-      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
     cp "${RECIPE_DIR}"/Makefile.cross .
     patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
     make crossopt
+      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+      -j${CPU_COUNT}
     make installcross
     make distclean
     
@@ -85,13 +86,11 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     export OCAML_PREFIX=$PREFIX
     export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
-    # --- Try to resolve 'Bad CPU' due to missing host exec
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
       --host="arm64-apple-darwin20.0.0"
       --target="arm64-apple-darwin20.0.0"
     )
-    mkdir -p ${OCAML_PREFIX}/lib
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     make world.opt \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
