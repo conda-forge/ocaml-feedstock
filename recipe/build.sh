@@ -137,13 +137,9 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     run_and_log "configure cross" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
     cp "${RECIPE_DIR}"/Makefile.cross .
     patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
-    make crossopt
-      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-      -j${CPU_COUNT}
-    make installcross
-    make distclean
+    run_and_log "make cross" make crossopt -j${CPU_COUNT}
+    run_and_log "install cross" make installcross
+    run_and_log "distclean" make distclean
     
     # --- Cross-compile
     export PATH="${OCAML_PREFIX}/bin:${_PATH}"
