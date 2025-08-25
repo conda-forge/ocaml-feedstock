@@ -38,7 +38,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --target="x86_64-apple-darwin13.4.0"
       AR="x86_64-apple-darwin13.4.0-ar"
       AS="x86_64-apple-darwin13.4.0-as"
-      ASM="x86_64-apple-darwin13.4.0-as"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
       CC="x86_64-apple-darwin13.4.0-clang"
       CPP="x86_64-apple-darwin13.4.0-clang-cpp"
@@ -53,24 +52,9 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+
     echo "."; echo ".";echo "."; echo "."
-    cat Makefile.build_config | grep -v "#" | grep -v "^$"
-    cat Makefile.config | grep -v "#" | grep -v "^$"
-    echo "."; echo ".";echo "."; echo "."
-    make world.opt \
-      -j${CPU_COUNT} || true
-    echo "."; echo ".";echo "."; echo "."
-    make runtimeopt \
-     -j${CPU_COUNT} || true
-    echo "."; echo ".";echo "."; echo "."
-    make world.opt \
-      -j${CPU_COUNT} || true
-    (cd stdlib && make camlinternalFormatBasics.cmx LDFLAGS="-L../runtime -lasmrun $LDFLAGS") || true
-    (head -1 ocamlopt) || true
-    (boot/ocamlrun ocamlopt -config | grep -E "(standard_library|bytecomp_c_libraries|native_c_libraries)") || true
-    (nm runtime/libasmrun.a | grep -E "(caml_call_gc|caml_initialize|caml_curry2)") || true
-    exit 1
-    
+    make world.opt -j${CPU_COUNT}
     make install
     make distclean
     
@@ -80,8 +64,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --host="x86_64-apple-darwin13.4.0"
       --target="arm64-apple-darwin13.4.0"
       AR="x86_64-apple-darwin13.4.0-ar"
-      AS="x86_64-apple-darwin13.4.0-clang"
-      ASM="x86_64-apple-darwin13.4.0-as"
+      AS="x86_64-apple-darwin13.4.0-as"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
       CC="x86_64-apple-darwin13.4.0-clang"
       CPP="x86_64-apple-darwin13.4.0-clang-cpp"
