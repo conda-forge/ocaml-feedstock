@@ -154,10 +154,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --target="arm64-apple-darwin20.0.0"
     )
     run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    run_and_log "make all" make all opt \
-      OCAMLRUN=ocamlrun \
-      CAMLC=ocamlc \
-      CAMLOPT=ocamlopt \
+    make runtime runtimeopt \
+      OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
+      -j${CPU_COUNT}
+    make all opt \
+      OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
+      BOOT_CAMLC="${SRC_DIR}/_cross/bin/ocamlc" \
+      BOOT_CAMLOPT="${SRC_DIR}/_cross/bin/ocamlopt" \
+      NEW_OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
       -j${CPU_COUNT}
     make install
   fi
