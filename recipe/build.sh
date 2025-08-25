@@ -127,14 +127,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     # Set environment for locally installed ocaml
     _PATH="${PATH}"
     export PATH="${OCAML_PREFIX}/bin:${_PATH}"
+    export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
     
     # Set environment for cross-compiler installation
     export OCAML_PREFIX=${SRC_DIR}/_cross
-    export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
     _TARGET=(
       --target="arm64-apple-darwin20.0.0"
     )
-    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
+    run_and_log "configure cross" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
     cp "${RECIPE_DIR}"/Makefile.cross .
     patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
     make crossopt
@@ -147,10 +147,10 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     
     # --- Cross-compile
     export PATH="${OCAML_PREFIX}/bin:${_PATH}"
+    export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
     
     # Reset to final install path
     export OCAML_PREFIX=$PREFIX
-    export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
