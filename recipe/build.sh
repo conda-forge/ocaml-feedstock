@@ -72,6 +72,7 @@ unset HOST TARGET_ARCH
 
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
+_log_index=0
 
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   export OCAML_PREFIX=$PREFIX/Library
