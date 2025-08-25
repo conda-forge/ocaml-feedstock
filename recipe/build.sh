@@ -153,11 +153,11 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --host="arm64-apple-darwin20.0.0"
       --target="arm64-apple-darwin20.0.0"
     )
-    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make all opt \
-      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+    run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    run_and_log "make all" make all opt \
+      OCAMLRUN=ocamlrun \
+      CAMLC=ocamlc \
+      CAMLOPT=ocamlopt \
       -j${CPU_COUNT}
     make install
   fi
