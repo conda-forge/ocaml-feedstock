@@ -38,7 +38,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --target="x86_64-apple-darwin13.4.0"
       AR="x86_64-apple-darwin13.4.0-ar"
       AS="x86_64-apple-darwin13.4.0-clang"
-      ASM="x86_64-apple-darwin13.4.0-clang"
+      ASM="x86_64-apple-darwin13.4.0-as"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
       CC="x86_64-apple-darwin13.4.0-clang"
       CPP="x86_64-apple-darwin13.4.0-clang-cpp"
@@ -49,8 +49,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool"
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
+      CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}"
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
-      OC_LDFLAGS="-L$SRC_DIR/runtime"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     echo "."; echo ".";echo "."; echo "."
@@ -60,7 +60,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     make world.opt \
       AR="x86_64-apple-darwin13.4.0-ar" \
       AS="x86_64-apple-darwin13.4.0-clang" \
-      ASM="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-as" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
       CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
@@ -71,14 +71,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
-      OC_LDFLAGS="-L$SRC_DIR/runtime" \
+      CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}" \
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
       -j${CPU_COUNT} || true
     echo "."; echo ".";echo "."; echo "."
     make runtimeopt \
       AR="x86_64-apple-darwin13.4.0-ar" \
       AS="x86_64-apple-darwin13.4.0-clang" \
-      ASM="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-as" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
       CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
@@ -89,13 +89,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
+      CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}" \
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
      -j${CPU_COUNT} || true
     echo "."; echo ".";echo "."; echo "."
     make world.opt \
       AR="x86_64-apple-darwin13.4.0-ar" \
       AS="x86_64-apple-darwin13.4.0-clang" \
-      ASM="x86_64-apple-darwin13.4.0-clang" \
+      ASM="x86_64-apple-darwin13.4.0-as" \
       ASPP="x86_64-apple-darwin13.4.0-clang -c" \
       CC="x86_64-apple-darwin13.4.0-clang" \
       CPP="x86_64-apple-darwin13.4.0-clang-cpp" \
@@ -106,6 +107,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       OTOOL="x86_64-apple-darwin13.4.0-otool" \
       RANLIB="x86_64-apple-darwin13.4.0-ranlib" \
       STRIP="x86_64-apple-darwin13.4.0-strip" \
+      CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}" \
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs" \
       -j${CPU_COUNT} || true
     (cd stdlib && make camlinternalFormatBasics.cmx LDFLAGS="-L../runtime -lasmrun $LDFLAGS") || true
@@ -124,7 +126,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --target="arm64-apple-darwin13.4.0"
       AR="x86_64-apple-darwin13.4.0-ar"
       AS="x86_64-apple-darwin13.4.0-clang"
-      ASM="x86_64-apple-darwin13.4.0-clang"
+      ASM="x86_64-apple-darwin13.4.0-as"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
       CC="x86_64-apple-darwin13.4.0-clang"
       CPP="x86_64-apple-darwin13.4.0-clang-cpp"
@@ -132,9 +134,10 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       NM="x86_64-apple-darwin13.4.0-nm"
       RANLIB="x86_64-apple-darwin13.4.0-ranlib"
       STRIP="x86_64-apple-darwin13.4.0-strip"
-      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+      CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}"
+      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang"
+      SAK_CC="x86_64-apple-darwin13.4.0-clang"
+      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     
