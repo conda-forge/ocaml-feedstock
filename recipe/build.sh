@@ -1,6 +1,71 @@
 #!/usr/bin/env bash
 set -eu
 
+run_and_log() {
+  local _logname="$1"
+  shift
+  local cmd=("$@")
+
+  # Create log directory if it doesn't exist
+  mkdir -p "${SRC_DIR}/_logs"
+
+  echo " ";echo "|";echo "|";echo "|";echo "|"
+  echo "Running: ${cmd[*]}"
+  local start_time=$(date +%s)
+  local exit_status_file=$(mktemp)
+  # Run the command in a subshell to prevent set -e from terminating
+  (
+    # Temporarily disable errexit in this subshell
+    set +e
+    "${cmd[@]}" > "${SRC_DIR}/_logs/${_log_index}_${_logname}.log" 2>&1
+    echo $? > "$exit_status_file"
+  ) &
+  local cmd_pid=$!
+  local tail_counter=0
+
+  # Periodically flush and show progress
+  while kill -0 $cmd_pid 2>/dev/null; do
+    sync
+    echo -n "."
+    sleep 5
+    let "tail_counter += 1"
+
+    if [ $tail_counter -ge 22 ]; then
+      echo "."
+      tail -5 "${SRC_DIR}/_logs/${_log_index}_${_logname}.log"
+      tail_counter=0
+    fi
+  done
+
+  wait $cmd_pid || true  # Use || true to prevent set -e from triggering
+  local end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  local exit_code=$(cat "$exit_status_file")
+  rm "$exit_status_file"
+
+  echo "."
+  echo "---------------------------------------------------------------------------"
+  printf "Command: %s\n" "${cmd[*]} in ${duration}s"
+  echo "Exit code: $exit_code"
+  echo "---------------------------------------------------------------------------"
+
+  # Show more context on failure
+  if [[ $exit_code -ne 0 ]]; then
+    echo "COMMAND FAILED - Last 50 lines of log:"
+    tail -50 "${SRC_DIR}/_logs/${_log_index}_${_logname}.log"
+  else
+    echo "COMMAND SUCCEEDED - Last 20 lines of log:"
+    tail -20 "${SRC_DIR}/_logs/${_log_index}_${_logname}.log"
+  fi
+
+  echo "---------------------------------------------------------------------------"
+  echo "Full log: ${SRC_DIR}/_logs/${_log_index}_${_logname}.log"
+  echo "|";echo "|";echo "|";echo "|"
+
+  let "_log_index += 1"
+  return $exit_code
+}
+
 unset build_alias
 unset host_alias
 unset HOST TARGET_ARCH
@@ -53,10 +118,10 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     _TARGET=(
       --target="x86_64-apple-darwin13.4.0"
     )
-    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
-    make world.opt -j${CPU_COUNT}
-    make install
-    make distclean
+    run_and_log "configure native" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
+    run_and_log "world native" make world.opt -j${CPU_COUNT}
+    run_and_log "install native" make install
+    run_and_log "distclean native" make distclean
     
     # Set environment for locally installed ocaml
     _PATH="${PATH}"
@@ -66,7 +131,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     export OCAML_PREFIX=${SRC_DIR}/_cross
     export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
     _TARGET=(
-      --target="arm64-apple-darwin13.4.0"
+      --target="arm64-apple-darwin20.0.0"
     )
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
     cp "${RECIPE_DIR}"/Makefile.cross .
