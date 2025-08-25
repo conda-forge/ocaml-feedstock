@@ -35,7 +35,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
       --host="x86_64-apple-darwin13.4.0"
-      --target="x86_64-apple-darwin13.4.0"
       AR="x86_64-apple-darwin13.4.0-ar"
       AS="x86_64-apple-darwin13.4.0-as"
       ASPP="x86_64-apple-darwin13.4.0-clang -c"
@@ -51,59 +50,40 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}"
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
     )
-    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-
-    echo "."; echo ".";echo "."; echo "."
+    _TARGET=(
+      --target="x86_64-apple-darwin13.4.0"
+    )
+    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
     make world.opt -j${CPU_COUNT}
     make install
     make distclean
     
-    export PATH="${OCAML_PREFIX}/bin:${PATH}"
+    # Set environment for locally installed ocaml
+    _PATH="${PATH}"
+    export PATH="${OCAML_PREFIX}/bin:${_PATH}"
     
+    # Set environment for cross-compiler installation
     export OCAML_PREFIX=${SRC_DIR}/_cross
-    _CONFIG_ARGS=(
-      --build="x86_64-apple-darwin13.4.0"
-      --host="x86_64-apple-darwin13.4.0"
+    export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
+    _TARGET=(
       --target="arm64-apple-darwin13.4.0"
-      AR="x86_64-apple-darwin13.4.0-ar"
-      AS="x86_64-apple-darwin13.4.0-as"
-      ASPP="x86_64-apple-darwin13.4.0-clang -c"
-      CC="x86_64-apple-darwin13.4.0-clang"
-      CPP="x86_64-apple-darwin13.4.0-clang-cpp"
-      LD="x86_64-apple-darwin13.4.0-ld"
-      NM="x86_64-apple-darwin13.4.0-nm"
-      RANLIB="x86_64-apple-darwin13.4.0-ranlib"
-      STRIP="x86_64-apple-darwin13.4.0-strip"
-      CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}"
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang"
       SAK_CC="x86_64-apple-darwin13.4.0-clang"
       SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)"
     )
-    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    
-    echo "."; echo ".";echo "."; echo "."
-    cat Makefile.build_config | grep -v "#" | grep -v "^$"
-    cat Makefile.config | grep -v "#" | grep -v "^$"
-    
-    echo "."; echo ".";echo "."; echo "."
-    echo "Make cross-compiler"
+    bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
     cp "${RECIPE_DIR}"/Makefile.cross .
     patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
     make crossopt
-    
-    echo "."; echo ".";echo "."; echo "."
-    echo "Install"
-    make install
+    make installcross
     make distclean
     
     # --- Cross-compile
-    echo "."; echo ".";echo "."; echo "."
-    echo "Cross-compiling"
-    export PATH="${OCAML_PREFIX}/bin:$PATH"
-    OCAMLRUN="${OCAML_PREFIX}"/bin/ocamlrun
+    export PATH="${OCAML_PREFIX}/bin:${_PATH}"
     
-    # Reset install path
+    # Reset to final install path
     export OCAML_PREFIX=$PREFIX
+    export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
     # --- Try to resolve 'Bad CPU' due to missing host exec
     _CONFIG_ARGS=(
@@ -115,7 +95,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     bash ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     make world.opt \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      OCAMLRUN="${OCAMLRUN}" \
       SAK_CC="x86_64-apple-darwin13.4.0-clang" \
       SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
       -j${CPU_COUNT}
