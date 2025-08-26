@@ -155,9 +155,15 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     )
     run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     make runtime runtimeopt \
+      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
       OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
       -j${CPU_COUNT}
     make all opt \
+      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
+      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
       OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
       BOOT_CAMLC="${SRC_DIR}/_cross/bin/ocamlc" \
       BOOT_CAMLOPT="${SRC_DIR}/_cross/bin/ocamlopt" \
