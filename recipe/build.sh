@@ -154,7 +154,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     )
     run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
-    make install
+    make installcross
   fi
 fi
   
