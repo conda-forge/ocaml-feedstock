@@ -88,7 +88,6 @@ fi
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
 CONFIG_ARGS=(
-  --enable-ocamltest
   --enable-shared
   --disable-static
   --mandir=${OCAML_PREFIX}/share/man
@@ -152,18 +151,11 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --build="x86_64-apple-darwin13.4.0"
       --host="arm64-apple-darwin20.0.0"
       --target="arm64-apple-darwin20.0.0"
+      AS="arm64-apple-darwin20.0.0-as"
+      ASPP="arm64-apple-darwin20.0.0-clang -c"
     )
     run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make crosscompiledopt \
-      OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
-      NEW_OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
-      CAMLC="${SRC_DIR}/_cross/bin/ocamlc" \
-      CAMLOPT="${SRC_DIR}/_cross/bin/ocamlopt" \
-      BEST_OCAMLC="${SRC_DIR}/_cross/bin/ocamlc" \
-      BEST_OCAMLOPT="${SRC_DIR}/_cross/bin/ocamlopt" \
-      BOOT_OCAMLLEX="${SRC_DIR}/_cross/bin/ocamllex" \
-      OCAMLYACC="${SRC_DIR}/_cross/bin/ocamlyacc" \
-      -j${CPU_COUNT}
+    make crosscompiledopt -j${CPU_COUNT}
     make install
   fi
 fi
