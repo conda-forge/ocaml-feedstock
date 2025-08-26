@@ -87,6 +87,7 @@ endif
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
 
+.PHONY: crosscompiledopt
 crosscompiledopt:
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
