@@ -78,7 +78,7 @@ if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"*
   export OCAML_PREFIX=$PREFIX/Library
   SH_EXT="bat"
 elif [[ "${target_platform}" == "osx-arm64" ]]; then
-  export OCAML_PREFIX=/tmp/_native && mkdir -p /tmp/_native
+  export OCAML_PREFIX=${SRC_DIR}/_native && mkdir -p ${SRC_DIR}/_native
   SH_EXT="sh"
 else
   export OCAML_PREFIX=$PREFIX
@@ -154,20 +154,15 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --target="arm64-apple-darwin20.0.0"
     )
     run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make runtime runtimeopt \
-      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+    make crosscompiledopt \
       OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
-      -j${CPU_COUNT}
-    make all opt \
-      CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-      SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-      OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
-      BOOT_CAMLC="${SRC_DIR}/_cross/bin/ocamlc" \
-      BOOT_CAMLOPT="${SRC_DIR}/_cross/bin/ocamlopt" \
       NEW_OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
+      CAMLC="${SRC_DIR}/_cross/bin/ocamlc" \
+      CAMLOPT="${SRC_DIR}/_cross/bin/ocamlopt" \
+      BEST_OCAMLC="${SRC_DIR}/_cross/bin/ocamlc" \
+      BEST_OCAMLOPT="${SRC_DIR}/_cross/bin/ocamlopt" \
+      BOOT_OCAMLLEX="${SRC_DIR}/_cross/bin/ocamllex" \
+      OCAMLYACC="${SRC_DIR}/_cross/bin/ocamlyacc" \
       -j${CPU_COUNT}
     make install
   fi

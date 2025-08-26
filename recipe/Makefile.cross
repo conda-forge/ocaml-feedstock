@@ -87,6 +87,27 @@ endif
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
 
+crosscompiledopt:
+	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
+	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	$(MAKE) library $(CROSS_OVERRIDES) $(OLDS)
+	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
+	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
+	$(MAKE) -C otherlibs all $(CROSS_OVERRIDES) $(OLDS)
+	$(MAKE) runtimeopt $(OLDS)
+	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
+	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
+	$(MAKE) libraryopt $(CROSS_OVERRIDES) $(OLDS)
+	$(MAKE) otherlibrariesopt ocamltoolsopt $(CROSS_OVERRIDES) $(OLDS)
+	$(MAKE) tools-allopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	# We now build the compiler libs again, but for target this time
+	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
+	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
+	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
+	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
+
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
 	rm -f $(FLEXDLL_SOURCE_DIR)/flexlink.exe
