@@ -159,14 +159,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     cat Makefile.build_config | grep -v "^#" | grep -v "^$"
     cat Makefile.config | grep -v "^#" | grep -v "^$"
     echo "."; echo "."; echo "."; echo "."
-    make crosscompiledopt \
-      CROSS_COMPILERLIBS_OVERRIDES=OCAMLRUN=ocamlrun \
-                                   NEW_OCAMLRUN=ocamlrun \
-                                   BOOT_OCAMLLEX=ocamllex \
-                                   OCAMLYACC=ocamlyacc \
-                                   CAMLC=ocamlc \
-                                   CAMLOPT="ocamlopt $(STDLIBFLAGS)" \
-      -j${CPU_COUNT}
+    make crosscompiledopt -j${CPU_COUNT}
     make install
   fi
 fi
