@@ -160,9 +160,12 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     cat Makefile.config | grep -v "^#" | grep -v "^$"
     echo "."; echo "."; echo "."; echo "."
     make crosscompiledopt \
-      AS="arm64-apple-darwin20.0.0-as" \
-      ASM="arm64-apple-darwin20.0.0-as" \
-      ASPP="arm64-apple-darwin20.0.0-clang -c" \
+      CROSS_COMPILERLIBS_OVERRIDES=OCAMLRUN=ocamlrun \
+                                   NEW_OCAMLRUN=ocamlrun \
+                                   BOOT_OCAMLLEX=ocamllex \
+                                   OCAMLYACC=ocamlyacc \
+                                   CAMLC=ocamlc \
+                                   CAMLOPT="ocamlopt $(STDLIBFLAGS)" \
       -j${CPU_COUNT}
     make install
   fi
