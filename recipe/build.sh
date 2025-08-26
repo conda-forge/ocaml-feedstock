@@ -154,6 +154,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --target="arm64-apple-darwin20.0.0"
     )
     run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    cp "${RECIPE_DIR}"/Makefile.cross .
+    patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
     make crosscompiledopt \
       OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
       NEW_OCAMLRUN="${SRC_DIR}/_cross/bin/ocamlrun" \
