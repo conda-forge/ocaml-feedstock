@@ -9,10 +9,13 @@
 -	$(V_MKEXE)$(MKEXE) $(OUTPUTEXE)$@ $<
 +	$(V_MKEXE)$(CHECKSTACK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$@ $<
  else
-@@ -2970,2 +2973,7 @@
+@@ -2970,2 +2973,10 @@
  
 +# Include the cross-compiler recipes only when relevant
 +ifneq "$(HOST)" "$(TARGET)"
++include Makefile.cross
++endif
++ifneq "$(BUILD)" "$(HOST)"
 +include Makefile.cross
 +endif
 +
