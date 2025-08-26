@@ -96,7 +96,7 @@ CONFIG_ARGS=(
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ "${target_platform}" == "osx-arm64" ]]; then
-  # --- x86_64 compiler
+    # --- x86_64 compiler
     _CONFIG_ARGS=(
       --build="x86_64-apple-darwin13.4.0"
       --host="x86_64-apple-darwin13.4.0"
@@ -115,13 +115,19 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       CFLAGS="-march=core2 -mtune=haswell -mssse3 ${CFLAGS}"
       LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
     )
+    
     _TARGET=(
       --target="x86_64-apple-darwin13.4.0"
     )
-    run_and_log "configure native" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
-    run_and_log "world native" make world.opt -j${CPU_COUNT}
-    run_and_log "install native" make install
-    run_and_log "distclean native" make distclean
+    run_and_log "configure-x86_64" ./configure \
+      -prefix="${OCAML_PREFIX}" \
+      "${CONFIG_ARGS[@]}" \
+      "${_CONFIG_ARGS[@]}" \
+      "${_TARGET[@]}"
+      
+    run_and_log "world-x86_64" make world.opt -j${CPU_COUNT}
+    run_and_log "install-x86_64" make install
+    run_and_log "distclean-x86_64" make distclean
     
     # Set environment for locally installed ocaml
     _PATH="${PATH}"
@@ -130,15 +136,22 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     
     # Set environment for cross-compiler installation
     export OCAML_PREFIX=${SRC_DIR}/_cross
+    
     _TARGET=(
       --target="arm64-apple-darwin20.0.0"
     )
-    run_and_log "configure cross" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" "${_TARGET[@]}"
+    run_and_log "configure-x86_64->arm64" ./configure \
+      -prefix="${OCAML_PREFIX}" \
+      "${CONFIG_ARGS[@]}" \
+      "${_CONFIG_ARGS[@]}" \
+      "${_TARGET[@]}"
+    
+    # patch for cross: This is changing in 5.4.0
     cp "${RECIPE_DIR}"/Makefile.cross .
     patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
-    run_and_log "make cross" make crossopt -j${CPU_COUNT}
-    run_and_log "install cross" make installcross
-    run_and_log "distclean" make distclean
+    run_and_log "make-x86_64->arm64" make crossopt -j${CPU_COUNT}
+    run_and_log "install-x86_64->arm64" make installcross
+    run_and_log "distclean-x86_64->arm64" make distclean
     
     # --- Cross-compile
     export PATH="${OCAML_PREFIX}/bin:${_PATH}"
@@ -152,9 +165,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --host="arm64-apple-darwin20.0.0"
       --target="arm64-apple-darwin20.0.0"
     )
-    run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
-    make installcross
+    run_and_log "configure-arm64" ./configure \
+      -prefix="${OCAML_PREFIX}" \
+      "${CONFIG_ARGS[@]}" \
+      "${_CONFIG_ARGS[@]}"
+      
+    run_and_log "make-arm64" make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
+    ls -l runtime
+    run_and_log "install-arm64" make installcross
     
     for binary in ${PREFIX}/bin/*; do
       if file "$binary" | grep -q "arm64"; then
@@ -168,63 +186,6 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   fi
 fi
   
-# # --- x86_64 compiler
-# make core \
-#   AS="${CC}" \
-#   ASM="${CC}" \
-#   ASPP="${CC} -c" \
-#   CC="x86_64-apple-darwin13.4.0-clang" \
-#   CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-#   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-#   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-#   -j${CPU_COUNT} || true
-
-# make coreboot \
-#   AS="${CC}" \
-#   ASM="${CC}" \
-#   ASPP="${CC} -c" \
-#   CC="x86_64-apple-darwin13.4.0-clang" \
-#   CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-#   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-#   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-#   -j${CPU_COUNT} || true
-
-# # --- Cross-compile?
-# make opt.opt \
-#   AS="${CC}" \
-#   ASM="${CC}" \
-#   ASPP="${CC} -c" \
-#   CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
-#   OCAMLRUN=${SRC_DIR}/runtime/ocamlrun \
-#   SAK_CC="x86_64-apple-darwin13.4.0-clang" \
-#   SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-#   -j${CPU_COUNT} || true
-
-# make opt.opt.stage0 \
-#   AS="${CC}" \
-#   ASM="${CC}" \
-#   ASPP="${CC} -c" \
-#   -j${CPU_COUNT} || true
-
-# make ocaml \
-#   AS="${CC}" \
-#   ASM="${CC}" \
-#   ASPP="${CC} -c" \
-#   -j${CPU_COUNT} || true
-
-# for obj in runtime/*.o; do
-#   echo "$obj: $(file "$obj" | grep -o 'x86_64\|arm64')"
-# done | sort
-
-# make opt.opt \
-#   AS="${CC}" \
-#   ASM="${CC}" \
-#   ASPP="${CC} -c" \
-#   -j${CPU_COUNT} || true
-#
-# make libraryopt \
-#   ASM="${CC}"
-
 # Check if cross-compiling - not testing on build architecture
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
   if [ "$(uname)" = "Darwin" ]; then
