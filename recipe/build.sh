@@ -154,8 +154,16 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       AS="arm64-apple-darwin20.0.0-as"
       ASPP="arm64-apple-darwin20.0.0-clang -c"
     )
-    run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    make crosscompiledopt -j${CPU_COUNT}
+    ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    echo "."; echo "."; echo "."; echo "."
+    cat Makefile.build_config | grep -v "^#" | grep -v "^$"
+    cat Makefile.config | grep -v "^#" | grep -v "^$"
+    echo "."; echo "."; echo "."; echo "."
+    make crosscompiledopt \
+      AS="arm64-apple-darwin20.0.0-as" \
+      ASM="arm64-apple-darwin20.0.0-as" \
+      ASPP="arm64-apple-darwin20.0.0-clang -c" \
+      -j${CPU_COUNT}
     make install
   fi
 fi
