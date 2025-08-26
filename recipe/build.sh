@@ -152,13 +152,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       --host="arm64-apple-darwin20.0.0"
       --target="arm64-apple-darwin20.0.0"
     )
-    ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
-    echo "."; echo "."; echo "."; echo "."
-    cat Makefile.build_config | grep -v "^#" | grep -v "^$"
-    cat Makefile.config | grep -v "^#" | grep -v "^$"
-    echo "mov x16, #34" | arm64-apple-darwin20.0.0-as -o /tmp/test.o - 2>/dev/null && echo "ARM64 assembler works"
-    echo "."; echo "."; echo "."; echo "."
-    make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT} V=1
+    run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
+    make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
     make install
   fi
 fi

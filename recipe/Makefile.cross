@@ -46,7 +46,7 @@ CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
   CAMLOPT="$(ROOTDIR)/ocamlopt.opt$(EXE) $(STDLIBFLAGS)"
 
 CROSSCOMPILED_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
-  CAMLOPT=ocamlopt $(STDLIBFLAGS)"
+  CAMLOPT="ocamlopt $(STDLIBFLAGS)"
 
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 # Declare flexlink to be an 'old' file, so that make doesn't try to rebuild it
