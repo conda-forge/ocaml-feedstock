@@ -155,6 +155,16 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     run_and_log "configure cross-compiled" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}"
     make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
     make installcross
+    
+    for binary in ${PREFIX}/bin/*; do
+      if file "$binary" | grep -q "arm64"; then
+        echo "\u2713 $binary: ARM64"
+      else
+        echo "\u2717 $binary: NOT ARM64"
+        file "$binary"
+        failed=1
+      fi
+    done
   fi
 fi
   
