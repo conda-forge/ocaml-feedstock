@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -eu
 
-export CC=$(basename "$CC")
-export ASPP="$CC -c"
-export AS=$(basename "$AS")
-export AR=$(basename "$AR")
-export RANLIB=$(basename "$RANLIB")
+source "${RECIPE_DIR}"/building/run-and-log.sh
+_log_index=0
+
+# Avoids an annoying 'directory not found'
+mkdir -p ${PREFIX}/lib
 
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   export OCAML_PREFIX=$PREFIX/Library
@@ -18,7 +18,6 @@ fi
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
 CONFIG_ARGS=(
-  --enable-ocamltest
   --enable-shared
   --disable-static
   --mandir=${OCAML_PREFIX}/share/man
@@ -26,28 +25,30 @@ CONFIG_ARGS=(
   -prefix $OCAML_PREFIX
 )
 
-mkdir -p ${OCAML_PREFIX}/lib
-bash ./configure "${CONFIG_ARGS[@]}"
+if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]] && [[ "${target_platform}" == "osx-arm64" ]]; then
+  "${RECIPE_DIR}"/building/build-arm64.sh
+else
+  ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" && CONFIG_ARGS+=(--enable-ocamltest)
+  run_and_log "configure" ./configure "${CONFIG_ARGS[@]}"
+  run_and_log "make" make world.opt -j${CPU_COUNT}
 
-make world.opt -j${CPU_COUNT}
+  if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
+    if [ "$(uname)" == "Darwin" ]; then
+      # Tests failing on macOS. Seems to be a known issue.
+      rm testsuite/tests/lib-str/t01.ml
+      rm testsuite/tests/lib-threads/beat.ml
+    fi
 
-# Check if cross-compiling - not testing on build architecture
-if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
-  if [ "$(uname)" == "Darwin" ]; then
-    # Tests failing on macOS. Seems to be a known issue.
-    rm testsuite/tests/lib-str/t01.ml
-    rm testsuite/tests/lib-threads/beat.ml
+    if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+      rm testsuite/tests/unicode/$'\u898b'.ml
+    fi
+
+    run_and_log "ocamltest" make ocamltest -j ${CPU_COUNT}
+    run_and_log "tests" make tests
   fi
 
-  if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
-    rm testsuite/tests/unicode/$'\u898b'.ml
-  fi
-
-  make ocamltest -j ${CPU_COUNT}
-  make tests
+  run_and_log "install" make install
 fi
-
-make install
 
 for bin in ${OCAML_PREFIX}/bin/*
 do
