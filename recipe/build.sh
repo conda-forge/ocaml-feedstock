@@ -172,6 +172,8 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       
     run_and_log "make-arm64" make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
     
+    rm runtime/sak
+    rm runtime/build_config.h
     make crosscompiledruntime \
       CAMLOPT=ocamlopt \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
