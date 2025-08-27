@@ -28,7 +28,10 @@ CONFIG_ARGS=(
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]] && [[ "${target_platform}" == "osx-arm64" ]]; then
   "${RECIPE_DIR}"/building/build-arm64.sh
 else
-  ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" && CONFIG_ARGS+=(--enable-ocamltest)
+  if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
+    CONFIG_ARGS+=(--enable-ocamltest)
+  fi
+
   run_and_log "configure" ./configure "${CONFIG_ARGS[@]}"
   run_and_log "make" make world.opt -j${CPU_COUNT}
 

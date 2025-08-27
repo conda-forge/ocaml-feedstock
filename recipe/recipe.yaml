@@ -66,12 +66,9 @@ tests:
         - ocamlc.opt
         - ocamlcmt
         - ocamlcp
-        - ocamldebug
         - ocamldep
         - ocamldep.byte
         - ocamldep.opt
-        - ocamldoc
-        - ocamldoc.opt
         - ocamllex
         - ocamllex.byte
         - ocamllex.opt
@@ -88,6 +85,11 @@ tests:
         - ocamlrun
         - ocamlrund
         - ocamlyacc
+        - if: not arm64
+          then:
+            - ocamldebug
+            - ocamldoc
+            - ocamldoc.opt
         - if: unix
           then:
             - ocamlruni
@@ -99,7 +101,8 @@ tests:
       files:
         - ${{ "Library/" if win else "" }}lib/ocaml/**
         - ${{ "Library/" if win else "" }}share/doc/ocaml/*
-        - ${{ "Library/" if win else "" }}share/man/man{1,3}/*
+        - if: not arm64
+          then: ${{ "Library/" if win else "" }}share/man/man{1,3}/*
         - if: unix
           then:
             - etc/conda/activate.d/ocaml_activate.sh
