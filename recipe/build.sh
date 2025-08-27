@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 
-source building/run-and-log.sh
+source "${RECIPE_DIR}"/building/run-and-log.sh
 _log_index=0
 
 # Avoids an annoying 'directory not found'
@@ -25,7 +25,7 @@ CONFIG_ARGS=(
 )
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]] && [[ "${target_platform}" == "osx-arm64" ]]; then
-  ./building/build-arm64.sh
+  "${RECIPE_DIR}"/building/build-arm64.sh
 else
   ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" && CONFIG_ARGS+=(--enable-ocamltest)
   run_and_log "configure" ./configure "${CONFIG_ARGS[@]}"
