@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -eu
 
-source "${RECIPE_DIR}"/building/run-and-log.sh
-_log_index=0
-
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
 
@@ -32,8 +29,8 @@ else
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
-  run_and_log "configure" ./configure "${CONFIG_ARGS[@]}"
-  run_and_log "make" make world.opt -j${CPU_COUNT}
+  ./configure "${CONFIG_ARGS[@]}"
+  make world.opt -j${CPU_COUNT}
 
   if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
     if [ "$(uname)" == "Darwin" ]; then
@@ -46,11 +43,11 @@ else
       rm testsuite/tests/unicode/$'\u898b'.ml
     fi
 
-    run_and_log "ocamltest" make ocamltest -j ${CPU_COUNT}
-    run_and_log "tests" make tests
+    make ocamltest -j ${CPU_COUNT}
+    make tests
   fi
 
-  run_and_log "install" make install
+  make install
 fi
 
 for bin in ${OCAML_PREFIX}/bin/*

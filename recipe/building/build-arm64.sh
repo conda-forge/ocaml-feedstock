@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -eu
 
-source "${RECIPE_DIR}"/building/run-and-log.sh
-_log_index=0
-
 _build_alias="$build_alias"
 _host_alias="$host_alias"
 _OCAML_PREFIX="${OCAML_PREFIX}"
@@ -45,19 +42,19 @@ _CONFIG_ARGS=(
 _TARGET=(
   --target="$_build_alias"
 )
-run_and_log "configure-x86_64" ./configure \
+./configure \
   -prefix="${OCAML_PREFIX}" \
   "${CONFIG_ARGS[@]}" \
   "${_CONFIG_ARGS[@]}" \
   "${_TARGET[@]}"
 
-run_and_log "world-x86_64" make world.opt -j${CPU_COUNT}
-run_and_log "install-x86_64" make install
+make world.opt -j${CPU_COUNT}
+make install
 
 # Save for cross-compiled runtime
 cp runtime/build_config.h "${SRC_DIR}"
 
-run_and_log "distclean-x86_64" make distclean
+make distclean
 
 
 # --- Build cross-compiler
@@ -71,7 +68,7 @@ export OCAML_PREFIX=${SRC_DIR}/_cross
 _TARGET=(
   --target="$_host_alias"
 )
-run_and_log "configure-x86_64->arm64" ./configure \
+./configure \
   -prefix="${OCAML_PREFIX}" \
   "${CONFIG_ARGS[@]}" \
   "${_CONFIG_ARGS[@]}" \
@@ -80,9 +77,9 @@ run_and_log "configure-x86_64->arm64" ./configure \
 # patch for cross: This is changing in 5.4.0
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
-run_and_log "make-x86_64->arm64" make crossopt -j${CPU_COUNT}
-run_and_log "install-x86_64->arm64" make installcross
-run_and_log "distclean-x86_64->arm64" make distclean
+make crossopt -j${CPU_COUNT}
+make installcross
+make distclean
 
 
 # --- Cross-compile
@@ -98,12 +95,12 @@ _CONFIG_ARGS=(
   --target="$_host_alias"
   --with-target-bindir=/opt/anaconda1anaconda2anaconda3/bin
 )
-run_and_log "configure-arm64" ./configure \
+./configure \
   -prefix="${OCAML_PREFIX}" \
   "${CONFIG_ARGS[@]}" \
   "${_CONFIG_ARGS[@]}"
 
-run_and_log "make-arm64" make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
+make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
 
 sed 's#$SRC_DIR/_native/lib/ocaml#$PREFIX/lib/ocaml#' "${SRC_DIR}"/build_config.h > runtime/build_config.h
 sed -i "s#$_build_alias#$_host_alias#" runtime/build_config.h
@@ -112,10 +109,10 @@ echo ".";echo ".";echo ".";echo ".";
 cat runtime/build_config.h
 echo ".";echo ".";echo ".";echo ".";
 
-run_and_log "make-runtime-arm64" make crosscompiledruntime \
+make crosscompiledruntime \
   CAMLOPT=ocamlopt \
   CHECKSTACK_CC="$_build_alias-clang" \
   SAK_CC="$_build_alias-clang" \
   SAK_LINK="$_build_alias-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   -j${CPU_COUNT}
-run_and_log "install-arm64" make installcross
+make installcross
