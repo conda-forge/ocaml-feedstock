@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 
-source run-and-log.sh
+source "${RECIPE_DIR}"/building/run-and-log.sh
 _log_index=0
 
 _build_alias="$build_alias"
@@ -77,8 +77,8 @@ run_and_log "configure-x86_64->arm64" ./configure \
   "${_TARGET[@]}"
 
 # patch for cross: This is changing in 5.4.0
-cp "${RECIPE_DIR}"/Makefile.cross .
-patch -p0 < ${RECIPE_DIR}/tmp_Makefile.patch
+cp "${RECIPE_DIR}"/building/Makefile.cross .
+patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 run_and_log "make-x86_64->arm64" make crossopt -j${CPU_COUNT}
 run_and_log "install-x86_64->arm64" make installcross
 run_and_log "distclean-x86_64->arm64" make distclean
