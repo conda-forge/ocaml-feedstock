@@ -127,6 +127,10 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       
     run_and_log "world-x86_64" make world.opt -j${CPU_COUNT}
     run_and_log "install-x86_64" make install
+    
+    # Save for cross-compiled runtime
+    cp runtime/build_config.h "${SRC_DIR}"
+    
     run_and_log "distclean-x86_64" make distclean
     
     # Set environment for locally installed ocaml
@@ -172,14 +176,12 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       
     run_and_log "make-arm64" make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
     
-    rm runtime/sak
-    rm runtime/build_config.h
+    cp "${SRC_DIR}"/build_config.h runtime/build_config.h
     make crosscompiledruntime \
       CAMLOPT=ocamlopt \
       CHECKSTACK_CC="x86_64-apple-darwin13.4.0-clang" \
       SAK_CC="x86_64-apple-darwin13.4.0-clang" \
       SAK_LINK="x86_64-apple-darwin13.4.0-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
-      CPPFLAGS="-DOCAML_STDLIB_DIR=\"${PREFIX}/lib/ocaml\"" \
       -j${CPU_COUNT}
     ls -l runtime
     run_and_log "install-arm64" make installcross
