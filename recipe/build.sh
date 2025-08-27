@@ -18,7 +18,7 @@ CONFIG_ARGS=(
   --enable-shared
   --disable-static
   --mandir=${OCAML_PREFIX}/share/man
-  --with-target-bindir=/opt/anaconda1anaconda2anaconda3/bin
+  --with-target-bindir=/opt/ocaml1ocaml2ocaml3/bin
   -prefix $OCAML_PREFIX
 )
 
