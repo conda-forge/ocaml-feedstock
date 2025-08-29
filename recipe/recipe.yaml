@@ -31,7 +31,7 @@ requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
   build:
-    - if: not unix
+    - if: unix
       then:
         - ${{ compiler('c') }}
         - ${{ stdlib('c') }}
