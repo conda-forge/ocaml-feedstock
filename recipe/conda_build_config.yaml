@@ -1,13 +1,9 @@
-c_stdlib:                       # [not unix]
-  - m2w64-sysroot               # [not unix]
-c_stdlib_version:               # [not unix]
-  - 12                          # [not unix]
+m2w64_c_stdlib:
+  - m2w64-sysroot
+m2w64_c_stdlib_version:
+  - 12
 
-c_compiler:                     # [not unix]
-  - gcc                         # [not unix]
-c_compiler_version:             # [not unix]
-  - 15                          # [not unix]
-cxx_compiler:                   # [not unix]
-  - gxx                         # [not unix]
-cxx_compiler_version:           # [not unix]
-  - 15                          # [not unix]
+m2w64_c_compiler:
+  - gcc
+m2w64_c_compiler_version:
+  - 15

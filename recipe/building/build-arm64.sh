@@ -25,8 +25,8 @@ _CONFIG_ARGS=(
   --host="$_build_alias"
   AR="$_build_alias-ar"
   AS="$_build_alias-as"
-  ASPP="$_build_alias-clang -c"
-  CC="$_build_alias-clang"
+  ASPP="${CC_FOR_BUILD} -c"
+  CC="${CC_FOR_BUILD}"
   CPP="$_build_alias-clang-cpp"
   LD="$_build_alias-ld"
   LIPO="$_build_alias-lipo"
@@ -93,7 +93,7 @@ _CONFIG_ARGS=(
   --build="$_build_alias"
   --host="$_host_alias"
   --target="$_host_alias"
-  --with-target-bindir=/opt/anaconda1anaconda2anaconda3/bin
+  --with-target-bindir="${PREFIX}"/bin
 )
 ./configure \
   -prefix="${OCAML_PREFIX}" \
@@ -111,8 +111,8 @@ echo ".";echo ".";echo ".";echo ".";
 
 make crosscompiledruntime \
   CAMLOPT=ocamlopt \
-  CHECKSTACK_CC="$_build_alias-clang" \
-  SAK_CC="$_build_alias-clang" \
-  SAK_LINK="$_build_alias-clang \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+  CHECKSTACK_CC="${CC_FOR_BUILD}" \
+  SAK_CC="${CC_FOR_BUILD}" \
+  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   -j${CPU_COUNT}
 make installcross
