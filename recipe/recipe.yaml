@@ -121,6 +121,7 @@ tests:
           - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX}
         else:
           - echo "%OCAMLLIB%" | grep ocaml
+          - echo "%PATH%" | grep ocaml
 
       - ocamlc -version | grep ${{ version }}
       - ocamldep -version | grep ${{ version }}
