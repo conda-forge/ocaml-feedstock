@@ -155,7 +155,7 @@ tests:
           - ./test_bytecode | grep "Hello World"
           - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
         else:
-          - dir
+          - test_bytecode | grep "Hello World"
     requirements:
       run:
         - if: not unix
