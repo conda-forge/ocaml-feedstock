@@ -148,7 +148,7 @@ tests:
           then: m2-grep
 
   - script:
-      - echo 'print_endline "Hello World"' > test.ml
+      - printf 'print_endline "Hello World"\n' > test.ml
       - ocamlc -o test_bytecode test.ml
       - if: unix
         then:
