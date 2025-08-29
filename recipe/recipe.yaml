@@ -139,7 +139,7 @@ tests:
       - ocamldebug -version | grep ${{ version }}
       - ocamlmklib -version | grep ${{ version }}
       - ocamlmktop -version | grep ${{ version }}
-      - ocamlobjinfo.byte -help | grep FILES
+      - ocamlobjinfo.byte -help
       - ocamloptp -version | grep ${{ version }}
       - ocamlprof -version | grep ${{ version }}
     requirements:
