@@ -19,10 +19,14 @@ source:
 build:
   number: 0
   prefix_detection:
-    ignore_binary_files: true
     force_file_type:
-      text: lib/ocaml/runtime-launch-info
-      
+      text:
+        - lib/ocaml/runtime-launch-info
+    ignore:
+      # Ignore all but run* and ld.*
+      - lib/ocaml/[^rl][^ud][^n\.]*
+      - bin/*
+
 requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
@@ -49,14 +53,7 @@ requirements:
     - if: unix
       then: zstd
       else: m2-libzstd
-  run:
-    # We don't seem to have a way to relocate the runtime-launch-info
-    # the 'prefix_detection' does not work since it is a binary but needs a text detection
-    # However, we may not want to patch the other binaries: this recipe build ocamlbuil package
-    - if: unix
-      then: sed
-      else: m2-sed
-    
+
 tests:
   - package_contents:
       bin:
@@ -110,16 +107,15 @@ tests:
           else:
             - etc/conda/activate.d/ocaml_activate.bat
             - etc/conda/deactivate.d/ocaml_deactivate.bat
-          
 
   - script:
       - if: unix
         then:
-          - echo "${OCAMLLIB:-'UNSET'}" | grep -v UNSET
-          - echo "${OCAML_PREFIX:-'UNSET'}" | grep -v UNSET
+          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml
+          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX}
+          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX}
         else:
-          - echo "%OCAMLLIB%"
-          - echo "%OCAML_PREFIX%"
+          - echo "%OCAMLLIB%" | grep ocaml
 
       - ocamlc -version | grep ${{ version }}
       - ocamldep -version | grep ${{ version }}
@@ -131,15 +127,28 @@ tests:
       - ocamlyacc -version | grep ${{ version }}
 
       - ocaml -version | grep ${{ version }}
-      - ocamlcmt -help
-      - ocamlcp -version
-      - ocamldoc -version
-      - ocamldebug -version
-      - ocamlmklib -version
-      - ocamlmktop -version
-      - ocamlobjinfo.byte -help
-      - ocamloptp -version
-      - ocamlprof -version
+      - ocamlcmt -help | grep FILE
+      - ocamlcp -version | grep ${{ version }}
+      - ocamldoc -version | grep ${{ version }}
+      - ocamldebug -version | grep ${{ version }}
+      - ocamlmklib -version | grep ${{ version }}
+      - ocamlmktop -version | grep ${{ version }}
+      - ocamlobjinfo.byte -help | grep FILES
+      - ocamloptp -version | grep ${{ version }}
+      - ocamlprof -version | grep ${{ version }}
+    requirements:
+      run:
+        - if: not unix
+          then: m2-grep
+
+  - script:
+      - echo 'print_endline "Hello World"' > test.ml
+      - ocamlc -o test_bytecode test.ml
+      - if: unix
+        then:
+          - ./test_bytecode | grep "Hello World"
+          - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+        else: test_bytecode.exe | grep "Hello World"
     requirements:
       run:
         - if: not unix

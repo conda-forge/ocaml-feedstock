@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -eu
 
+# Paths are hardcoded in binaries, simplify to basename
+export CC=$(basename "$CC")
+export ASPP="$CC -c"
+export AS=$(basename "$AS")
+export AR=$(basename "$AR")
+export RANLIB=$(basename "$RANLIB")
+
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
 
@@ -18,7 +25,7 @@ CONFIG_ARGS=(
   --enable-shared
   --disable-static
   --mandir=${OCAML_PREFIX}/share/man
-  --with-target-bindir=/opt/ocaml1ocaml2ocaml3/bin
+  --with-target-bindir="${PREFIX}"/bin
   -prefix $OCAML_PREFIX
 )
 
@@ -29,8 +36,8 @@ else
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
-  ./configure "${CONFIG_ARGS[@]}"
-  make world.opt -j${CPU_COUNT}
+  ./configure "${CONFIG_ARGS[@]}" >& /dev/null
+  make world.opt -j${CPU_COUNT} >& /dev/null
 
   if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
     if [ "$(uname)" == "Darwin" ]; then
@@ -47,7 +54,7 @@ else
     make tests
   fi
 
-  make install
+  make install >& /dev/null
 fi
 
 for bin in ${OCAML_PREFIX}/bin/*
