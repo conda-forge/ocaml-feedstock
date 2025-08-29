@@ -150,10 +150,12 @@ tests:
   - script:
       - printf 'print_endline "Hello World"\n' > test.ml
       - ocamlc -o test_bytecode test.ml
-      - test_bytecode | grep "Hello World"
       - if: unix
         then:
+          - ./test_bytecode | grep "Hello World"
           - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+        else:
+          - dir
     requirements:
       run:
         - if: not unix
