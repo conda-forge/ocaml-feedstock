@@ -221,5 +221,4 @@ Feedstock Maintainers
 * [@MementoRC](https://github.com/MementoRC/)
 * [@dslarm](https://github.com/dslarm/)
 * [@isuruf](https://github.com/isuruf/)
-* [@peterjc](https://github.com/peterjc/)
 
