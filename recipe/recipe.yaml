@@ -1,0 +1,195 @@
+context:
+  name: ocaml
+  version: 5.3.0
+  flexdll_version: 0.44
+
+package:
+  name: ${{ name|lower }}
+  version: ${{ version }}
+
+source:
+  - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
+    sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+  - if: win
+    then:
+      url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
+      sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
+      target_directory: flexdll
+
+build:
+  number: 0
+  prefix_detection:
+    force_file_type:
+      text:
+        - lib/ocaml/runtime-launch-info
+    ignore:
+      # Ignore all but run* and ld.*
+      - lib/ocaml/[^rl][^ud][^n\.]*
+      - bin/*
+
+requirements:
+  run_exports:
+    - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+  build:
+    - if: unix
+      then:
+        - ${{ compiler('c') }}
+        - ${{ stdlib('c') }}
+      else:
+        - ${{ compiler('m2w64_c') }}
+        - ${{ stdlib('m2w64_c') }}
+
+    - if: unix
+      then:
+        - file
+        - make
+        - sed
+      else:
+        - binutils
+        - m2-bash
+        - m2-coreutils
+        - m2-diffutils
+        - m2-findutils
+        - m2-gawk
+        - m2-grep
+        - m2-make
+        - m2-sed
+  host:
+    - if: unix
+      then: zstd
+      else: m2-libzstd
+
+tests:
+  - package_contents:
+      bin:
+        - ocaml
+        - ocamlc
+        - ocamlc.byte
+        - ocamlc.opt
+        - ocamlcmt
+        - ocamlcp
+        - ocamldep
+        - ocamldep.byte
+        - ocamldep.opt
+        - ocamllex
+        - ocamllex.byte
+        - ocamllex.opt
+        - ocamlmklib
+        - ocamlmktop
+        - ocamlobjinfo
+        - ocamlobjinfo.byte
+        - ocamlobjinfo.opt
+        - ocamlopt
+        - ocamlopt.byte
+        - ocamlopt.opt
+        - ocamloptp
+        - ocamlprof
+        - ocamlrun
+        - ocamlrund
+        - ocamlyacc
+        - if: not arm64
+          then:
+            - ocamldebug
+            - ocamldoc
+            - ocamldoc.opt
+        - if: unix
+          then:
+            - ocamlruni
+          else:
+            - flexlink
+            - flexlink.byte
+            - flexlink.opt
+
+      files:
+        - ${{ "Library/" if win else "" }}lib/ocaml/**
+        - ${{ "Library/" if win else "" }}share/doc/ocaml/*
+        - if: not arm64
+          then: ${{ "Library/" if win else "" }}share/man/man{1,3}/*
+        - if: unix
+          then:
+            - etc/conda/activate.d/ocaml_activate.sh
+            - etc/conda/deactivate.d/ocaml_deactivate.sh
+          else:
+            - etc/conda/activate.d/ocaml_activate.bat
+            - etc/conda/deactivate.d/ocaml_deactivate.bat
+
+  - script:
+      - if: unix
+        then:
+          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml
+          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX}
+          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX}
+        else:
+          - echo "%OCAMLLIB%" | grep ocaml
+          - echo "%PATH%" | grep ocaml
+
+      - ocamlc -version | grep ${{ version }}
+      - ocamldep -version | grep ${{ version }}
+      - ocamllex -version | grep ${{ version }}
+      - ocamlobjinfo -help | grep FILES
+      - ocamlobjinfo.opt -help | grep FILES
+      - ocamlopt -version | grep ${{ version }}
+      - ocamlrun -version | grep ${{ version }}
+      - ocamlyacc -version | grep ${{ version }}
+
+      - ocaml -version | grep ${{ version }}
+      - ocamlcmt -help | grep FILE
+      - ocamlcp -version | grep ${{ version }}
+      - ocamldoc -version | grep ${{ version }}
+      - ocamldebug -version | grep ${{ version }}
+      - ocamlmklib -version | grep ${{ version }}
+      - ocamlmktop -version | grep ${{ version }}
+      - ocamlobjinfo.byte -help
+      - ocamloptp -version | grep ${{ version }}
+      - ocamlprof -version | grep ${{ version }}
+    requirements:
+      run:
+        - if: not unix
+          then: m2-grep
+
+  - script:
+      - printf 'print_endline "Hello World"\n' > test.ml
+      - if: unix
+        then:
+          - ocamlc -o test_bytecode test.ml
+          - ./test_bytecode | grep "Hello World"
+          - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+        else:
+          - ocamlc -o test_bytecode.exe test.ml
+          - test_bytecode.exe | grep Hello
+    requirements:
+      run:
+        - if: not unix
+          then: m2-grep
+
+about:
+  homepage: https://ocaml.org/
+  license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+  license_family: LGPL
+  license_file: LICENSE
+  summary: Objective Caml (OCaml) is an implementation of the ML language.
+  description: |
+    OCaml is an implementation of the ML language, based on the Caml Light
+    dialect extended with a complete class-based object system and a powerful
+    module system in the style of Standard ML.
+
+    OCaml comprises two compilers. One generates bytecode which is then
+    interpreted by a C program. This compiler runs quickly, generates compact
+    code with moderate memory requirements, and is portable to essentially any
+    32 or 64 bit Unix platform. Performance of generated programs is quite good
+    for a bytecoded implementation.  This compiler can be used either as a
+    standalone, batch-oriented compiler that produces standalone programs, or as
+    an interactive, toplevel-based system.
+
+    The other compiler generates high-performance native code for a number of
+    processors. Compilation takes longer and generates bigger code, but the
+    generated programs deliver excellent performance, while retaining the
+    moderate memory requirements of the bytecode compiler.
+  documentation: https://ocaml.org/docs/
+  repository: https://github.com/ocaml/ocaml
+
+extra:
+  recipe-maintainers:
+    - isuruf
+    - dslarm
+    - MementoRC

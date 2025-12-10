@@ -1,0 +1,22 @@
+--- Makefile.orig	2025-08-22 14:47:04.617245588 -0500
++++ Makefile	2025-08-23 17:35:42.439887897 -0500
+@@ -2215,4 +2215,7 @@
+ .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
++tools/checkstack.$(O): tools/checkstack.c
++	$(V_CC)$(CHECKSTACK_CC) $(OC_CFLAGS) $(CFLAGS) $(OUTPUTOBJ)$@ -c $<
++
+ tools/checkstack$(EXE): tools/checkstack.$(O)
+-	$(V_MKEXE)$(MKEXE) $(OUTPUTEXE)$@ $<
++	$(V_MKEXE)$(CHECKSTACK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$@ $<
+ else
+@@ -2970,2 +2973,10 @@
+ 
++# Include the cross-compiler recipes only when relevant
++ifneq "$(HOST)" "$(TARGET)"
++include Makefile.cross
++endif
++ifneq "$(BUILD)" "$(HOST)"
++include Makefile.cross
++endif
++
+ Makefile.config Makefile.build_config: config.status

@@ -1,2 +1,0 @@
-unset OCAMLLIB
-unset OCAML_PREFIX
