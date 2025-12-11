@@ -35,6 +35,7 @@ CONFIG_ARGS=(
 )
 
 # Configure for native x86_64 build
+# Note: zstd from BUILD_PREFIX is needed for linking ocamlc.opt/ocamlopt.opt
 _CONFIG_ARGS=(
   --build="$_build_alias"
   --host="$_build_alias"
@@ -46,8 +47,8 @@ _CONFIG_ARGS=(
   NM="$_build_alias-nm"
   RANLIB="$_build_alias-ranlib"
   STRIP="$_build_alias-strip"
-  CFLAGS="-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe"
-  LDFLAGS="-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath-link,${OCAML_PREFIX}/lib"
+  CFLAGS="-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -I${BUILD_PREFIX}/include"
+  LDFLAGS="-L${BUILD_PREFIX}/lib -Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath-link,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib"
 )
 
 _TARGET=(
