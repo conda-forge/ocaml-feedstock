@@ -29,8 +29,15 @@ CONFIG_ARGS=(
   -prefix $OCAML_PREFIX
 )
 
-if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]] && [[ "${target_platform}" == "osx-arm64" ]]; then
-  "${RECIPE_DIR}"/building/build-arm64.sh
+if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+  if [[ "${target_platform}" == "osx-arm64" ]]; then
+    "${RECIPE_DIR}"/building/build-arm64.sh
+  elif [[ "${target_platform}" == "linux-aarch64" ]] || [[ "${target_platform}" == "linux-ppc64le" ]]; then
+    "${RECIPE_DIR}"/building/build-linux-cross.sh
+  else
+    echo "ERROR: Cross-compilation not supported for ${target_platform}"
+    exit 1
+  fi
 else
   if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
     CONFIG_ARGS+=(--enable-ocamltest)
