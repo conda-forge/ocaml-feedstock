@@ -102,8 +102,8 @@ _CONFIG_ARGS=(
 
 make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
 
-sed 's#$SRC_DIR/_native/lib/ocaml#$PREFIX/lib/ocaml#' "${SRC_DIR}"/build_config.h > runtime/build_config.h
-sed -i "s#$_build_alias#$_host_alias#" runtime/build_config.h
+perl -pe 's#\$SRC_DIR/_native/lib/ocaml#\$PREFIX/lib/ocaml#g' "${SRC_DIR}"/build_config.h > runtime/build_config.h
+perl -i -pe "s#${_build_alias}#${_host_alias}#g" runtime/build_config.h
 
 echo ".";echo ".";echo ".";echo ".";
 cat runtime/build_config.h
