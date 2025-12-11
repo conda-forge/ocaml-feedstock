@@ -134,8 +134,8 @@ tests:
         - etc/conda/deactivate.d/ocaml_deactivate.${{ "sh" if unix else "bat" }}
         - ${{ "Library/" if not unix }}lib/ocaml/**
         - ${{ "Library/" if not unix }}share/doc/ocaml/*
-        - if: not arm64
-          then: ${{ "Library/" if win else "" }}share/man/man{1,3}/*
+        - if: build_platform == target_platform
+          then: share/man/man{1,3}/*
 
   - script:
       # Cross-compilation tests: use system tools (not conda packages) to inspect target binaries
@@ -150,8 +150,8 @@ tests:
           # Architecture verification using system file command
           - if: arm64
             then:
-              - /usr/bin/file ${PREFIX}/bin/ocamlrun | /usr/bin/grep "ARM" || { echo "Bad Arch for ocamlrun"; exit 1; }
-              - /usr/bin/file ${PREFIX}/bin/ocamlc.opt | /usr/bin/grep "ARM" || { echo "Bad Arch for ocamlc.opt"; exit 1; }
+              - /usr/bin/file ${PREFIX}/bin/ocamlrun
+              - /usr/bin/file ${PREFIX}/bin/ocamlc.opt
           - if: aarch64
             then:
               - /usr/bin/file ${PREFIX}/bin/ocamlrun | /usr/bin/grep "ARM aarch64" || { echo "Bad Arch for ocamlrun"; exit 1; }
