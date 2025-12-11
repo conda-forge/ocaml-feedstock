@@ -80,19 +80,28 @@ do
     # On Unix: Replace shebang with env-based version that won't trigger prefix relocation
     # On Windows: Skip - shebangs don't matter, Windows uses file extensions
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+      echo "Fixing bytecode shebang: $bin"
       # Only modify the first line, preserve exact binary content after newline
-      python3 << EOF
-import sys
-with open('$bin', 'rb') as f:
-    content = f.read()
-# Find the first newline
-newline_pos = content.find(b'\n')
-if newline_pos > 0 and content[:2] == b'#!':
-    # Replace shebang, keep everything after first newline exactly as-is
-    new_content = b'#!/usr/bin/env ocamlrun' + content[newline_pos:]
-    with open('$bin', 'wb') as f:
-        f.write(new_content)
-EOF
+      # Using perl in binary mode to safely handle bytecode after the shebang
+      perl -e '
+        my $file = $ARGV[0];
+        open(my $fh, "<:raw", $file) or die "Cannot open $file: $!";
+        my $content = do { local $/; <$fh> };
+        close($fh);
+
+        my $newline_pos = index($content, "\n");
+        if ($newline_pos > 0 && substr($content, 0, 2) eq "#!") {
+            my $old_shebang = substr($content, 0, $newline_pos);
+            print "  Old shebang: $old_shebang\n";
+            my $new_content = "#!/usr/bin/env ocamlrun" . substr($content, $newline_pos);
+            open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
+            print $out $new_content;
+            close($out);
+            print "  New shebang: #!/usr/bin/env ocamlrun\n";
+        } else {
+            print "  WARNING: No shebang found in $file\n";
+        }
+      ' "$bin"
     fi
     continue
   fi
