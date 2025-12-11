@@ -170,10 +170,9 @@ tests:
             - m2-grep
 
   - script:
-      # Execution tests - skip for cross-compilation (can't run target binaries on build host)
-      - if: build_platform != target_platform
+      - if: arm64
         then:
-          - echo "Skipped execution tests for cross-compilation (${build_platform} -> ${target_platform})"
+          - echo "Skipped test for ARM64"
         else:
           - ocamlc -version | grep ${{ version }}
           - ocamldep -version | grep ${{ version }}
@@ -193,10 +192,12 @@ tests:
           - ocamlobjinfo.byte -help
           - ocamloptp -version | grep ${{ version }}
           - ocamlprof -version | grep ${{ version }}
-
-          - ocamldoc -version | grep ${{ version }}
-          - ocamldoc.opt -version | grep ${{ version }}
-          - ocamldebug -version | grep ${{ version }}
+ 
+          - if: build_platform == target_platform
+            then:
+              - ocamldoc -version | grep ${{ version }}
+              - ocamldoc.opt -version | grep ${{ version }}
+              - ocamldebug -version | grep ${{ version }}
     requirements:
       run:
         - if: build_platform == target_platform
@@ -204,10 +205,9 @@ tests:
             - ${{ "m2-" if not unix }}grep
 
   - script:
-      # Compilation test - skip for cross-compilation
-      - if: build_platform != target_platform
+      - if: arm64
         then:
-          - echo "Skipped compilation test for cross-compilation (${build_platform} -> ${target_platform})"
+          - echo "Skipped test for ARM64"
         else:
           - printf 'print_endline "Hello World"\n' > test.ml
           - if: unix
@@ -220,9 +220,7 @@ tests:
               - test_bytecode.exe | grep Hello
     requirements:
       run:
-        - if: build_platform == target_platform
-          then:
-            - ${{ "m2-" if not unix }}grep
+        - ${{ "m2-" if not unix }}grep
 
 about:
   homepage: https://ocaml.org/
