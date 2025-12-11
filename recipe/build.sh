@@ -64,6 +64,12 @@ else
   make install >& /dev/null
 fi
 
+echo ""
+echo "=== Fixing bytecode shebangs ==="
+echo "OCAML_PREFIX=${OCAML_PREFIX}"
+echo "Looking for binaries in: ${OCAML_PREFIX}/bin/"
+ls -la "${OCAML_PREFIX}/bin/" | head -20
+
 for bin in ${OCAML_PREFIX}/bin/*
 do
   # Skip if not a regular file
@@ -102,6 +108,8 @@ do
             print "  WARNING: No shebang found in $file\n";
         }
       ' "$bin"
+      # Verify the fix was applied
+      echo "  Verify: $(head -c 30 "$bin" | cat -v)"
     fi
     continue
   fi
@@ -112,6 +120,17 @@ do
     perl -i -pe 's#exec \Q'"${OCAML_PREFIX}"'\E/bin#exec \$(dirname "\$0")#g' "$bin"
   fi
 done
+
+# Final verification: check bin/ocaml shebang
+echo ""
+echo "=== Final verification of bytecode shebangs ==="
+if [[ -f "${OCAML_PREFIX}/bin/ocaml" ]]; then
+  echo "bin/ocaml first 100 bytes:"
+  head -c 100 "${OCAML_PREFIX}/bin/ocaml" | cat -v
+  echo ""
+  echo "bin/ocaml shebang line:"
+  head -1 "${OCAML_PREFIX}/bin/ocaml"
+fi
 
 for CHANGE in "activate" "deactivate"
 do

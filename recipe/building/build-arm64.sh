@@ -116,3 +116,43 @@ make crosscompiledruntime \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   -j${CPU_COUNT}
 make installcross
+
+# Fix bytecode shebangs
+# Bytecode executables have format: #!/path/to/ocamlrun\n<binary data>
+# We must replace the shebang with #!/usr/bin/env ocamlrun to:
+#   1. Avoid hardcoded paths that won't exist after installation
+#   2. Prevent conda prefix relocation from corrupting the binary data
+echo ""
+echo "=== Fixing bytecode shebangs ==="
+for bin in "${OCAML_PREFIX}"/bin/*; do
+  # Skip if not a regular file
+  [[ -f "$bin" ]] || continue
+
+  # Check if this is a bytecode executable (shebang contains ocamlrun)
+  if head -c 50 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
+    echo "Fixing bytecode shebang: $bin"
+    # Using perl in binary mode to safely handle bytecode after the shebang
+    perl -e '
+      my $file = $ARGV[0];
+      open(my $fh, "<:raw", $file) or die "Cannot open $file: $!";
+      my $content = do { local $/; <$fh> };
+      close($fh);
+
+      my $newline_pos = index($content, "\n");
+      if ($newline_pos > 0 && substr($content, 0, 2) eq "#!") {
+          my $old_shebang = substr($content, 0, $newline_pos);
+          print "  Old shebang: $old_shebang\n";
+          my $new_content = "#!/usr/bin/env ocamlrun" . substr($content, $newline_pos);
+          open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
+          print $out $new_content;
+          close($out);
+          print "  New shebang: #!/usr/bin/env ocamlrun\n";
+      } else {
+          print "  WARNING: No shebang found in $file\n";
+      }
+    ' "$bin"
+  fi
+done
+
+echo ""
+echo "=== Cross-compilation complete for ${_host_alias} ==="

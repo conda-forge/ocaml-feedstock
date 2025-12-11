@@ -40,6 +40,7 @@ CONFIG_ARGS=(
 
 # Configure for native x86_64 build
 # Note: zstd from BUILD_PREFIX is needed for linking ocamlc.opt/ocamlopt.opt
+# We add -lzstd to LDFLAGS to ensure it's linked in all stages
 _CONFIG_ARGS=(
   --build="$_build_alias"
   --host="$_build_alias"
@@ -52,7 +53,7 @@ _CONFIG_ARGS=(
   RANLIB="$_build_alias-ranlib"
   STRIP="$_build_alias-strip"
   CFLAGS="-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -I${BUILD_PREFIX}/include"
-  LDFLAGS="-L${BUILD_PREFIX}/lib -Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath-link,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib"
+  LDFLAGS="-L${BUILD_PREFIX}/lib -lzstd -Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath-link,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib"
 )
 
 _TARGET=(
@@ -147,4 +148,42 @@ make crosscompiledruntime \
 
 make installcross
 
+# Fix bytecode shebangs
+# Bytecode executables have format: #!/path/to/ocamlrun\n<binary data>
+# We must replace the shebang with #!/usr/bin/env ocamlrun to:
+#   1. Avoid hardcoded paths that won't exist after installation
+#   2. Prevent conda prefix relocation from corrupting the binary data
+echo ""
+echo "=== Fixing bytecode shebangs ==="
+for bin in "${OCAML_PREFIX}"/bin/*; do
+  # Skip if not a regular file
+  [[ -f "$bin" ]] || continue
+
+  # Check if this is a bytecode executable (shebang contains ocamlrun)
+  if head -c 50 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
+    echo "Fixing bytecode shebang: $bin"
+    # Using perl in binary mode to safely handle bytecode after the shebang
+    perl -e '
+      my $file = $ARGV[0];
+      open(my $fh, "<:raw", $file) or die "Cannot open $file: $!";
+      my $content = do { local $/; <$fh> };
+      close($fh);
+
+      my $newline_pos = index($content, "\n");
+      if ($newline_pos > 0 && substr($content, 0, 2) eq "#!") {
+          my $old_shebang = substr($content, 0, $newline_pos);
+          print "  Old shebang: $old_shebang\n";
+          my $new_content = "#!/usr/bin/env ocamlrun" . substr($content, $newline_pos);
+          open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
+          print $out $new_content;
+          close($out);
+          print "  New shebang: #!/usr/bin/env ocamlrun\n";
+      } else {
+          print "  WARNING: No shebang found in $file\n";
+      }
+    ' "$bin"
+  fi
+done
+
+echo ""
 echo "=== Cross-compilation complete for ${_host_alias} ==="
