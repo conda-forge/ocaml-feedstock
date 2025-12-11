@@ -38,44 +38,46 @@ build:
     ignore:
       # Ignore all but run*, ld.*, and Makefile.config
       - lib/ocaml/[^rlM][^ud][^n\.]*
-      # - bin/*
+      - bin/ocamlc.opt
+      - bin/ocamldebug
+      - bin/ocamldep.opt
+      - bin/ocamldoc
+      - bin/ocamldoc.opt
+      - bin/ocamlobjinfo.opt
+      - bin/ocamlopt.opt
+      - bin/ocamlrun
+      - bin/ocamlrund
+      - bin/ocamlruni
 
 requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
   build:
+    - ${{ "m2-" if not unix }}bash >=5.2
+    - ${{ "m2-" if not unix }}findutils
+    - ${{ "m2-" if not unix }}gawk
+    - ${{ "m2-" if not unix }}grep
+    - ${{ "m2-" if not unix }}make
+    - ${{ "m2-" if not unix }}perl 5.32.*
+    - ${{ "m2-" if not unix }}sed
     - if: unix
       then:
         - ${{ compiler('c') }}
         - ${{ stdlib('c') }}
+        - file
       else:
         - ${{ compiler('m2w64_c') }}
         - ${{ stdlib('m2w64_c') }}
-
-    - if: unix
-      then:
-        - file
-        - make
-        - sed
-      else:
         - binutils
-        - m2-bash
         - m2-coreutils
         - m2-diffutils
-        - m2-findutils
         - m2-gawk
-        - m2-grep
-        - m2-make
-        - m2-sed
+        - m2-which
   host:
-    - if: unix
-      then: zstd
-      else: m2-libzstd
+    - ${{ "m2-lib" if not unix }}zstd
   run:
     # OCaml runtime links against zstd for compressed marshaling
-    - if: unix
-      then: zstd
-      else: m2-libzstd
+    - ${{ "m2-lib" if not unix }}zstd
 
 tests:
   - package_contents:
@@ -119,17 +121,44 @@ tests:
             - flexlink.opt
 
       files:
-        - ${{ "Library/" if win else "" }}lib/ocaml/**
-        - ${{ "Library/" if win else "" }}share/doc/ocaml/*
+        - etc/conda/activate.d/ocaml_activate.${{ "sh" if unix else "bat }}
+        - etc/conda/deactivate.d/ocaml_deactivate.${{ "sh" if unix else "bat }}
+        - ${{ "Library/" if not unix }}lib/ocaml/**
+        - ${{ "Library/" if not unix }}share/doc/ocaml/*
         - if: not arm64
           then: ${{ "Library/" if win else "" }}share/man/man{1,3}/*
+
+  - script:
+      - if: unix
+        then:
+          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null
+          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null
+          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null
+          - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null
+          - if: x86_64
+            then:
+              - file ${PREFIX}/bin/ocamlrun | grep "x86-64"
+              - file ${PREFIX}/bin/ocamlc.opt | grep "x86-64"
+          - if: arm64
+            then:
+              - file ${PREFIX}/bin/ocamlrun | grep "ARM"
+              - file ${PREFIX}/bin/ocamlc.opt | grep "ARM"
+          - if: aarch64
+            then:
+              - file ${PREFIX}/bin/ocamlrun | grep "ARM aarch64"
+              - file ${PREFIX}/bin/ocamlc.opt | grep "ARM aarch64"
+          - if: ppc64le
+            then:
+              - file ${PREFIX}/bin/ocamlrun | grep "64-bit PowerPC"
+              - file ${PREFIX}/bin/ocamlc.opt | grep "64-bit PowerPC"
+        else:
+          - echo "%OCAMLLIB%" | grep ocaml
+          - echo "%PATH%" | grep ocaml
+    requirements:
+      run:
+        - ${{ "m2-" if not unix }}grep
         - if: unix
-          then:
-            - etc/conda/activate.d/ocaml_activate.sh
-            - etc/conda/deactivate.d/ocaml_deactivate.sh
-          else:
-            - etc/conda/activate.d/ocaml_activate.bat
-            - etc/conda/deactivate.d/ocaml_deactivate.bat
+          then: file
 
   - script:
       - ocamlc -version | grep ${{ version }}
@@ -155,24 +184,6 @@ tests:
           - ocamldoc -version | grep ${{ version }}
           - ocamldoc.opt -version | grep ${{ version }}
           - ocamldebug -version | grep ${{ version }}
-
-  - script:
-      - if: unix
-        then:
-          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null
-          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null
-          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null
-          - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null
-          - file ${PREFIX}/bin/ocamlrun
-          - file ${PREFIX}/bin/ocamlc.opt
-        else:
-          - echo "%OCAMLLIB%" | grep ocaml
-          - echo "%PATH%" | grep ocaml
-    requirements:
-      run:
-        - ${{ "m2-" if not unix }}grep
-        - if: unix
-          then: file
 
   - script:
       - printf 'print_endline "Hello World"\n' > test.ml

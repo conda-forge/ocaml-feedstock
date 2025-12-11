@@ -62,9 +62,10 @@ do
   # Skip if not a regular file
   [[ -f "$bin" ]] || continue
 
+  # For shell scripts, fix exec statements using perl
   if file "$bin" 2>/dev/null | grep -qE "shell script|POSIX shell|text"; then
-    sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
-    sed -i "s#exec ${OCAML_PREFIX}/bin#exec \$(dirname \"\$0\")#" "$bin"
+    perl -i -pe "s#exec '([^']*)'#exec \$1#g" "$bin"
+    perl -i -pe 's#exec \Q'"${OCAML_PREFIX}"'\E/bin#exec \$(dirname "\$0")#g' "$bin"
   fi
 done
 
