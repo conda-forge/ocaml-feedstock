@@ -119,8 +119,8 @@ tests:
             - flexlink.opt
 
       files:
-        - etc/conda/activate.d/ocaml_activate.${{ "sh" if unix else "bat }}
-        - etc/conda/deactivate.d/ocaml_deactivate.${{ "sh" if unix else "bat }}
+        - etc/conda/activate.d/ocaml_activate.${{ "sh" if unix else "bat" }}
+        - etc/conda/deactivate.d/ocaml_deactivate.${{ "sh" if unix else "bat" }}
         - ${{ "Library/" if not unix }}lib/ocaml/**
         - ${{ "Library/" if not unix }}share/doc/ocaml/*
         - if: not arm64
