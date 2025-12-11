@@ -69,6 +69,34 @@ do
   # Skip if not a regular file
   [[ -f "$bin" ]] || continue
 
+  # Check if this is a bytecode executable (shebang to ocamlrun followed by binary)
+  # These should NOT be modified as it corrupts the binary portion.
+  # Bytecode files have format: #!/path/to/ocamlrun\n<binary data>
+  # We must NOT:
+  #   1. Use sed on them (corrupts binary)
+  #   2. Put ${PREFIX} in shebang (conda prefix relocation will corrupt binary)
+  # Solution: Use /usr/bin/env ocamlrun which is portable and won't be relocated
+  if head -c 50 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
+    # On Unix: Replace shebang with env-based version that won't trigger prefix relocation
+    # On Windows: Skip - shebangs don't matter, Windows uses file extensions
+    if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+      # Only modify the first line, preserve exact binary content after newline
+      python3 << EOF
+import sys
+with open('$bin', 'rb') as f:
+    content = f.read()
+# Find the first newline
+newline_pos = content.find(b'\n')
+if newline_pos > 0 and content[:2] == b'#!':
+    # Replace shebang, keep everything after first newline exactly as-is
+    new_content = b'#!/usr/bin/env ocamlrun' + content[newline_pos:]
+    with open('$bin', 'wb') as f:
+        f.write(new_content)
+EOF
+    fi
+    continue
+  fi
+
   # For shell scripts, fix exec statements using perl
   if file "$bin" 2>/dev/null | grep -qE "shell script|POSIX shell|text"; then
     perl -i -pe "s#exec '([^']*)'#exec \$1#g" "$bin"
