@@ -59,7 +59,10 @@ fi
 
 for bin in ${OCAML_PREFIX}/bin/*
 do
-  if file "$bin" | grep -q "script executable"; then
+  # Skip if not a regular file
+  [[ -f "$bin" ]] || continue
+
+  if file "$bin" 2>/dev/null | grep -qE "shell script|POSIX shell|text"; then
     sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
     sed -i "s#exec ${OCAML_PREFIX}/bin#exec \$(dirname \"\$0\")#" "$bin"
   fi

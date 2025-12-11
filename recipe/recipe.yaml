@@ -23,10 +23,22 @@ build:
       text:
         - lib/ocaml/runtime-launch-info
         - lib/ocaml/Makefile.config
+        - bin/ocaml
+        - bin/ocamlc.byte
+        - bin/ocamlcmt
+        - bin/ocamlcp
+        - bin/ocamldep.byte
+        - bin/ocamllex.byte
+        - bin/ocamlmklib
+        - bin/ocamlmktop
+        - bin/ocamlobjinfo.byte
+        - bin/ocamlopt.byte
+        - bin/ocamloptp
+        - bin/ocamlprof
     ignore:
       # Ignore all but run*, ld.*, and Makefile.config
       - lib/ocaml/[^rlM][^ud][^n\.]*
-      - bin/*
+      # - bin/*
 
 requirements:
   run_exports:
@@ -120,18 +132,6 @@ tests:
             - etc/conda/deactivate.d/ocaml_deactivate.bat
 
   - script:
-      - if: unix
-        then:
-          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml
-          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX}
-          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX}
-          - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX}
-          - file ${PREFIX}/bin/ocamlrun
-          - file ${PREFIX}/bin/ocamlc.opt
-        else:
-          - echo "%OCAMLLIB%" | grep ocaml
-          - echo "%PATH%" | grep ocaml
-
       - ocamlc -version | grep ${{ version }}
       - ocamldep -version | grep ${{ version }}
       - ocamllex -version | grep ${{ version }}
@@ -155,11 +155,24 @@ tests:
           - ocamldoc -version | grep ${{ version }}
           - ocamldoc.opt -version | grep ${{ version }}
           - ocamldebug -version | grep ${{ version }}
+
+  - script:
+      - if: unix
+        then:
+          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null
+          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null
+          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null
+          - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null
+          - file ${PREFIX}/bin/ocamlrun
+          - file ${PREFIX}/bin/ocamlc.opt
+        else:
+          - echo "%OCAMLLIB%" | grep ocaml
+          - echo "%PATH%" | grep ocaml
     requirements:
       run:
+        - ${{ "m2-" if not unix }}grep
         - if: unix
           then: file
-          else: m2-grep
 
   - script:
       - printf 'print_endline "Hello World"\n' > test.ml
@@ -173,8 +186,7 @@ tests:
           - test_bytecode.exe | grep Hello
     requirements:
       run:
-        - if: not unix
-          then: m2-grep
+        - ${{ "m2-" if not unix }}grep
 
 about:
   homepage: https://ocaml.org/
