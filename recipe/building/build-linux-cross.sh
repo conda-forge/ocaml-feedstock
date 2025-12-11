@@ -28,6 +28,10 @@ echo "=== Stage 1: Building native x86_64 OCaml compiler ==="
 export OCAML_PREFIX=${SRC_DIR}/_native && mkdir -p ${SRC_DIR}/_native
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
+# Ensure linker can find zstd from BUILD_PREFIX
+export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
@@ -79,6 +83,11 @@ export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 # Cross-compiler installs to separate directory
 export OCAML_PREFIX=${SRC_DIR}/_cross
 
+# Ensure linker can find zstd from BUILD_PREFIX
+# LIBRARY_PATH is used by GCC to find libraries during linking
+export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+
 _TARGET=(
   --target="$_host_alias"
 )
@@ -93,7 +102,8 @@ _TARGET=(
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
-make crossopt -j${CPU_COUNT}
+# Pass ZSTD_LIBS explicitly to ensure zstd is linked
+make crossopt ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" -j${CPU_COUNT}
 make installcross
 make distclean
 
