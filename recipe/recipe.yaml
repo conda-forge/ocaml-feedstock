@@ -59,7 +59,6 @@ requirements:
     - ${{ "m2-" if not unix }}grep
     - ${{ "m2-" if not unix }}make
     - ${{ "m2-" if not unix }}perl 5.32.*
-    - ${{ "m2-" if not unix }}sed
     - if: unix
       then:
         - ${{ compiler('c') }}
@@ -71,7 +70,6 @@ requirements:
         - binutils
         - m2-coreutils
         - m2-diffutils
-        - m2-gawk
         - m2-which
   host:
     - ${{ "m2-lib" if not unix }}zstd
