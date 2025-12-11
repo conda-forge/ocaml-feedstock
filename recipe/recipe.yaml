@@ -17,14 +17,15 @@ source:
       target_directory: flexdll
 
 build:
-  number: 0
+  number: 1
   prefix_detection:
     force_file_type:
       text:
         - lib/ocaml/runtime-launch-info
+        - lib/ocaml/Makefile.config
     ignore:
-      # Ignore all but run* and ld.*
-      - lib/ocaml/[^rl][^ud][^n\.]*
+      # Ignore all but run*, ld.*, and Makefile.config
+      - lib/ocaml/[^rlM][^ud][^n\.]*
       - bin/*
 
 requirements:
@@ -58,6 +59,11 @@ requirements:
     - if: unix
       then: zstd
       else: m2-libzstd
+  run:
+    # OCaml runtime links against zstd for compressed marshaling
+    - if: unix
+      then: zstd
+      else: m2-libzstd
 
 tests:
   - package_contents:
@@ -87,7 +93,7 @@ tests:
         - ocamlrun
         - ocamlrund
         - ocamlyacc
-        - if: not arm64
+        - if: build_platform == target_platform
           then:
             - ocamldebug
             - ocamldoc
@@ -119,6 +125,9 @@ tests:
           - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml
           - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX}
           - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX}
+          - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX}
+          - file ${PREFIX}/bin/ocamlrun
+          - file ${PREFIX}/bin/ocamlc.opt
         else:
           - echo "%OCAMLLIB%" | grep ocaml
           - echo "%PATH%" | grep ocaml
@@ -135,17 +144,22 @@ tests:
       - ocaml -version | grep ${{ version }}
       - ocamlcmt -help | grep FILE
       - ocamlcp -version | grep ${{ version }}
-      - ocamldoc -version | grep ${{ version }}
-      - ocamldebug -version | grep ${{ version }}
       - ocamlmklib -version | grep ${{ version }}
       - ocamlmktop -version | grep ${{ version }}
       - ocamlobjinfo.byte -help
       - ocamloptp -version | grep ${{ version }}
       - ocamlprof -version | grep ${{ version }}
+      
+      - if: build_platform == target_platform
+        then:
+          - ocamldoc -version | grep ${{ version }}
+          - ocamldoc.opt -version | grep ${{ version }}
+          - ocamldebug -version | grep ${{ version }}
     requirements:
       run:
-        - if: not unix
-          then: m2-grep
+        - if: unix
+          then: file
+          else: m2-grep
 
   - script:
       - printf 'print_endline "Hello World"\n' > test.ml
