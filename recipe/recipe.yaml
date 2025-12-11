@@ -58,7 +58,7 @@ requirements:
     - ${{ "m2-" if not unix }}gawk
     - ${{ "m2-" if not unix }}grep
     - ${{ "m2-" if not unix }}make
-    - ${{ "m2-" if not unix }}perl 5.32.*
+    - perl 5.32.*
     - if: unix
       then:
         - ${{ compiler('c') }}
