@@ -103,14 +103,29 @@ _TARGET=(
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
+# Determine target ARCH for OCaml (configure detected build arch, not target)
+# OCaml uses: amd64, arm64, power, i386, etc.
+if [[ "${_host_alias}" == *"aarch64"* ]] || [[ "${_host_alias}" == *"arm64"* ]]; then
+  _TARGET_ARCH="arm64"
+elif [[ "${_host_alias}" == *"ppc64le"* ]] || [[ "${_host_alias}" == *"powerpc64le"* ]]; then
+  _TARGET_ARCH="power"
+else
+  _TARGET_ARCH="amd64"
+fi
+echo "Target ARCH for crossopt: ${_TARGET_ARCH}"
+
 # crossopt builds TARGET runtime assembly - needs TARGET assembler and compiler
+# ARCH for correct assembly file selection (configure detected wrong arch)
 # CFLAGS for target (override x86_64 flags from configure)
+# CPPFLAGS for feature test macros (getentropy needs _DEFAULT_SOURCE on glibc)
 # SAK_CC/SAK_LINK for build-time tools that run on build machine
 make crossopt \
+  ARCH="${_TARGET_ARCH}" \
   AS="${_AS}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
-  CFLAGS="-D_DEFAULT_SOURCE ${_CFLAGS}" \
+  CFLAGS="${_CFLAGS}" \
+  CPPFLAGS="-D_DEFAULT_SOURCE" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
@@ -152,6 +167,7 @@ patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
 # Build with target cross-toolchain
 make crosscompiledopt \
+  ARCH="${_TARGET_ARCH}" \
   CAMLOPT=ocamlopt \
   AS="${_AS}" \
   ASPP="${_CC} -c" \
@@ -168,6 +184,7 @@ echo "================================="
 
 # Build runtime with target cross-toolchain
 make crosscompiledruntime \
+  ARCH="${_TARGET_ARCH}" \
   CAMLOPT=ocamlopt \
   AS="${_AS}" \
   ASPP="${_CC} -c" \

@@ -85,10 +85,12 @@ cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
 # crossopt builds TARGET runtime assembly - needs TARGET assembler and compiler
+# ARCH=arm64 for correct assembly file (configure detected x86_64 from build compiler)
 # CFLAGS for target (override x86_64 flags from configure)
 # SAK_CC/SAK_LINK for build-time tools that run on build machine
 # Use clang as assembler on macOS (integrated ARM64 assembler)
 make crossopt \
+  ARCH="arm64" \
   AS="${_CC}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
@@ -131,6 +133,7 @@ patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 # Build with ARM64 cross-toolchain
 # Use clang as assembler on macOS (integrated ARM64 assembler)
 make crosscompiledopt \
+  ARCH="arm64" \
   CAMLOPT=ocamlopt \
   AS="${_CC}" \
   ASPP="${_CC} -c" \
@@ -146,6 +149,7 @@ echo ".";echo ".";echo ".";echo ".";
 
 # Build runtime with ARM64 cross-toolchain
 make crosscompiledruntime \
+  ARCH="arm64" \
   CAMLOPT=ocamlopt \
   AS="${_CC}" \
   ASPP="${_CC} -c" \
