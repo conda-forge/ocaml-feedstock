@@ -84,11 +84,10 @@ _TARGET=(
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
-# crossopt builds ARM64 runtime assembly - use clang as assembler
-make crossopt \
-  AS="${_CC}" \
-  ASPP="${_CC} -c" \
-  -j${CPU_COUNT}
+# crossopt builds HOST (x86_64) runtime for the cross-compiler to run
+# Don't override AS/ASPP here - that would break x86_64 assembly
+# The TARGET (arm64) runtime is built in Stage 3 with crosscompiledruntime
+make crossopt -j${CPU_COUNT}
 make installcross
 make distclean
 

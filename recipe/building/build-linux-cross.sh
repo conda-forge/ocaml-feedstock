@@ -103,8 +103,16 @@ _TARGET=(
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
-# Pass ZSTD_LIBS explicitly to ensure zstd is linked
-make crossopt ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" -j${CPU_COUNT}
+# crossopt builds TARGET runtime assembly - needs TARGET assembler and compiler
+# SAK_CC for build-time tools that run on build machine
+make crossopt \
+  AS="${_AS}" \
+  ASPP="${_CC} -c" \
+  CC="${_CC}" \
+  SAK_CC="${CC_FOR_BUILD}" \
+  SAK_LINK="${CC_FOR_BUILD}" \
+  ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
+  -j${CPU_COUNT}
 make installcross
 make distclean
 
@@ -117,11 +125,18 @@ export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 # Reset to final install path
 export OCAML_PREFIX="${_OCAML_PREFIX}"
 
+# Stage 3 config: use target cross-toolchain for native code
 _CONFIG_ARGS=(
   --build="$_build_alias"
   --host="$_host_alias"
   --target="$_host_alias"
   --with-target-bindir="${PREFIX}"/bin
+  AR="${_AR}"
+  AS="${_AS}"
+  CC="${_CC}"
+  RANLIB="${_RANLIB}"
+  CFLAGS="${_CFLAGS}"
+  LDFLAGS="${_LDFLAGS}"
 )
 
 ./configure \
@@ -129,7 +144,17 @@ _CONFIG_ARGS=(
   "${CONFIG_ARGS[@]}" \
   "${_CONFIG_ARGS[@]}"
 
-make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
+# Apply cross-compilation patches (needed again after configure regenerates Makefile)
+cp "${RECIPE_DIR}"/building/Makefile.cross .
+patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+
+# Build with target cross-toolchain
+make crosscompiledopt \
+  CAMLOPT=ocamlopt \
+  AS="${_AS}" \
+  ASPP="${_CC} -c" \
+  CC="${_CC}" \
+  -j${CPU_COUNT}
 
 # Fix build_config.h paths for target
 perl -pe 's#\$SRC_DIR/_native/lib/ocaml#\$PREFIX/lib/ocaml#g' "${SRC_DIR}"/build_config.h > runtime/build_config.h
@@ -139,8 +164,12 @@ echo "=== build_config.h for target ==="
 cat runtime/build_config.h
 echo "================================="
 
+# Build runtime with target cross-toolchain
 make crosscompiledruntime \
   CAMLOPT=ocamlopt \
+  AS="${_AS}" \
+  ASPP="${_CC} -c" \
+  CC="${_CC}" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
