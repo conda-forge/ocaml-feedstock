@@ -104,13 +104,15 @@ cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
 # crossopt builds TARGET runtime assembly - needs TARGET assembler and compiler
-# SAK_CC for build-time tools that run on build machine
+# CFLAGS for target (override x86_64 flags from configure)
+# SAK_CC/SAK_LINK for build-time tools that run on build machine
 make crossopt \
   AS="${_AS}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
+  CFLAGS="${_CFLAGS}" \
   SAK_CC="${CC_FOR_BUILD}" \
-  SAK_LINK="${CC_FOR_BUILD}" \
+  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
   -j${CPU_COUNT}
 make installcross
