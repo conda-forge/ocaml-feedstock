@@ -110,7 +110,7 @@ make crossopt \
   AS="${_AS}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
-  CFLAGS="-D_GNU_SOURCE ${_CFLAGS}" \
+  CFLAGS="-D_DEFAULT_SOURCE ${_CFLAGS}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
