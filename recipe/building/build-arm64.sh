@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -eu
 
+# Save cross-compilation environment for Stage 3
 _build_alias="$build_alias"
 _host_alias="$host_alias"
 _OCAML_PREFIX="${OCAML_PREFIX}"
+_CC="${CC}"
+_AR="${AR}"
+_RANLIB="${RANLIB}"
+_CFLAGS="${CFLAGS:-}"
+_LDFLAGS="${LDFLAGS:-}"
 
 unset build_alias
 unset host_alias
@@ -77,30 +83,52 @@ _TARGET=(
 # patch for cross: This is changing in 5.4.0
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
-make crossopt -j${CPU_COUNT}
+
+# crossopt builds ARM64 runtime assembly - use clang as assembler
+make crossopt \
+  AS="${_CC}" \
+  ASPP="${_CC} -c" \
+  -j${CPU_COUNT}
 make installcross
 make distclean
 
 
-# --- Cross-compile
+# --- Cross-compile (Stage 3: build native ARM64 binaries)
 export PATH="${OCAML_PREFIX}/bin:${_PATH}"
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
 # Reset to final install path
 export OCAML_PREFIX="${_OCAML_PREFIX}"
 
+# Stage 3 config: use ARM64 cross-toolchain for native code
 _CONFIG_ARGS=(
   --build="$_build_alias"
   --host="$_host_alias"
   --target="$_host_alias"
   --with-target-bindir="${PREFIX}"/bin
+  AR="${_AR}"
+  CC="${_CC}"
+  RANLIB="${_RANLIB}"
+  CFLAGS="${_CFLAGS}"
+  LDFLAGS="${_LDFLAGS}"
 )
 ./configure \
   -prefix="${OCAML_PREFIX}" \
   "${CONFIG_ARGS[@]}" \
   "${_CONFIG_ARGS[@]}"
 
-make crosscompiledopt CAMLOPT=ocamlopt -j${CPU_COUNT}
+# Apply cross-compilation patches
+cp "${RECIPE_DIR}"/building/Makefile.cross .
+patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+
+# Build with ARM64 cross-toolchain
+# Use clang as assembler on macOS (integrated ARM64 assembler)
+make crosscompiledopt \
+  CAMLOPT=ocamlopt \
+  AS="${_CC}" \
+  ASPP="${_CC} -c" \
+  CC="${_CC}" \
+  -j${CPU_COUNT}
 
 perl -pe 's#\$SRC_DIR/_native/lib/ocaml#\$PREFIX/lib/ocaml#g' "${SRC_DIR}"/build_config.h > runtime/build_config.h
 perl -i -pe "s#${_build_alias}#${_host_alias}#g" runtime/build_config.h
@@ -109,13 +137,29 @@ echo ".";echo ".";echo ".";echo ".";
 cat runtime/build_config.h
 echo ".";echo ".";echo ".";echo ".";
 
+# Build runtime with ARM64 cross-toolchain
 make crosscompiledruntime \
   CAMLOPT=ocamlopt \
+  AS="${_CC}" \
+  ASPP="${_CC} -c" \
+  CC="${_CC}" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   -j${CPU_COUNT}
 make installcross
+
+# Fix overlinking in stublibs - change ./dll*.so to @loader_path/dll*.so
+echo ""
+echo "=== Fixing stublib overlinking ==="
+for lib in "${OCAML_PREFIX}/lib/ocaml/stublibs/"*.so; do
+  [[ -f "$lib" ]] || continue
+  echo "Checking: $lib"
+  for dep in $(otool -L "$lib" 2>/dev/null | grep '\./dll' | awk '{print $1}'); do
+    echo "  Fixing: $dep -> @loader_path/$(basename $dep)"
+    install_name_tool -change "$dep" "@loader_path/$(basename $dep)" "$lib"
+  done
+done
 
 # Fix bytecode shebangs
 # Bytecode executables have format: #!/path/to/ocamlrun\n<binary data>

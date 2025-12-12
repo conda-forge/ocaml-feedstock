@@ -18,6 +18,10 @@ source:
 
 build:
   number: 1
+  dynamic_linking:
+    missing_dso_allowlist:
+      - if: osx
+        then: /usr/lib/libSystem.B.dylib
   prefix_detection:
     force_file_type:
       text:
@@ -62,6 +66,7 @@ requirements:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
   build:
     - ${{ "m2-" if not unix }}bash >=5.2
+    - ${{ "m2-" if not unix }}file
     - ${{ "m2-" if not unix }}findutils
     - ${{ "m2-" if not unix }}gawk
     - ${{ "m2-" if not unix }}grep
@@ -71,7 +76,6 @@ requirements:
       then:
         - ${{ compiler('c') }}
         - ${{ stdlib('c') }}
-        - file
       else:
         - ${{ compiler('m2w64_c') }}
         - ${{ stdlib('m2w64_c') }}
@@ -134,13 +138,12 @@ tests:
         - etc/conda/deactivate.d/ocaml_deactivate.${{ "sh" if unix else "bat" }}
         - ${{ "Library/" if not unix }}lib/ocaml/**
         - ${{ "Library/" if not unix }}share/doc/ocaml/*
-        - if: build_platform == target_platform and unix
+        - if: (build_platform == target_platform) and unix
           then: share/man/man{1,3}/*
 
   - script:
       - if: unix
         then:
-          # These use shell builtins and work regardless of architecture
           - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null
           - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null
           - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null
@@ -157,15 +160,14 @@ tests:
   - script:
       - if: build_platform != target_platform
         then:
-          # Architecture verification using file command from test requirements
           - if: aarch64
             then:
               - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
               - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
           - if: arm64
             then:
-              - otool -hv ${PREFIX}/bin/ocamlc.opt # | grep -q "ARM64" || { echo "Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/bin/ocamlrun # | grep -q "ARM64" || { echo "Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlc.opt # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlrun # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
           - if: ppc64le
             then:
               - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
