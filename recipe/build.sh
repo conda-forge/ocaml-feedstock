@@ -92,6 +92,9 @@ do
       echo "Fixing bytecode wrapper: $bin"
 
       # Use perl to safely handle the binary content after the shell wrapper
+      # Handles two formats:
+      #   1. Shell wrapper: #!/bin/sh\nexec '/path/ocamlrun' "$0" "$@"\n<bytecode>
+      #   2. Direct shebang: #!/path/ocamlrun\n<bytecode> (cross-compiled)
       perl -e '
         use strict;
         use warnings;
@@ -101,40 +104,51 @@ do
         my $content = do { local $/; <$fh> };
         close($fh);
 
-        # Find the first two newlines (end of shebang and end of exec line)
         my $first_nl = index($content, "\n");
-        my $second_nl = index($content, "\n", $first_nl + 1);
+        die "No newline found in $file" if $first_nl < 0;
 
-        if ($first_nl > 0 && $second_nl > $first_nl) {
-            my $shebang = substr($content, 0, $first_nl);
-            my $exec_line = substr($content, $first_nl + 1, $second_nl - $first_nl - 1);
-            my $rest = substr($content, $second_nl);  # includes the newline
+        my $shebang = substr($content, 0, $first_nl);
+        print "  Shebang: $shebang\n";
 
-            print "  Shebang: $shebang\n";
-            print "  Old exec: $exec_line\n";
+        # Check if this is a shell wrapper (#!/bin/sh or #!/usr/bin/sh)
+        if ($shebang =~ m{^#!.*/bin/sh}) {
+            # Shell wrapper format: fix the exec line
+            my $second_nl = index($content, "\n", $first_nl + 1);
+            if ($second_nl > $first_nl) {
+                my $exec_line = substr($content, $first_nl + 1, $second_nl - $first_nl - 1);
+                my $rest = substr($content, $second_nl);
 
-            # Check if this is the expected format
-            if ($exec_line =~ /exec.*ocamlrun.*\"\$0\".*\"\$\@\"/) {
-                # Replace with relative path version
-                # Use double quotes for the exec so variable expansion works
-                my $new_exec = q{exec "$(dirname "$0")/ocamlrun" "$0" "$@"};
-                print "  New exec: $new_exec\n";
+                print "  Old exec: $exec_line\n";
 
-                my $new_content = $shebang . "\n" . $new_exec . $rest;
+                if ($exec_line =~ /exec.*ocamlrun.*\"\$0\".*\"\$\@\"/) {
+                    my $new_exec = q{exec "$(dirname "$0")/ocamlrun" "$0" "$@"};
+                    print "  New exec: $new_exec\n";
 
-                open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
-                print $out $new_content;
-                close($out);
-            } else {
-                print "  SKIP: exec line format not recognized\n";
+                    my $new_content = $shebang . "\n" . $new_exec . $rest;
+                    open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
+                    print $out $new_content;
+                    close($out);
+                } else {
+                    print "  SKIP: exec line not recognized\n";
+                }
             }
-        } else {
-            print "  WARNING: Could not find expected structure in $file\n";
-        }
-      ' "$bin"
+        } elsif ($shebang =~ m{^#!.*ocamlrun}) {
+            # Direct ocamlrun shebang (cross-compiled): replace with env-based
+            my $rest = substr($content, $first_nl);
+            my $new_shebang = "#!/usr/bin/env ocamlrun";
+            print "  New shebang: $new_shebang\n";
 
-      # Verify the fix
-      echo "  Result: $(head -2 "$bin")"
+            my $new_content = $new_shebang . $rest;
+            open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
+            print $out $new_content;
+            close($out);
+        } else {
+            print "  SKIP: unknown format\n";
+        }
+      ' "$bin" 2>&1 || echo "  ERROR processing $bin"
+
+      # Verify the fix (only show text portion)
+      echo "  Result: $(head -1 "$bin")"
     fi
     continue
   fi
@@ -150,11 +164,13 @@ done
 echo ""
 echo "=== Final verification of bytecode shebangs ==="
 if [[ -f "${OCAML_PREFIX}/bin/ocaml" ]]; then
-  echo "bin/ocaml first 100 bytes:"
-  head -c 100 "${OCAML_PREFIX}/bin/ocaml" | cat -v
-  echo ""
-  echo "bin/ocaml shebang line:"
+  echo "bin/ocaml shebang:"
   head -1 "${OCAML_PREFIX}/bin/ocaml"
+  # Show second line only if it's a shell wrapper
+  if head -1 "${OCAML_PREFIX}/bin/ocaml" | grep -q '/bin/sh'; then
+    echo "bin/ocaml exec line:"
+    head -2 "${OCAML_PREFIX}/bin/ocaml" | tail -1
+  fi
 fi
 
 # Fix hardcoded BUILD_PREFIX paths in Makefile.config
@@ -164,7 +180,8 @@ if [[ -f "${OCAML_PREFIX}/lib/ocaml/Makefile.config" ]]; then
   echo "=== Fixing Makefile.config paths ==="
   # Replace BUILD_PREFIX paths with just the tool basename
   # e.g., /path/to/build_env/bin/x86_64-conda-linux-gnu-strip -> strip
-  sed -i 's|STRIP=.*/build_env/.*/\(.*-\)\?strip|STRIP=strip|g' "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
+  # Use perl -i for cross-platform compatibility (macOS sed -i is different)
+  perl -i -pe 's|STRIP=.*/build_env/.*/(?:.*-)?strip|STRIP=strip|g' "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
 
   # Show what's left with build paths (should be none critical)
   echo "Remaining build paths in Makefile.config:"
