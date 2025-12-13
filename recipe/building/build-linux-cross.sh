@@ -93,15 +93,43 @@ _TARGET=(
   --target="$_host_alias"
 )
 
+# Disable getentropy for cross-compilation: configure tests with BUILD compiler
+# but TARGET sysroot (glibc 2.17) doesn't have sys/random.h (added in glibc 2.25)
 ./configure \
   -prefix="${OCAML_PREFIX}" \
   "${CONFIG_ARGS[@]}" \
   "${_CONFIG_ARGS[@]}" \
-  "${_TARGET[@]}"
+  "${_TARGET[@]}" \
+  ac_cv_func_getentropy=no
+
+# Patch Config.asm in utils/config.generated.ml: configure detects from CC (BUILD)
+# but for cross-compiler we need the TARGET assembler
+echo "Stage 2: Fixing assembler path in utils/config.generated.ml"
+echo "  From: $(grep 'let asm =' utils/config.generated.ml)"
+export _TARGET_ASM="${_AS}"
+perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
+echo "  To:   $(grep 'let asm =' utils/config.generated.ml)"
+
+# Patch Config.mkdll/mkmaindll: configure uses BUILD linker but cross-compiler
+# needs TARGET linker for creating .cmxs shared libraries
+# Format: "compiler -shared -L." - OCaml adds -o and files separately
+# -L. needed so linker finds just-built stub libraries (libcaml*.a) in current dir
+echo "Stage 2: Fixing mkdll/mkmaindll in utils/config.generated.ml"
+echo "  Old mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
+export _MKDLL="${_CC} -shared -L."
+perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+echo "  New mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
 
 # Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+
+# Fix BYTECCLIBS for cross-compilation: configure tests dlopen with BUILD compiler
+# (modern glibc ≥2.34 has dlopen in libc), but TARGET sysroot (glibc 2.17) needs -ldl
+echo "Stage 2: Appending -ldl to BYTECCLIBS in Makefile.config"
+perl -i -pe 's/^(BYTECCLIBS=.*)$/$1 -ldl/' Makefile.config
+grep '^BYTECCLIBS' Makefile.config
 
 # Determine target ARCH for OCaml (configure detected build arch, not target)
 # OCaml uses: amd64, arm64, power, i386, etc.
@@ -116,6 +144,7 @@ echo "Target ARCH for crossopt: ${_TARGET_ARCH}"
 
 # crossopt builds TARGET runtime assembly - needs TARGET assembler and compiler
 # ARCH for correct assembly file selection (configure detected wrong arch)
+# CC/CROSS_CC/CROSS_AR for target C compilation (otherlibs stub libraries)
 # CFLAGS for target (override x86_64 flags from configure)
 # CPPFLAGS for feature test macros (getentropy needs _DEFAULT_SOURCE on glibc)
 # SAK_CC/SAK_LINK for build-time tools that run on build machine
@@ -124,6 +153,8 @@ make crossopt \
   AS="${_AS}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
+  CROSS_CC="${_CC}" \
+  CROSS_AR="${_AR}" \
   CFLAGS="${_CFLAGS}" \
   CPPFLAGS="-D_DEFAULT_SOURCE" \
   SAK_CC="${CC_FOR_BUILD}" \
@@ -156,14 +187,21 @@ _CONFIG_ARGS=(
   LDFLAGS="${_LDFLAGS}"
 )
 
+# Disable getentropy: TARGET sysroot (glibc 2.17) doesn't have sys/random.h
 ./configure \
   -prefix="${OCAML_PREFIX}" \
   "${CONFIG_ARGS[@]}" \
-  "${_CONFIG_ARGS[@]}"
+  "${_CONFIG_ARGS[@]}" \
+  ac_cv_func_getentropy=no
 
 # Apply cross-compilation patches (needed again after configure regenerates Makefile)
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+
+# Fix BYTECCLIBS for cross-compilation: TARGET sysroot (glibc 2.17) needs -ldl
+echo "Stage 3: Appending -ldl to BYTECCLIBS in Makefile.config"
+perl -i -pe 's/^(BYTECCLIBS=.*)$/$1 -ldl/' Makefile.config
+grep '^BYTECCLIBS' Makefile.config
 
 # Build with target cross-toolchain
 make crosscompiledopt \
@@ -172,6 +210,9 @@ make crosscompiledopt \
   AS="${_AS}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
+  CROSS_CC="${_CC}" \
+  CROSS_AR="${_AR}" \
+  CPPFLAGS="-D_DEFAULT_SOURCE" \
   -j${CPU_COUNT}
 
 # Fix build_config.h paths for target
@@ -183,12 +224,17 @@ cat runtime/build_config.h
 echo "================================="
 
 # Build runtime with target cross-toolchain
+# BYTECCLIBS needed for dlopen/dlclose/dlsym (glibc 2.17 needs -ldl)
 make crosscompiledruntime \
   ARCH="${_TARGET_ARCH}" \
   CAMLOPT=ocamlopt \
   AS="${_AS}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
+  CROSS_CC="${_CC}" \
+  CROSS_AR="${_AR}" \
+  CPPFLAGS="-D_DEFAULT_SOURCE" \
+  BYTECCLIBS="-lm -lpthread -ldl" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \

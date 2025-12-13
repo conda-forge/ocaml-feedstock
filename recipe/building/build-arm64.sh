@@ -80,12 +80,31 @@ _TARGET=(
   "${_CONFIG_ARGS[@]}" \
   "${_TARGET[@]}"
 
-# patch for cross: This is changing in 5.4.0
+# Patch Config.asm in utils/config.generated.ml: configure detects from CC (BUILD)
+# but for cross-compiler we need the TARGET assembler (clang on macOS)
+echo "Stage 2: Fixing assembler path in utils/config.generated.ml"
+echo "  From: $(grep 'let asm =' utils/config.generated.ml)"
+export _TARGET_ASM="${_CC}"
+perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
+echo "  To:   $(grep 'let asm =' utils/config.generated.ml)"
+
+# Patch Config.mkdll/mkmaindll: configure uses BUILD linker but cross-compiler
+# needs TARGET linker for creating .cmxs shared libraries
+# Format: "compiler -shared -L." - OCaml adds -o and files separately
+echo "Stage 2: Fixing mkdll/mkmaindll in utils/config.generated.ml"
+echo "  Old mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
+export _MKDLL="${_CC} -shared -L."
+perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+echo "  New mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
+
+# Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
 
 # crossopt builds TARGET runtime assembly - needs TARGET assembler and compiler
 # ARCH=arm64 for correct assembly file (configure detected x86_64 from build compiler)
+# CC/CROSS_CC/CROSS_AR for target C compilation (otherlibs stub libraries)
 # CFLAGS for target (override x86_64 flags from configure)
 # SAK_CC/SAK_LINK for build-time tools that run on build machine
 # Use clang as assembler on macOS (integrated ARM64 assembler)
@@ -94,6 +113,8 @@ make crossopt \
   AS="${_CC}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
+  CROSS_CC="${_CC}" \
+  CROSS_AR="${_AR}" \
   CFLAGS="${_CFLAGS}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
@@ -138,14 +159,16 @@ make crosscompiledopt \
   AS="${_CC}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
+  CROSS_CC="${_CC}" \
+  CROSS_AR="${_AR}" \
   -j${CPU_COUNT}
 
 perl -pe 's#\$SRC_DIR/_native/lib/ocaml#\$PREFIX/lib/ocaml#g' "${SRC_DIR}"/build_config.h > runtime/build_config.h
 perl -i -pe "s#${_build_alias}#${_host_alias}#g" runtime/build_config.h
 
-echo ".";echo ".";echo ".";echo ".";
+echo "=== build_config.h for target ==="
 cat runtime/build_config.h
-echo ".";echo ".";echo ".";echo ".";
+echo "================================="
 
 # Build runtime with ARM64 cross-toolchain
 make crosscompiledruntime \
@@ -154,6 +177,8 @@ make crosscompiledruntime \
   AS="${_CC}" \
   ASPP="${_CC} -c" \
   CC="${_CC}" \
+  CROSS_CC="${_CC}" \
+  CROSS_AR="${_AR}" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
