@@ -93,7 +93,8 @@ CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
 # RUNTIME_VARS: variables that must be passed to runtime-all for cross-compilation
 # ARCH selects the correct .S file (arm64.S vs amd64.S)
 # AS/ASPP/CC are the cross-toolchain for assembling/compiling
-RUNTIME_VARS = ARCH=$(ARCH) AS=$(AS) ASPP=$(ASPP) CC=$(CC)
+# Values must be quoted because ASPP contains spaces (e.g., "gcc -c")
+RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)'
 
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
