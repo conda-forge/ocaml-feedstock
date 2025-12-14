@@ -93,10 +93,18 @@ echo "  To:   $(grep 'let asm =' utils/config.generated.ml)"
 # Format: "compiler -shared -L." - OCaml adds -o and files separately
 echo "Stage 2: Fixing mkdll/mkmaindll in utils/config.generated.ml"
 echo "  Old mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
-export _MKDLL="${_CC} -shared -L."
+export _MKDLL="${_CC} -shared -undefined dynamic_lookup -L."
 perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
 perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
 echo "  New mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
+
+# Patch Config.c_compiler: configure detects BUILD compiler but cross-compiler
+# needs TARGET cross-compiler for linking native programs (ocamlopt uses this)
+echo "Stage 2: Fixing c_compiler in utils/config.generated.ml"
+echo "  Old c_compiler: $(grep 'let c_compiler =' utils/config.generated.ml)"
+export _CC_TARGET="${_CC}"
+perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_CC_TARGET}|}/' utils/config.generated.ml
+echo "  New c_compiler: $(grep 'let c_compiler =' utils/config.generated.ml)"
 
 # Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
