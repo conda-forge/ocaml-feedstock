@@ -94,7 +94,10 @@ CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
 # ARCH selects the correct .S file (arm64.S vs amd64.S)
 # AS/ASPP/CC are the cross-toolchain for assembling/compiling
 # Values must be quoted because ASPP contains spaces (e.g., "gcc -c")
-RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)'
+# runtime_ASM_OBJECTS is hardcoded at configure time (Makefile.build_config),
+# must override to use correct $(ARCH).o for cross-compilation
+RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' \
+  runtime_ASM_OBJECTS='runtime/$(ARCH).o'
 
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
