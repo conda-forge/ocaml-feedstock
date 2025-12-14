@@ -124,8 +124,8 @@ make distclean
 
 
 # --- Cross-compile (Stage 3: build native ARM64 binaries)
-# PATH order: BUILD_PREFIX first (for host tools like ocamlrun), then _cross (for cross-compiler)
-export PATH="${BUILD_PREFIX}/bin:${OCAML_PREFIX}/bin:${_PATH}"
+# PATH order: _native first (for host tools like ocamlrun from Stage 1), then _cross (for cross-compiler)
+export PATH="${SRC_DIR}/_native/bin:${OCAML_PREFIX}/bin:${_PATH}"
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
 # Reset to final install path
