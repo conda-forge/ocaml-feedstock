@@ -11,10 +11,11 @@ set -eu
 _build_alias="$build_alias"
 _host_alias="$host_alias"
 _OCAML_PREFIX="${OCAML_PREFIX}"
-_CC="${CC}"
-_AR="${AR}"
-_AS="${AS}"
-_RANLIB="${RANLIB}"
+# conda_build.sh strips path from CC with $(basename "$CC"), restore full path
+_CC="${BUILD_PREFIX}/bin/${CC}"
+_AR="${BUILD_PREFIX}/bin/${AR}"
+_AS="${BUILD_PREFIX}/bin/${AS}"
+_RANLIB="${BUILD_PREFIX}/bin/${RANLIB}"
 _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
 
