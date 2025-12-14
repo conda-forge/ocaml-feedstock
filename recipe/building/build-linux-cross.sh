@@ -123,7 +123,7 @@ echo "  New mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
 
 # Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
-patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
 
 # Fix BYTECCLIBS for cross-compilation: configure tests dlopen with BUILD compiler
 # (modern glibc ≥2.34 has dlopen in libc), but TARGET sysroot (glibc 2.17) needs -ldl
@@ -167,7 +167,8 @@ make distclean
 
 # Stage 3: Cross-compile final binaries for target architecture
 echo "=== Stage 3: Cross-compiling final binaries for ${_host_alias} ==="
-export PATH="${OCAML_PREFIX}/bin:${_PATH}"
+# PATH order: BUILD_PREFIX first (for host tools like ocamlrun), then _cross (for cross-compiler)
+export PATH="${BUILD_PREFIX}/bin:${OCAML_PREFIX}/bin:${_PATH}"
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
 # Reset to final install path
@@ -196,7 +197,7 @@ _CONFIG_ARGS=(
 
 # Apply cross-compilation patches (needed again after configure regenerates Makefile)
 cp "${RECIPE_DIR}"/building/Makefile.cross .
-patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
 
 # Fix BYTECCLIBS for cross-compilation: TARGET sysroot (glibc 2.17) needs -ldl
 echo "Stage 3: Appending -ldl to BYTECCLIBS in Makefile.config"

@@ -100,7 +100,7 @@ echo "  New mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
 
 # Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
-patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
 
 # crossopt builds TARGET runtime assembly - needs TARGET assembler and compiler
 # ARCH=arm64 for correct assembly file (configure detected x86_64 from build compiler)
@@ -124,7 +124,8 @@ make distclean
 
 
 # --- Cross-compile (Stage 3: build native ARM64 binaries)
-export PATH="${OCAML_PREFIX}/bin:${_PATH}"
+# PATH order: BUILD_PREFIX first (for host tools like ocamlrun), then _cross (for cross-compiler)
+export PATH="${BUILD_PREFIX}/bin:${OCAML_PREFIX}/bin:${_PATH}"
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
 # Reset to final install path
@@ -149,7 +150,7 @@ _CONFIG_ARGS=(
 
 # Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
-patch -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch
+patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
 
 # Build with ARM64 cross-toolchain
 # Use clang as assembler on macOS (integrated ARM64 assembler)
