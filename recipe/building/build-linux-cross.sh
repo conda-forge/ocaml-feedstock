@@ -97,9 +97,11 @@ _CONFIG_ARGS=(
 
 # Determine target ARCH for OCaml (used by Stage 2 and Stage 3)
 # OCaml uses: amd64, arm64, power, i386, etc.
+# Note: target_platform is conda-forge convention (linux-aarch64, linux-ppc64le)
+#       _host_alias is compiler triplet (aarch64-conda-linux-gnu, powerpc64le-conda-linux-gnu)
 if [[ "${target_platform}" == "linux-aarch64" ]]; then
   _TARGET_ARCH="arm64"
-elif [[ "${_host_alias}" == "linux-ppc64le" ]]; then
+elif [[ "${target_platform}" == "linux-ppc64le" ]]; then
   _TARGET_ARCH="power"
 else
   _TARGET_ARCH="amd64"

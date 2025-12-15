@@ -97,8 +97,8 @@ _CONFIG_ARGS=(
 )
 
 # Target ARCH for OCaml (arm64 for macOS ARM)
+# This is used by Stage 2 and Stage 3 for cross-compilation
 _TARGET_ARCH="arm64"
-echo "Target ARCH: ${_TARGET_ARCH}"
 
 _TARGET=(
   --target="$_build_alias"

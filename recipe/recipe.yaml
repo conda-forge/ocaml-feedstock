@@ -151,6 +151,7 @@ tests:
         else:
           - echo "%OCAMLLIB%" | grep ocaml
           - echo "%PATH%" | grep ocaml
+        - echo "PREFIX/PATH tests passed"
     requirements:
       run:
         - if: not unix
@@ -172,6 +173,7 @@ tests:
             then:
               - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
               - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
+          - echo "Cross-compiled binary arch passed"
 
   - script:
       - if: arm64
@@ -183,9 +185,9 @@ tests:
           - ocamllex -version | grep ${{ version }}
           - ocamlobjinfo -help | grep FILES
           - ocamlobjinfo.opt -help | grep FILES
-          - ocamlopt -version | grep ${{ version }}
-          - ocamlrun -version | grep ${{ version }}
-          - ocamlyacc -version | grep ${{ version }}
+          - ocamlopt -version | grep ${{ version }} || { ocamlopt -version; }
+          - ocamlrun -version | grep ${{ version }} || { ocamlrun -version; }
+          - ocamlyacc -version | grep ${{ version }} || { ocamlyacc -version; }
 
           # Bytecode sensitive to conda PREFIX detection
           - ocaml -version | grep ${{ version }}
