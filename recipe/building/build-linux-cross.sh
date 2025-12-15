@@ -220,6 +220,14 @@ else
   perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_MKEXE}|}/' utils/config.generated.ml
   echo "  New mkexe: $(grep 'let mkexe =' utils/config.generated.ml)"
 
+  # Patch Config.native_c_libraries: add -ldl for TARGET (glibc 2.17 needs explicit -ldl)
+  # Configure tests with BUILD compiler (modern glibc has dlopen in libc) but TARGET needs -ldl
+  # This is baked into the cross-compiler and used when linking native executables
+  echo "Stage 2: Fixing native_c_libraries in utils/config.generated.ml"
+  echo "  Old native_c_libraries: $(grep 'let native_c_libraries =' utils/config.generated.ml)"
+  perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' utils/config.generated.ml
+  echo "  New native_c_libraries: $(grep 'let native_c_libraries =' utils/config.generated.ml)"
+
   # Apply cross-compilation patches
   cp "${RECIPE_DIR}"/building/Makefile.cross .
   patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
@@ -360,7 +368,8 @@ cat runtime/build_config.h
 echo "================================="
 
 # Build runtime with target cross-toolchain
-# BYTECCLIBS needed for dlopen/dlclose/dlsym (glibc 2.17 needs -ldl)
+# BYTECCLIBS needed for dlopen/dlclose/dlsym (glibc 2.17 needs -ldl) and zstd compression
+# ZSTD_LIBS for finding aarch64 zstd library
 run_logged "stage3_crosscompiledruntime" make crosscompiledruntime \
   ARCH="${_TARGET_ARCH}" \
   CAMLOPT="${_CROSS_OCAMLOPT}" \
@@ -371,7 +380,8 @@ run_logged "stage3_crosscompiledruntime" make crosscompiledruntime \
   CROSS_AR="${_AR}" \
   CROSS_MKLIB="${_CROSS_MKLIB}" \
   CPPFLAGS="-D_DEFAULT_SOURCE" \
-  BYTECCLIBS="-lm -lpthread -ldl" \
+  BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd" \
+  ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   -j${CPU_COUNT}
