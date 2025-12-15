@@ -151,7 +151,7 @@ tests:
         else:
           - echo "%OCAMLLIB%" | grep ocaml
           - echo "%PATH%" | grep ocaml
-        - echo "PREFIX/PATH tests passed"
+      - echo "PREFIX/PATH tests passed"
     requirements:
       run:
         - if: not unix
