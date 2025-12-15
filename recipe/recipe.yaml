@@ -21,7 +21,12 @@ build:
   dynamic_linking:
     missing_dso_allowlist:
       - if: osx
-        then: /usr/lib/libSystem.B.dylib
+        then:
+          - /usr/lib/libSystem.B.dylib
+      - if: osx
+        then:
+          - C:\\Windows\\system32\\SHLWAPI.dll
+          - C:\\Windows\\system32\\VERSION.dll
   prefix_detection:
     force_file_type:
       text:
@@ -149,8 +154,8 @@ tests:
           - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null
           - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null
         else:
-          - echo "%OCAMLLIB%" | grep ocaml
-          - echo "%PATH%" | grep ocaml
+          - echo "%OCAMLLIB%" | grep ocaml > /dev/null
+          - echo "%PATH%" | grep ocaml > /dev/null
       - echo "PREFIX/PATH tests passed"
     requirements:
       run:
@@ -253,6 +258,10 @@ tests:
     requirements:
       run:
         - ${{ "m2-" if not unix }}grep
+        # C compiler needed for ocamlopt native compilation test
+        - if: unix
+          then:
+            - ${{ compiler('c') }}
 
   - script:
       - if: arm64
