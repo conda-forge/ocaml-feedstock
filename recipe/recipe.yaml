@@ -180,6 +180,34 @@ tests:
         then:
           - echo "Skipped test for ARM64"
         else:
+          # Debug: Check binary architecture and dependencies
+          - file ${PREFIX}/bin/ocamlrun 2>/dev/null | cut -d: -f2 | head -c 50
+          - file ${PREFIX}/bin/ocamlc.opt 2>/dev/null | cut -d: -f2 | head -c 50
+          - file ${PREFIX}/bin/ocamlopt.opt 2>/dev/null | cut -d: -f2 | head -c 50
+          - if: unix
+            then:
+              - grep -E "^(MODEL|ARCH)" ${PREFIX}/lib/ocaml/Makefile.config 2>/dev/null | sed 's/^/║    /' || true
+              - ldd ${PREFIX}/bin/ocamlopt.opt 2>&1 | grep -i "not found" | sed 's/^/║    /' || echo "║    (none)"
+              - ocamlrun -version 2>&1 | head -1 || echo 'SEGFAULT'
+              - ocamlc.opt -version 2>&1 | head -1 || echo 'SEGFAULT'
+              - ocamlopt -version 2>&1 | head -1 || echo 'SEGFAULT'
+              - printf 'print_endline "Hello World"\n' > test.ml
+              - ocamlc -o test_bytecode test.ml
+              - ./test_bytecode | grep "Hello World"
+              - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+            else:
+              - printf 'print_endline "Hello World"\n' > test.ml
+              - ocamlc -o test_bytecode.exe test.ml
+              - test_bytecode.exe | grep Hello
+    requirements:
+      run:
+        - ${{ "m2-" if not unix }}grep
+
+  - script:
+      - if: arm64
+        then:
+          - echo "Skipped test for ARM64"
+        else:
           - ocamlc -version | grep ${{ version }}
           - ocamldep -version | grep ${{ version }}
           - ocamllex -version | grep ${{ version }}
@@ -209,47 +237,6 @@ tests:
         - if: build_platform == target_platform
           then:
             - ${{ "m2-" if not unix }}grep
-
-  - script:
-      - if: arm64
-        then:
-          - echo "Skipped test for ARM64"
-        else:
-          # Debug: Check binary architecture and dependencies
-          - echo ""
-          - echo "╔══════════════════════════════════════════════════════════════════╗"
-          - echo "║  TEST DEBUG: Binary architectures                                ║"
-          - echo "╠══════════════════════════════════════════════════════════════════╣"
-          - printf "║  ocamlrun:     %s\n" "$(file ${PREFIX}/bin/ocamlrun 2>/dev/null | cut -d: -f2 | head -c 50)"
-          - printf "║  ocamlc.opt:   %s\n" "$(file ${PREFIX}/bin/ocamlc.opt 2>/dev/null | cut -d: -f2 | head -c 50)"
-          - printf "║  ocamlopt.opt: %s\n" "$(file ${PREFIX}/bin/ocamlopt.opt 2>/dev/null | cut -d: -f2 | head -c 50)"
-          - if: unix
-            then:
-              - echo "╠══════════════════════════════════════════════════════════════════╣"
-              - echo "║  Makefile.config:                                                ║"
-              - grep -E "^(MODEL|ARCH)" ${PREFIX}/lib/ocaml/Makefile.config 2>/dev/null | sed 's/^/║    /' || true
-              - echo "╠══════════════════════════════════════════════════════════════════╣"
-              - echo "║  Missing libraries:                                              ║"
-              - ldd ${PREFIX}/bin/ocamlopt.opt 2>&1 | grep -i "not found" | sed 's/^/║    /' || echo "║    (none)"
-              - echo "╠══════════════════════════════════════════════════════════════════╣"
-              - echo "║  Component tests:                                                ║"
-              - printf "║    ocamlrun -version:   %s\n" "$(ocamlrun -version 2>&1 | head -1 || echo 'SEGFAULT')"
-              - printf "║    ocamlc.opt -version: %s\n" "$(ocamlc.opt -version 2>&1 | head -1 || echo 'SEGFAULT')"
-              - printf "║    ocamlopt -version:   %s\n" "$(ocamlopt -version 2>&1 | head -1 || echo 'SEGFAULT')"
-              - echo "╚══════════════════════════════════════════════════════════════════╝"
-              - echo ""
-              - echo "=== Compile test ==="
-              - printf 'print_endline "Hello World"\n' > test.ml
-              - ocamlc -o test_bytecode test.ml
-              - ./test_bytecode | grep "Hello World"
-              - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
-            else:
-              - printf 'print_endline "Hello World"\n' > test.ml
-              - ocamlc -o test_bytecode.exe test.ml
-              - test_bytecode.exe | grep Hello
-    requirements:
-      run:
-        - ${{ "m2-" if not unix }}grep
 
 about:
   homepage: https://ocaml.org/
