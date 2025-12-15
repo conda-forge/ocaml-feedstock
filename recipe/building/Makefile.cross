@@ -133,15 +133,17 @@ BYTECODE_RUNTIME_VARS = \
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 crossopt: cross-flexdll
 	# CRITICAL: Build bytecode runtime with BUILD compiler (not cross-compiler)
-	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC (BUILD compiler)
-	# CC=$(SAK_CC) overrides the command-line CC (cross-compiler) that propagates via MAKEFLAGS
-	$(MAKE) runtime-all CC=$(SAK_CC) $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC and SAK_CFLAGS
+	# CC/CFLAGS override command-line values (cross-compiler) that propagate via MAKEFLAGS
+	# Without CFLAGS override, ppc64le builds fail with "bad value 'power8' for '-mtune='"
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 else
 crossopt:
 	# CRITICAL: Build bytecode runtime with BUILD compiler (not cross-compiler)
-	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC (BUILD compiler)
-	# CC=$(SAK_CC) overrides the command-line CC (cross-compiler) that propagates via MAKEFLAGS
-	$(MAKE) runtime-all CC=$(SAK_CC) $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC and SAK_CFLAGS
+	# CC/CFLAGS override command-line values (cross-compiler) that propagate via MAKEFLAGS
+	# Without CFLAGS override, ppc64le builds fail with "bad value 'power8' for '-mtune='"
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 endif
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
