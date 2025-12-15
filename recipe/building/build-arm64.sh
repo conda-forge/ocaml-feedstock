@@ -73,9 +73,10 @@ echo "  AR=${AR} -> _AR=${_AR}"
 echo "  RANLIB=${RANLIB} -> _RANLIB=${_RANLIB}"
 
 # Clear cross-compilation environment for Stage 1
-unset build_alias
-unset host_alias
-unset HOST TARGET_ARCH
+# CRITICAL: Unset LDFLAGS/CFLAGS - conda-build sets these with -L$PREFIX/lib
+# which causes the linker to find arm64 libraries instead of x86_64
+unset build_alias host_alias HOST TARGET_ARCH
+unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS
 
 # Stage 1: Build native x86_64 compiler
 echo "=== Stage 1: Building native x86_64 OCaml compiler ==="
@@ -334,7 +335,11 @@ echo "╚═══════════════════════�
 echo ""
 
 # Fix build_config.h paths for target
-perl -pe 's#\$SRC_DIR/_native/lib/ocaml#\$PREFIX/lib/ocaml#g' "${SRC_DIR}"/build_config.h > runtime/build_config.h
+# CRITICAL: Use double quotes so ${SRC_DIR} and ${PREFIX} are shell-expanded
+# The file contains the actual path (e.g., /Users/conda/.../work/_native/lib/ocaml)
+# not the literal string "$SRC_DIR/_native/lib/ocaml"
+echo "Fixing build_config.h: ${SRC_DIR}/_native/lib/ocaml -> ${PREFIX}/lib/ocaml"
+perl -pe "s#${SRC_DIR}/_native/lib/ocaml#${PREFIX}/lib/ocaml#g" "${SRC_DIR}"/build_config.h > runtime/build_config.h
 perl -i -pe "s#${_build_alias}#${_host_alias}#g" runtime/build_config.h
 
 echo "=== build_config.h for target ==="
