@@ -82,6 +82,12 @@ echo "=== Stage 1: Building native x86_64 OCaml compiler ==="
 export OCAML_PREFIX=${SRC_DIR}/_native && mkdir -p ${SRC_DIR}/_native
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 
+# CRITICAL: Override PKG_CONFIG_PATH for Stage 1 to find x86_64 zstd in BUILD_PREFIX
+# Without this, pkg-config finds arm64 zstd from $PREFIX causing:
+#   "ignoring file $PREFIX/lib/libzstd.dylib, building for macOS-x86_64 but
+#    attempting to link with file built for macOS-arm64"
+export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${BUILD_PREFIX}/share/pkgconfig"
+
 # Ensure linker can find zstd from BUILD_PREFIX
 export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
 export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
@@ -145,6 +151,10 @@ export OCAMLLIB=${SRC_DIR}/_native/lib/ocaml
 # Cross-compiler installs to separate directory
 export OCAML_PREFIX=${SRC_DIR}/_cross
 
+# CRITICAL: Keep PKG_CONFIG_PATH pointing to x86_64 zstd in BUILD_PREFIX
+# The cross-compiler binary runs on x86_64, so it needs x86_64 zstd
+export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${BUILD_PREFIX}/share/pkgconfig"
+
 # Ensure linker can find zstd from BUILD_PREFIX
 export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
 export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
@@ -159,42 +169,19 @@ run_logged "stage2_configure" ./configure \
   "${_CONFIG_ARGS[@]}" \
   "${_TARGET[@]}"
 
-# Patch Config.asm in utils/config.generated.ml: configure detects from CC (BUILD)
-# but for cross-compiler we need the TARGET assembler (clang on macOS has integrated ARM64 assembler)
-echo "Stage 2: Fixing assembler path in utils/config.generated.ml"
-echo "  From: $(grep 'let asm =' utils/config.generated.ml)"
+# Patch utils/config.generated.ml for cross-compilation
+# These values are baked into the cross-compiler and used at compile time
+echo "Stage 2: Patching utils/config.generated.ml for cross-compilation..."
 export _TARGET_ASM="${_CC}"
-perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
-echo "  To:   $(grep 'let asm =' utils/config.generated.ml)"
-
-# Patch Config.mkdll/mkmaindll: configure uses BUILD linker but cross-compiler
-# needs TARGET linker for creating .cmxs shared libraries
-# Format: "compiler -shared -L." - OCaml adds -o and files separately
-# -L. needed so linker finds just-built stub libraries (libcaml*.a) in current dir
-# macOS needs -undefined dynamic_lookup for stub libraries (symbols resolved at runtime)
-echo "Stage 2: Fixing mkdll/mkmaindll in utils/config.generated.ml"
-echo "  Old mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
 export _MKDLL="${_CC} -shared -undefined dynamic_lookup -L."
+export _CC_TARGET="${_CC}"
+export _MKEXE="${_CC} ${_LDFLAGS}"
+perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
 perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
 perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
-echo "  New mkdll: $(grep 'let mkdll =' utils/config.generated.ml)"
-
-# Patch Config.c_compiler: configure detects BUILD compiler but cross-compiler
-# needs TARGET cross-compiler for linking native programs (ocamlopt uses this)
-echo "Stage 2: Fixing c_compiler in utils/config.generated.ml"
-echo "  Old c_compiler: $(grep 'let c_compiler =' utils/config.generated.ml)"
-export _CC_TARGET="${_CC}"
 perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_CC_TARGET}|}/' utils/config.generated.ml
-echo "  New c_compiler: $(grep 'let c_compiler =' utils/config.generated.ml)"
-
-# Patch Config.mkexe: configure sets BUILD linker but cross-compiler needs TARGET
-# mkexe is used by Ccomp.call_linker for linking native executables (ocamlc.opt, ocamlopt.opt)
-# Format: "compiler [ldflags]" - macOS uses -Wl,-no_pie for position-dependent executables
-echo "Stage 2: Fixing mkexe in utils/config.generated.ml"
-echo "  Old mkexe: $(grep 'let mkexe =' utils/config.generated.ml)"
-export _MKEXE="${_CC} ${_LDFLAGS}"
 perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_MKEXE}|}/' utils/config.generated.ml
-echo "  New mkexe: $(grep 'let mkexe =' utils/config.generated.ml)"
+echo "  Done (asm, mkdll, c_compiler, mkexe patched)"
 
 # Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
@@ -244,6 +231,10 @@ make distclean
 # Stage 3: Cross-compile final binaries for target architecture
 echo "=== Stage 3: Cross-compiling final binaries for ${_host_alias} ==="
 
+# CRITICAL: Reset PKG_CONFIG_PATH to point to ARM64 zstd in PREFIX
+# Stage 3 builds ARM64 binaries that need ARM64 zstd at runtime
+export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig"
+
 # Setup cross-ocamlmklib wrapper
 # The native ocamlmklib has BUILD linker baked in (Config.mkdll, Config.ar)
 # The wrapper uses CROSS_CC/CROSS_AR environment variables for cross-compilation
@@ -290,6 +281,18 @@ run_logged "stage3_configure" ./configure \
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
 
+# Debug: Show key variables before crosscompiledopt
+echo ""
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║  STAGE 3 DEBUG: Key variables before crosscompiledopt           ║"
+echo "╠══════════════════════════════════════════════════════════════════╣"
+echo "║  _TARGET_ARCH = ${_TARGET_ARCH}"
+echo "║  _CROSS_OCAMLOPT = ${_CROSS_OCAMLOPT}"
+echo "║  _CC = ${_CC}"
+echo "║  Cross-compiler: $(file "${_CROSS_OCAMLOPT}.opt" 2>/dev/null | cut -d: -f2 || echo 'NOT FOUND')"
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo ""
+
 # Build with ARM64 cross-toolchain
 # CRITICAL: Use _CROSS_OCAMLOPT (cross-compiler) not ocamlopt from PATH (native)
 # The cross-compiler produces ARM64 code and links with ARM64 stdlib
@@ -306,6 +309,29 @@ run_logged "stage3_crosscompiledopt" make crosscompiledopt \
   CROSS_MKLIB="${_CROSS_MKLIB}" \
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   -j${CPU_COUNT}
+
+# Debug: Verify built binary architectures after crosscompiledopt
+echo ""
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║  STAGE 3 DEBUG: Built binary architectures                      ║"
+echo "╠══════════════════════════════════════════════════════════════════╣"
+echo "║  ocamlopt.opt: $(file ocamlopt.opt 2>/dev/null | cut -d: -f2 || echo 'NOT FOUND')"
+echo "║  ocamlc.opt:   $(file ocamlc.opt 2>/dev/null | cut -d: -f2 || echo 'NOT FOUND')"
+echo "╠══════════════════════════════════════════════════════════════════╣"
+echo "║  Runtime library (libasmrun.a) objects:                         ║"
+if [[ -f runtime/libasmrun.a ]]; then
+  rm -rf /tmp/ocaml_debug && mkdir -p /tmp/ocaml_debug
+  cd /tmp/ocaml_debug && ar -x "${SRC_DIR}/runtime/libasmrun.a" 2>/dev/null
+  for f in *.o; do
+    [[ -f "$f" ]] && echo "║    $f: $(file "$f" | cut -d: -f2)" | head -c 70
+    echo ""
+  done | head -5
+  cd "${SRC_DIR}"
+else
+  echo "║    libasmrun.a NOT FOUND"
+fi
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo ""
 
 # Fix build_config.h paths for target
 perl -pe 's#\$SRC_DIR/_native/lib/ocaml#\$PREFIX/lib/ocaml#g' "${SRC_DIR}"/build_config.h > runtime/build_config.h
