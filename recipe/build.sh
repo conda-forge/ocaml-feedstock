@@ -62,6 +62,33 @@ else
   # fi
 
   make install >& /dev/null
+
+  # Fix compiled-in tool paths for runtime
+  # Configure bakes the conda toolchain names (e.g., x86_64-conda-linux-gnu-as)
+  # into utils/config.generated.ml, but these tools aren't available at runtime.
+  # Replace with generic names (as, cc) that work with any compiler the user has.
+  echo ""
+  echo "=== Fixing compiled-in tool paths for runtime ==="
+  CONFIG_ML="${OCAML_PREFIX}/lib/ocaml/config.ml"
+  if [[ -f "$CONFIG_ML" ]]; then
+    echo "Patching $CONFIG_ML for runtime tool names..."
+
+    # Show current values
+    echo "  Before:"
+    grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
+
+    # Replace assembler: use generic 'as' (works on Linux/macOS)
+    # On macOS with clang, 'as' invokes the system assembler
+    perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|as|}/' "$CONFIG_ML"
+
+    # Replace C compiler: use generic 'cc' (works on Linux/macOS)
+    perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|cc|}/' "$CONFIG_ML"
+
+    echo "  After:"
+    grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
+  else
+    echo "WARNING: $CONFIG_ML not found, skipping tool path fixes"
+  fi
 fi
 
 echo ""
