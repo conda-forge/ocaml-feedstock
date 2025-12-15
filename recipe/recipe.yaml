@@ -32,7 +32,7 @@ build:
       # Ignore most lib/ocaml files except runtime-launch-info, ld.conf, Makefile.config
       - lib/ocaml/[^rlM][^ud][^n\.]*
       # Native code executables - no prefix to relocate
-      - bin/ocamlc.opt
+      # SEG FAULT: - bin/ocamlc.opt
       - bin/ocamldep.opt
       - bin/ocamlobjinfo.opt
       - bin/ocamlopt.opt
@@ -187,14 +187,65 @@ tests:
           - if: unix
             then:
               - grep -E "^(MODEL|ARCH)" ${PREFIX}/lib/ocaml/Makefile.config 2>/dev/null | sed 's/^/║    /' || true
-              - ldd ${PREFIX}/bin/ocamlopt.opt 2>&1 | grep -i "not found" | sed 's/^/║    /' || echo "║    (none)"
+              - ldd ${PREFIX}/bin/ocamlc.opt 2>&1 | grep -i "not found" | sed 's/^/║    /' || echo "║    (none)"
+
+              # === DIAGNOSTIC: Check compiled-in paths for placeholder strings ===
+              # If prefix relocation failed, the compiler will have ~260-char placeholder paths
+              # which cause segfaults. Catch this BEFORE hitting the segfault.
+              - echo "=== Checking compiled-in paths ==="
+              - STDLIB_PATH=$(ocamlc.opt -config-var standard_library) && echo "standard_library=$STDLIB_PATH"
+              - CC_PATH=$(ocamlc.opt -config-var c_compiler) && echo "c_compiler=$CC_PATH"
+              - |
+                STDLIB_PATH=$(ocamlc.opt -config-var standard_library)
+                echo "Checking for placeholder in standard_library path..."
+                if echo "$STDLIB_PATH" | grep -q "placehold"; then
+                  echo "ERROR: Compiler has unrelocated placeholder path!"
+                  echo "Path: $STDLIB_PATH"
+                  echo "This means prefix_detection ignore rules prevented relocation."
+                  exit 1
+                fi
+                if [ ! -d "$STDLIB_PATH" ]; then
+                  echo "WARNING: standard_library path does not exist: $STDLIB_PATH"
+                  echo "OCAMLLIB is: $OCAMLLIB"
+                fi
+
+              # === Version checks ===
               - ocamlrun -version 2>&1 | head -1 || echo 'SEGFAULT'
               - ocamlc.opt -version 2>&1 | head -1 || echo 'SEGFAULT'
               - ocamlopt -version 2>&1 | head -1 || echo 'SEGFAULT'
+
+              # === Exercise compilers with actual code ===
               - printf 'print_endline "Hello World"\n' > test.ml
+
+              # 1. Bytecode compilation + execution
+              - echo "=== Testing bytecode compilation ==="
               - ocamlc -o test_bytecode test.ml
               - ./test_bytecode | grep "Hello World"
-              - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+              - (mkdir -p tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+
+              # 2. Native compilation + execution
+              - echo "=== Testing native compilation ==="
+              - ocamlopt -o test_native test.ml
+              - ./test_native | grep "Hello World"
+
+              # 3. REPL test (ocaml toplevel)
+              - echo "=== Testing REPL ==="
+              - echo 'print_endline "REPL works";;' | ocaml 2>&1 | grep -q "REPL works"
+
+              # 4. ocamldep actually parsing files
+              - echo "=== Testing ocamldep ==="
+              - ocamldep test.ml
+
+              # 5. Multi-file compilation (exercises module system)
+              - echo "=== Testing multi-file compilation ==="
+              - printf 'let greet () = print_endline "From Lib"\n' > lib.ml
+              - printf 'let () = Lib.greet ()\n' > main.ml
+              - ocamlc -c lib.ml
+              - ocamlc -c main.ml
+              - ocamlc -o multi lib.cmo main.cmo
+              - ./multi | grep "From Lib"
+
+              - echo "=== All compilation tests passed ==="
             else:
               - printf 'print_endline "Hello World"\n' > test.ml
               - ocamlc -o test_bytecode.exe test.ml
