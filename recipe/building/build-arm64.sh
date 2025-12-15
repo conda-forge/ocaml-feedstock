@@ -48,12 +48,29 @@ run_logged() {
 _build_alias="$build_alias"
 _host_alias="$host_alias"
 _OCAML_PREFIX="${OCAML_PREFIX}"
-# conda_build.sh strips path from CC with $(basename "$CC"), restore full path
-_CC="${BUILD_PREFIX}/bin/${CC}"
-_AR="${BUILD_PREFIX}/bin/${AR}"
-_RANLIB="${BUILD_PREFIX}/bin/${RANLIB}"
+
+# Ensure cross-compiler paths are absolute
+# conda_build.sh sometimes strips paths, sometimes doesn't - handle both cases
+_ensure_full_path() {
+  local cmd="$1"
+  if [[ "$cmd" == /* ]]; then
+    # Already absolute path
+    echo "$cmd"
+  else
+    # Relative - prepend BUILD_PREFIX/bin
+    echo "${BUILD_PREFIX}/bin/${cmd}"
+  fi
+}
+_CC="$(_ensure_full_path "${CC}")"
+_AR="$(_ensure_full_path "${AR}")"
+_RANLIB="$(_ensure_full_path "${RANLIB}")"
 _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
+
+echo "Cross-compiler paths (resolved):"
+echo "  CC=${CC} -> _CC=${_CC}"
+echo "  AR=${AR} -> _AR=${_AR}"
+echo "  RANLIB=${RANLIB} -> _RANLIB=${_RANLIB}"
 
 # Clear cross-compilation environment for Stage 1
 unset build_alias

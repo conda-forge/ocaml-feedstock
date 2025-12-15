@@ -83,7 +83,7 @@ requirements:
         - m2-coreutils
         - m2-diffutils
         - m2-which
-    - if: aarch64 or ppc64le
+    - if: aarch64 or ppc64le or arm64
       then:
         - zstd
   host:

@@ -48,13 +48,31 @@ run_logged() {
 _build_alias="$build_alias"
 _host_alias="$host_alias"
 _OCAML_PREFIX="${OCAML_PREFIX}"
-# conda_build.sh strips path from CC with $(basename "$CC"), restore full path
-_CC="${BUILD_PREFIX}/bin/${CC}"
-_AR="${BUILD_PREFIX}/bin/${AR}"
-_AS="${BUILD_PREFIX}/bin/${AS}"
-_RANLIB="${BUILD_PREFIX}/bin/${RANLIB}"
+
+# Ensure cross-compiler paths are absolute
+# conda_build.sh sometimes strips paths, sometimes doesn't - handle both cases
+_ensure_full_path() {
+  local cmd="$1"
+  if [[ "$cmd" == /* ]]; then
+    # Already absolute path
+    echo "$cmd"
+  else
+    # Relative - prepend BUILD_PREFIX/bin
+    echo "${BUILD_PREFIX}/bin/${cmd}"
+  fi
+}
+_CC="$(_ensure_full_path "${CC}")"
+_AR="$(_ensure_full_path "${AR}")"
+_AS="$(_ensure_full_path "${AS}")"
+_RANLIB="$(_ensure_full_path "${RANLIB}")"
 _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
+
+echo "Cross-compiler paths (resolved):"
+echo "  CC=${CC} -> _CC=${_CC}"
+echo "  AR=${AR} -> _AR=${_AR}"
+echo "  AS=${AS} -> _AS=${_AS}"
+echo "  RANLIB=${RANLIB} -> _RANLIB=${_RANLIB}"
 
 # Clear cross-compilation environment for Stage 1
 unset build_alias
@@ -198,6 +216,16 @@ echo "  Old native_c_libraries: $(grep 'let native_c_libraries =' utils/config.g
 perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' utils/config.generated.ml
 echo "  New native_c_libraries: $(grep 'let native_c_libraries =' utils/config.generated.ml)"
 
+# Patch Config.model: configure detects from BUILD host (default/empty for x86_64)
+# but PowerPC backend requires "ppc64" or "ppc64le" (assertion in asmcomp/power/arch.ml:54)
+# ARM64 uses "default" which works, so only patch for ppc64le
+if [[ "${target_platform}" == "linux-ppc64le" ]]; then
+  echo "Stage 2: Fixing model in utils/config.generated.ml for PowerPC"
+  echo "  Old model: $(grep 'let model =' utils/config.generated.ml)"
+  perl -i -pe 's/^let model = .*/let model = {|ppc64le|}/' utils/config.generated.ml
+  echo "  New model: $(grep 'let model =' utils/config.generated.ml)"
+fi
+
 # Apply cross-compilation patches
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
@@ -311,6 +339,13 @@ grep '^BYTECCLIBS' Makefile.config
 echo "Stage 3: Appending -ldl to NATIVECCLIBS in Makefile.config"
 perl -i -pe 's/^(NATIVECCLIBS=.*)$/$1 -ldl/' Makefile.config
 grep '^NATIVECCLIBS' Makefile.config
+
+# Patch Config.model: configure detects from BUILD host but PowerPC backend requires "ppc64le"
+if [[ "${target_platform}" == "linux-ppc64le" ]]; then
+  echo "Stage 3: Fixing model in utils/config.generated.ml for PowerPC"
+  perl -i -pe 's/^let model = .*/let model = {|ppc64le|}/' utils/config.generated.ml
+  grep 'let model =' utils/config.generated.ml
+fi
 
 # Build with target cross-toolchain
 # CRITICAL: Use _CROSS_OCAMLOPT (cross-compiler) not ocamlopt from PATH (native)
