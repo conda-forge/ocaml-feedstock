@@ -43,10 +43,14 @@ VPATH := + $(VPATH)
 # SAK is a build tool that must run on the BUILD machine, not the TARGET
 # Default to CC if SAK_CC is not defined (native build case)
 SAK_CC ?= $(CC)
+# SAK_CFLAGS: CFLAGS for BUILD machine (sak runs on build, not target)
+# Must NOT contain target-specific flags like -mtune=power8
+SAK_CFLAGS ?= $(CFLAGS)
 SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$(1) $(2)
 
-# Override SAK_BUILD to use SAK_CC instead of CC for cross-compilation
-SAK_BUILD = $(SAK_LINK) $(OC_CFLAGS) $(CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS)
+# Override SAK_BUILD to use SAK_CC/SAK_CFLAGS instead of CC/CFLAGS for cross-compilation
+# sak is a build tool that must run on the BUILD machine
+SAK_BUILD = $(SAK_LINK) $(OC_CFLAGS) $(SAK_CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS)
 
 # CROSS_CC/CROSS_AR must be set on command line for cross-compilation.
 # These are passed through to sub-makes for C libraries (otherlibs).
@@ -107,13 +111,14 @@ CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
 # RUNTIME_VARS: variables that must be passed to runtime-all for cross-compilation
 # ARCH selects the correct .S file (arm64.S vs amd64.S)
 # AS/ASPP/CC are the cross-toolchain for assembling/compiling
-# SAK_CC is for the sak tool which must run on BUILD machine
+# SAK_CC/SAK_CFLAGS are for the sak tool which must run on BUILD machine
 # SAK_LINK uses $$ escaping so $(1) and $(2) survive to the sub-make's $(call SAK_LINK,...)
 # Values must be quoted because ASPP contains spaces (e.g., "gcc -c")
 # runtime_ASM_OBJECTS is hardcoded at configure time (Makefile.build_config),
 # must override to use correct $(ARCH).o for cross-compilation
 RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' \
-  SAK_CC='$(SAK_CC)' 'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
+  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
   runtime_ASM_OBJECTS='runtime/$(ARCH).o'
 
 .PHONY: crossopt
