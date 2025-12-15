@@ -108,7 +108,7 @@ endif
 CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
     ocamlcommon ocamlmiddleend ocamlbytecomp ocamloptcomp ocamltoplevel))
 
-# RUNTIME_VARS: variables that must be passed to runtime-all for cross-compilation
+# RUNTIME_VARS: variables that must be passed to runtimeopt for cross-compilation
 # ARCH selects the correct .S file (arm64.S vs amd64.S)
 # AS/ASPP/CC are the cross-toolchain for assembling/compiling
 # SAK_CC/SAK_CFLAGS are for the sak tool which must run on BUILD machine
@@ -121,13 +121,27 @@ RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' \
   'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
   runtime_ASM_OBJECTS='runtime/$(ARCH).o'
 
+# BYTECODE_RUNTIME_VARS: for building bytecode runtime on BUILD machine (not cross-compiled)
+# ocamlrun must run on the BUILD machine, so use BUILD compiler (not cross-compiler)
+# The x86_64 ocamlrun from Stage 1 (_native/bin) is available via PATH
+# SAK tool also runs on BUILD machine
+BYTECODE_RUNTIME_VARS = \
+  SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
+  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
+
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 crossopt: cross-flexdll
-	$(MAKE) runtime-all $(RUNTIME_VARS) $(OLDS)
+	# CRITICAL: Build bytecode runtime with BUILD compiler (not cross-compiler)
+	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC (BUILD compiler)
+	# CC=$(SAK_CC) overrides the command-line CC (cross-compiler) that propagates via MAKEFLAGS
+	$(MAKE) runtime-all CC=$(SAK_CC) $(BYTECODE_RUNTIME_VARS) $(OLDS)
 else
 crossopt:
-	$(MAKE) runtime-all $(RUNTIME_VARS) $(OLDS)
+	# CRITICAL: Build bytecode runtime with BUILD compiler (not cross-compiler)
+	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC (BUILD compiler)
+	# CC=$(SAK_CC) overrides the command-line CC (cross-compiler) that propagates via MAKEFLAGS
+	$(MAKE) runtime-all CC=$(SAK_CC) $(BYTECODE_RUNTIME_VARS) $(OLDS)
 endif
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
