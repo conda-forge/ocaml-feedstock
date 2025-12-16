@@ -133,7 +133,8 @@ if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
     # Build shared library with cross-compiler
     dll_name="dll${_output_c}.so"
     debug "Building shared library: $dll_name"
-    cmd=("${CROSS_CC}" -shared -o "$dll_name" "${c_objs[@]}" "${ld_opts[@]}" "${c_libs[@]}")
+    # Use ${arr[@]+"${arr[@]}"} pattern to handle empty arrays with set -u
+    cmd=("${CROSS_CC}" -shared -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
     if [[ -n "$verbose" ]]; then
       echo "+ ${cmd[*]}"
     fi
@@ -213,7 +214,8 @@ else
   # Build shared library: dll<name>.so
   dll_name="dll${_output_c}.so"
   debug "Building shared library: $dll_name"
-  cmd=("${CROSS_CC}" -shared -o "$dll_name" "${c_objs[@]}" "${ld_opts[@]}" "${c_libs[@]}")
+  # Use ${arr[@]+"${arr[@]}"} pattern to handle empty arrays with set -u
+  cmd=("${CROSS_CC}" -shared -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
   if [[ -n "$verbose" ]]; then
     echo "+ ${cmd[*]}"
   fi
