@@ -257,13 +257,6 @@ tests:
                 echo 'print_endline "test"' > test.ml
                 ocamlc -verbose -o test_bytecode test.ml 2>&1 || echo "EXIT CODE: $?"
 
-                echo "--- If crashed, try with strace ---"
-                if ! [ -f test_bytecode ]; then
-                  strace -f -o /tmp/ocamlc_trace.txt ocamlc -o test_bytecode test.ml 2>&1 || true
-                  echo "--- Last 50 lines of strace ---"
-                  tail -50 /tmp/ocamlc_trace.txt 2>/dev/null || echo "no strace output"
-                fi
-
                 echo "--- Check ocamlrun separately ---"
                 ocamlrun -version 2>&1 || echo "ocamlrun failed"
 
@@ -307,9 +300,6 @@ tests:
         - if: unix
           then:
             - ${{ compiler('c') }}
-        - if: linux
-          then:
-            - strace
 
   - script:
       - if: arm64
