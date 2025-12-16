@@ -23,6 +23,14 @@ debug() {
   fi
 }
 
+# macOS needs -undefined dynamic_lookup to defer OCaml runtime symbol resolution to runtime
+# Without this, the linker fails with "Undefined symbols for architecture arm64: _caml_alloc_small..."
+if [[ "$(uname)" == "Darwin" ]]; then
+  MACOS_LINK_FLAGS=(-undefined dynamic_lookup)
+else
+  MACOS_LINK_FLAGS=()
+fi
+
 debug "Args: $*"
 debug "CROSS_CC=${CROSS_CC:-unset}"
 debug "CROSS_AR=${CROSS_AR:-unset}"
@@ -134,7 +142,8 @@ if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
     dll_name="dll${_output_c}.so"
     debug "Building shared library: $dll_name"
     # Use ${arr[@]+"${arr[@]}"} pattern to handle empty arrays with set -u
-    cmd=("${CROSS_CC}" -shared -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
+    # Include MACOS_LINK_FLAGS for macOS (-undefined dynamic_lookup)
+    cmd=("${CROSS_CC}" -shared ${MACOS_LINK_FLAGS[@]+"${MACOS_LINK_FLAGS[@]}"} -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
     if [[ -n "$verbose" ]]; then
       echo "+ ${cmd[*]}"
     fi
@@ -215,7 +224,8 @@ else
   dll_name="dll${_output_c}.so"
   debug "Building shared library: $dll_name"
   # Use ${arr[@]+"${arr[@]}"} pattern to handle empty arrays with set -u
-  cmd=("${CROSS_CC}" -shared -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
+  # Include MACOS_LINK_FLAGS for macOS (-undefined dynamic_lookup)
+  cmd=("${CROSS_CC}" -shared ${MACOS_LINK_FLAGS[@]+"${MACOS_LINK_FLAGS[@]}"} -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
   if [[ -n "$verbose" ]]; then
     echo "+ ${cmd[*]}"
   fi

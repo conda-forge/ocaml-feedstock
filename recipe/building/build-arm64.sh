@@ -282,21 +282,33 @@ run_logged "stage3_configure" ./configure \
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
 
-# Patch utils/config.generated.ml for cross-compilation (Stage 3)
-# CRITICAL: Stage 3 configure regenerates this file with BUILD compiler paths.
-# We must patch it again with TARGET paths, or the installed binaries will have
-# wrong c_compiler/asm values (e.g., x86_64-* instead of arm64-*).
-echo "Stage 3: Patching utils/config.generated.ml for cross-compilation..."
-export _TARGET_ASM="${_CC} -c"  # macOS clang needs -c flag
-export _MKDLL="${_CC} -shared -undefined dynamic_lookup -L."
-export _CC_TARGET="${_CC}"
-export _MKEXE="${_CC} ${_LDFLAGS}"
-perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
-perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
-perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
-perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_CC_TARGET}|}/' utils/config.generated.ml
-perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_MKEXE}|}/' utils/config.generated.ml
-echo "  Done (asm, mkdll, c_compiler, mkexe patched)"
+# Patch config files for RUNTIME (Stage 3)
+# CRITICAL: The installed binaries need GENERIC tool paths (cc, as) that work at RUNTIME.
+# NOT the build-time cross-compiler paths (arm64-apple-darwin-cc) which don't exist at runtime.
+# The BUILD itself uses cross-compiler via make variables, but the compiled-in config is for RUNTIME.
+#
+# IMPORTANT: Must patch BOTH utils/config.generated.ml AND utils/config.ml!
+# ./configure generates utils/config.ml directly from templates (not from config.generated.ml).
+# If we only patch config.generated.ml, the crosscompiledopt build uses the unpatched config.ml.
+echo "Stage 3: Patching config files for RUNTIME paths..."
+echo "  Setting generic tool names: cc, as (not build-time cross-compiler paths)"
+# macOS: 'as' invokes system assembler, 'cc' invokes system cc (clang)
+# -undefined dynamic_lookup is needed for macOS shared libraries
+
+# Patch both config.generated.ml and config.ml
+for config_file in utils/config.generated.ml utils/config.ml; do
+  if [[ -f "$config_file" ]]; then
+    echo "  Patching: $config_file"
+    perl -i -pe 's/^let asm = .*/let asm = {|as|}/' "$config_file"
+    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|cc|}/' "$config_file"
+    perl -i -pe 's/^let mkdll = .*/let mkdll = {|cc -shared -undefined dynamic_lookup|}/' "$config_file"
+    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|cc -shared -undefined dynamic_lookup|}/' "$config_file"
+    perl -i -pe 's/^let mkexe = .*/let mkexe = {|cc|}/' "$config_file"
+  fi
+done
+
+echo "  Verifying patched values in utils/config.ml:"
+grep -E "^let (asm|c_compiler|mkdll|mkexe) =" utils/config.ml
 
 # Debug: Show key variables before crosscompiledopt
 echo ""
@@ -381,33 +393,6 @@ run_logged "stage3_crosscompiledruntime" make crosscompiledruntime \
   -j${CPU_COUNT}
 
 run_logged "stage3_installcross" make installcross
-
-# Fix compiled-in tool paths for runtime
-# Configure bakes the cross-compiler paths (e.g., arm64-apple-darwin-cc)
-# into the installed config.ml, but these tools aren't available at runtime.
-# Replace with generic names (as, cc) that work with any compiler the user has.
-echo ""
-echo "=== Fixing compiled-in tool paths for runtime ==="
-CONFIG_ML="${OCAML_PREFIX}/lib/ocaml/config.ml"
-if [[ -f "$CONFIG_ML" ]]; then
-  echo "Patching $CONFIG_ML for runtime tool names..."
-
-  # Show current values
-  echo "  Before:"
-  grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
-
-  # Replace assembler: use generic 'as'
-  # On macOS, 'as' invokes the system assembler or clang
-  perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|as|}/' "$CONFIG_ML"
-
-  # Replace C compiler: use generic 'cc'
-  perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|cc|}/' "$CONFIG_ML"
-
-  echo "  After:"
-  grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
-else
-  echo "WARNING: $CONFIG_ML not found, skipping tool path fixes"
-fi
 
 # Fix overlinking in stublibs - change ./dll*.so to @loader_path/dll*.so
 echo ""
