@@ -262,6 +262,7 @@ tests:
               - test_bytecode.exe | grep Hello
     requirements:
       run:
+        - ${{ "m2-" if not unix }}file
         - ${{ "m2-" if not unix }}grep
         # C compiler needed for ocamlopt native compilation test
         - if: unix
