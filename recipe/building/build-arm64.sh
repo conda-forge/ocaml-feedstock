@@ -437,5 +437,22 @@ for bin in "${OCAML_PREFIX}"/bin/*; do
   fi
 done
 
+echo "=== Fixing install names for shared libraries ==="
+if [[ -f "${OCAML_PREFIX}/lib/ocaml/libasmrun_shared.so" ]]; then
+  install_name_tool -id "@rpath/libasmrun_shared.so" "${OCAML_PREFIX}/lib/ocaml/libasmrun_shared.so"
+fi
+if [[ -f "${OCAML_PREFIX}/lib/ocaml/libcamlrun_shared.so" ]]; then
+  install_name_tool -id "@rpath/libcamlrun_shared.so" "${OCAML_PREFIX}/lib/ocaml/libcamlrun_shared.so"
+fi
+
+# Also fix any references to these libraries in other binaries
+for lib in "${OCAML_PREFIX}/lib/ocaml/"*.so "${OCAML_PREFIX}/lib/ocaml/stublibs/"*.so; do
+  if [[ -f "$lib" ]]; then
+    # Fix references to build-time paths
+    install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib" 2>/dev/null || true
+    install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib" 2>/dev/null || true
+  fi
+done
+
 echo ""
 echo "=== Cross-compilation complete for ${_host_alias} ==="
