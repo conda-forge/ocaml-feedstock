@@ -303,12 +303,29 @@ run_logged "stage3_configure" ./configure \
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
 
-# Fix BYTECCLIBS/NATIVECCLIBS and Config.model for cross-compilation
+# Fix BYTECCLIBS/NATIVECCLIBS for cross-compilation
 perl -i -pe 's/^(BYTECCLIBS=.*)$/$1 -ldl/' Makefile.config
 perl -i -pe 's/^(NATIVECCLIBS=.*)$/$1 -ldl/' Makefile.config
+
+# Patch utils/config.generated.ml for cross-compilation (Stage 3)
+# CRITICAL: Stage 3 configure regenerates this file with BUILD compiler paths.
+# We must patch it again with TARGET paths, or the installed binaries will have
+# wrong c_compiler/asm values (e.g., x86_64-* instead of aarch64-*).
+echo "Stage 3: Patching utils/config.generated.ml for cross-compilation..."
+export _TARGET_ASM="${_AS}"
+export _MKDLL="${_CC} -shared -L."
+export _CC_TARGET="${_CC}"
+export _MKEXE="${_CC} -Wl,-E ${_LDFLAGS}"
+perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_CC_TARGET}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_MKEXE}|}/' utils/config.generated.ml
+perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' utils/config.generated.ml
 if [[ "${target_platform}" == "linux-ppc64le" ]]; then
   perl -i -pe 's/^let model = .*/let model = {|ppc64le|}/' utils/config.generated.ml
 fi
+echo "  Done (asm, mkdll, c_compiler, mkexe, native_c_libraries patched)"
 
 # Debug: Show key variables before crosscompiledopt
 echo ""
