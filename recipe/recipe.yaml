@@ -198,6 +198,7 @@ tests:
             then:
               - grep -E "^(MODEL|ARCH)" ${PREFIX}/lib/ocaml/Makefile.config 2>/dev/null | sed 's/^/║    /' || true
               - ldd ${PREFIX}/bin/ocamlc.opt 2>&1 | grep -i "not found" | sed 's/^/║    /' || echo "║    (none)"
+              - readelf -d ${PREFIX}/bin/ocamlc.opt
 
               # === DIAGNOSTIC: Check compiled-in paths for placeholder strings ===
               # If prefix relocation failed, the compiler will have ~260-char placeholder paths
