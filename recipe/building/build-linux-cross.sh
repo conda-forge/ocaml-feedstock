@@ -240,6 +240,7 @@ run_logged "stage2_crossopt" make crossopt \
   CPPFLAGS="-D_DEFAULT_SOURCE" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_CFLAGS="${_SAK_CFLAGS}" \
+  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
   -j${CPU_COUNT}
 run_logged "stage2_installcross" make installcross
@@ -396,9 +397,9 @@ cat runtime/build_config.h
 echo "================================="
 
 # Build runtime with target cross-toolchain
-# BYTECCLIBS needed for dlopen/dlclose/dlsym (glibc 2.17 needs -ldl) and zstd compression
+# BYTECCLIBS/NATIVECCLIBS needed for dlopen/dlclose/dlsym (glibc 2.17 needs -ldl) and zstd compression
 # ZSTD_LIBS for finding aarch64 zstd library
-# SAK_CC/SAK_CFLAGS for build-time tools that run on build machine
+# SAK_CC/SAK_CFLAGS/SAK_LINK for build-time tools that run on build machine
 run_logged "stage3_crosscompiledruntime" make crosscompiledruntime \
   ARCH="${_TARGET_ARCH}" \
   CAMLOPT="${_CROSS_OCAMLOPT}" \
@@ -410,10 +411,12 @@ run_logged "stage3_crosscompiledruntime" make crosscompiledruntime \
   CROSS_MKLIB="${_CROSS_MKLIB}" \
   CPPFLAGS="-D_DEFAULT_SOURCE" \
   BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd" \
+  NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd" \
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_CFLAGS="${_SAK_CFLAGS}" \
+  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   -j${CPU_COUNT}
 
 run_logged "stage3_installcross" make installcross

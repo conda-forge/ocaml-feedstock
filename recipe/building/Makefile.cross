@@ -222,9 +222,29 @@ crosscompiledopt:
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSSCOMPILED_COMPILERLIBS_OVERRIDES) $(OLDS)
 
+# ============================================================================
+# crosscompiledruntime: Build runtime for TARGET platform
+# conda-forge addition - builds native runtime after crosscompiledopt
+# ============================================================================
+# BYTECCLIBS/NATIVECCLIBS must be passed to recursive make for cross-compilation
+# because configure detected libraries for BUILD platform, not TARGET.
+# e.g., TARGET glibc 2.17 needs -ldl but BUILD glibc 2.34 doesn't.
 .PHONY: crosscompiledruntime
 crosscompiledruntime:
-	$(MAKE) runtime-all $(RUNTIME_VARS) $(OLDS)
+	$(MAKE) runtime-all $(RUNTIME_VARS) BYTECCLIBS='$(BYTECCLIBS)' NATIVECCLIBS='$(NATIVECCLIBS)' $(OLDS)
+
+# ============================================================================
+# Override otherlibraries targets to use CROSS_OTHERLIBS_OVERRIDES
+# The main Makefile's otherlibraries/otherlibrariesopt don't pass CC/AR/MKLIB,
+# causing wrong linker to be used for C stub libraries (otherlibs).
+# ============================================================================
+.PHONY: otherlibraries
+otherlibraries: ocamltools dynlink-all
+	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES)
+
+.PHONY: otherlibrariesopt
+otherlibrariesopt: dynlink-allopt
+	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES)
 
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
