@@ -37,7 +37,7 @@ build:
       # Ignore most lib/ocaml files except runtime-launch-info, ld.conf, Makefile.config
       - lib/ocaml/[^rlM][^ud][^n\.]*
       # Native code executables - no prefix to relocate
-      # SEG FAULT: - bin/ocamlc.opt
+      - bin/ocamlc.opt
       - bin/ocamldep.opt
       - bin/ocamlobjinfo.opt
       - bin/ocamlopt.opt
@@ -154,8 +154,8 @@ tests:
           - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null
           - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null
         else:
-          - echo "%OCAMLLIB%" | grep ocaml > /dev/null
-          - echo "%PATH%" | grep ocaml > /dev/null
+          - echo "%OCAMLLIB%" | grep ocaml
+          - echo "%PATH%" | grep ocaml
       - echo "PREFIX/PATH tests passed"
     requirements:
       run:
