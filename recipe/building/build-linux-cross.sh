@@ -308,34 +308,27 @@ perl -i -pe 's/^(BYTECCLIBS=.*)$/$1 -ldl/' Makefile.config
 perl -i -pe 's/^(NATIVECCLIBS=.*)$/$1 -ldl/' Makefile.config
 
 # Patch config files for RUNTIME (Stage 3)
-# CRITICAL: The installed binaries need GENERIC tool paths (cc, as) that work at RUNTIME.
+# OCaml 5.3+ uses utils/config.generated.ml (configure generates from .in template)
+# CRITICAL: The installed binaries need GENERIC tool paths (cc, as) that work at RUNTIME,
 # NOT the build-time cross-compiler paths (aarch64-conda-linux-gnu-cc) which don't exist at runtime.
 # The BUILD itself uses cross-compiler via make variables, but the compiled-in config is for RUNTIME.
-#
-# IMPORTANT: Must patch BOTH utils/config.generated.ml AND utils/config.ml!
-# ./configure generates utils/config.ml directly from templates (not from config.generated.ml).
-# If we only patch config.generated.ml, the crosscompiledopt build uses the unpatched config.ml.
 echo "Stage 3: Patching config files for RUNTIME paths..."
 echo "  Setting generic tool names: cc, as (not build-time cross-compiler paths)"
 
-# Patch both config.generated.ml and config.ml
-for config_file in utils/config.generated.ml utils/config.ml; do
-  if [[ -f "$config_file" ]]; then
-    echo "  Patching: $config_file"
-    perl -i -pe 's/^let asm = .*/let asm = {|as|}/' "$config_file"
-    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|cc|}/' "$config_file"
-    perl -i -pe 's/^let mkdll = .*/let mkdll = {|cc -shared|}/' "$config_file"
-    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|cc -shared|}/' "$config_file"
-    perl -i -pe 's/^let mkexe = .*/let mkexe = {|cc|}/' "$config_file"
-    perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' "$config_file"
-    if [[ "${target_platform}" == "linux-ppc64le" ]]; then
-      perl -i -pe 's/^let model = .*/let model = {|ppc64le|}/' "$config_file"
-    fi
-  fi
-done
+config_file="utils/config.generated.ml"
+echo "  Patching: $config_file"
+perl -i -pe 's/^let asm = .*/let asm = {|as|}/' "$config_file"
+perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|cc|}/' "$config_file"
+perl -i -pe 's/^let mkdll = .*/let mkdll = {|cc -shared|}/' "$config_file"
+perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|cc -shared|}/' "$config_file"
+perl -i -pe 's/^let mkexe = .*/let mkexe = {|cc|}/' "$config_file"
+perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' "$config_file"
+if [[ "${target_platform}" == "linux-ppc64le" ]]; then
+  perl -i -pe 's/^let model = .*/let model = {|ppc64le|}/' "$config_file"
+fi
 
-echo "  Verifying patched values in utils/config.ml:"
-grep -E "^let (asm|c_compiler|mkdll|mkexe) =" utils/config.ml
+echo "  Verifying patched values in utils/config.generated.ml:"
+grep -E "^let (asm|c_compiler|mkdll|mkexe) =" utils/config.generated.ml
 
 # Debug: Show key variables before crosscompiledopt
 echo ""
