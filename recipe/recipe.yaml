@@ -197,7 +197,7 @@ tests:
               - od -A x -t x1z -N 32 ${PREFIX}/lib/ocaml/stublibs/dllunixnat.so || echo "od failed"
               - head -c 4 ${PREFIX}/lib/ocaml/stublibs/dllunixnat.so | od -c
               - file ${PREFIX}/lib/ocaml/stublibs/*.so | head -3
-              - ocamlrun ${PREFIX}/lib/ocaml/ocamlc -version || echo "ocamlrun failed"
+              - ocamlrun ${PREFIX}/bin/ocamlc -version || echo "ocamlrun failed"
  
               - grep -E "^(MODEL|ARCH)" ${PREFIX}/lib/ocaml/Makefile.config 2>/dev/null | sed 's/^/║    /' || true
               - ldd ${PREFIX}/bin/ocamlc.opt 2>&1 | grep -i "not found" | sed 's/^/║    /' || echo "║    (none)"
@@ -233,6 +233,41 @@ tests:
 
               # 1. Bytecode compilation + execution
               - echo "=== Testing bytecode compilation ==="
+              - echo "=== Comprehensive Debug ==="
+              - |
+                set +e  # Don't exit on error
+
+                echo "--- Environment ---"
+                echo "CC=${CC}"
+                echo "AS=${AS}"
+                echo "OCAMLLIB=${OCAMLLIB:-not set}"
+                echo "PATH (first 3): $(echo $PATH | tr ':' '\n' | head -3)"
+
+                echo "--- Config values ---"
+                ocamlc.opt -config 2>&1 | grep -E "^(standard_library|c_compiler|asm|native_c_compiler):" || true
+
+                echo "--- Stdlib check ---"
+                STDLIB=$(ocamlc.opt -config-var standard_library)
+                echo "standard_library: $STDLIB"
+                ls -la "$STDLIB"/stdlib.cmi 2>&1 || echo "stdlib.cmi missing!"
+                ls -la "$STDLIB"/stdlib.cma 2>&1 || echo "stdlib.cma missing!"
+                file "$STDLIB"/stdlib.cma 2>&1 || true
+
+                echo "--- Verbose bytecode compile ---"
+                echo 'print_endline "test"' > test.ml
+                ocamlc -verbose -o test_bytecode test.ml 2>&1 || echo "EXIT CODE: $?"
+
+                echo "--- If crashed, try with strace ---"
+                if ! [ -f test_bytecode ]; then
+                  strace -f -o /tmp/ocamlc_trace.txt ocamlc -o test_bytecode test.ml 2>&1 || true
+                  echo "--- Last 50 lines of strace ---"
+                  tail -50 /tmp/ocamlc_trace.txt 2>/dev/null || echo "no strace output"
+                fi
+
+                echo "--- Check ocamlrun separately ---"
+                ocamlrun -version 2>&1 || echo "ocamlrun failed"
+
+                echo "--- Debug complete ---"
               - ocamlc -o test_bytecode test.ml
               - ./test_bytecode | grep "Hello World"
               - (mkdir -p tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
@@ -272,6 +307,9 @@ tests:
         - if: unix
           then:
             - ${{ compiler('c') }}
+        - if: linux
+          then:
+            - strace
 
   - script:
       - if: arm64
