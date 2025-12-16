@@ -197,7 +197,6 @@ tests:
               - od -A x -t x1z -N 32 ${PREFIX}/lib/ocaml/stublibs/dllunixnat.so || echo "od failed"
               - head -c 4 ${PREFIX}/lib/ocaml/stublibs/dllunixnat.so | od -c
               - file ${PREFIX}/lib/ocaml/stublibs/*.so | head -3
-              - ocamlrun ${PREFIX}/bin/ocamlc -version || echo "ocamlrun failed"
  
               - grep -E "^(MODEL|ARCH)" ${PREFIX}/lib/ocaml/Makefile.config 2>/dev/null | sed 's/^/║    /' || true
               - ldd ${PREFIX}/bin/ocamlc.opt 2>&1 | grep -i "not found" | sed 's/^/║    /' || echo "║    (none)"
@@ -234,6 +233,16 @@ tests:
               # 1. Bytecode compilation + execution
               - echo "=== Testing bytecode compilation ==="
               - echo "=== Comprehensive Debug ==="
+              - |
+                echo "--- Minimal compile test ---"
+                echo '' > empty.ml  # Completely empty file
+                ocamlc -c empty.ml 2>&1; echo "Empty compile: $?"
+
+                echo "--- Parse only test ---"
+                ocamlc -stop-after parsing test.ml 2>&1; echo "Parse only: $?"
+
+                echo "--- Type check only ---"
+                ocamlc -stop-after typing test.ml 2>&1; echo "Type check: $?"
               - |
                 set +e  # Don't exit on error
 

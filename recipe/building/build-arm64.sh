@@ -413,7 +413,9 @@ for bin in "${OCAML_PREFIX}"/bin/*; do
   [[ -f "$bin" ]] || continue
 
   # Check if this is a bytecode executable (shebang contains ocamlrun)
-  if head -c 50 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
+  # Use 256 bytes to capture long conda build paths like:
+  # /home/conda/feedstock_root/build_artifacts/bld/rattler-build_ocaml_.../work/_cross/bin/ocamlrun
+  if head -c 256 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
     echo "Fixing bytecode shebang: $bin"
     # Using perl in binary mode to safely handle bytecode after the shebang
     perl -e '
