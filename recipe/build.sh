@@ -12,14 +12,14 @@ export RANLIB=$(basename "$RANLIB")
 mkdir -p ${PREFIX}/lib
 
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
-  export OCAML_PREFIX=$PREFIX/Library
+  export OCAML_PREFIX="${PREFIX}/Library"
   SH_EXT="bat"
 else
-  export OCAML_PREFIX=$PREFIX
+  export OCAML_PREFIX="${PREFIX}"
   SH_EXT="sh"
 fi
 
-export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
+export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
 
 CONFIG_ARGS=(
   --enable-shared
