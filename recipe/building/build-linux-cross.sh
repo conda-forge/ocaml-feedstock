@@ -313,15 +313,17 @@ perl -i -pe 's/^(NATIVECCLIBS=.*)$/$1 -ldl/' Makefile.config
 # NOT the build-time cross-compiler paths (aarch64-conda-linux-gnu-cc) which don't exist at runtime.
 # The BUILD itself uses cross-compiler via make variables, but the compiled-in config is for RUNTIME.
 echo "Stage 3: Patching config files for RUNTIME paths..."
-echo "  Setting generic tool names: cc, as (not build-time cross-compiler paths)"
+echo "  Setting shell variables \$AS and \$CC (expanded by conda's compiler activation)"
 
 config_file="utils/config.generated.ml"
 echo "  Patching: $config_file"
-perl -i -pe 's/^let asm = .*/let asm = {|as|}/' "$config_file"
-perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|cc|}/' "$config_file"
-perl -i -pe 's/^let mkdll = .*/let mkdll = {|cc -shared|}/' "$config_file"
-perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|cc -shared|}/' "$config_file"
-perl -i -pe 's/^let mkexe = .*/let mkexe = {|cc|}/' "$config_file"
+# Use shell variables $AS and $CC so conda's compiler activation sets the right tools
+# OCaml invokes these via system() which expands shell variables
+perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
+perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
+perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
+perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
+perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
 perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' "$config_file"
 if [[ "${target_platform}" == "linux-ppc64le" ]]; then
   perl -i -pe 's/^let model = .*/let model = {|ppc64le|}/' "$config_file"
