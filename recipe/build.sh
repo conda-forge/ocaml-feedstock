@@ -215,6 +215,11 @@ if [[ -f "${OCAML_PREFIX}/lib/ocaml/Makefile.config" ]]; then
   grep -n "build_artifacts\|build_env" "${OCAML_PREFIX}/lib/ocaml/Makefile.config" || echo "  (none)"
 fi
 
+# Verify artifacts
+echo "=== Checking stublib architecture ==="
+file ${OCAML_PREFIX}/lib/ocaml/stublibs/dllunixnat.so || echo "file command failed"
+readelf -h ${OCAML_PREFIX}/lib/ocaml/stublibs/dllunixnat.so | grep Machine || echo "readelf failed"
+
 for CHANGE in "activate" "deactivate"
 do
   mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
