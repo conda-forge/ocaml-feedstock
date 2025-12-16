@@ -234,16 +234,6 @@ tests:
               - echo "=== Testing bytecode compilation ==="
               - echo "=== Comprehensive Debug ==="
               - |
-                echo "--- Minimal compile test ---"
-                echo '' > empty.ml  # Completely empty file
-                ocamlc -c empty.ml 2>&1; echo "Empty compile: $?"
-
-                echo "--- Parse only test ---"
-                ocamlc -stop-after parsing test.ml 2>&1; echo "Parse only: $?"
-
-                echo "--- Type check only ---"
-                ocamlc -stop-after typing test.ml 2>&1; echo "Type check: $?"
-              - |
                 set +e  # Don't exit on error
 
                 echo "--- Environment ---"
@@ -262,6 +252,33 @@ tests:
                 ls -la "$STDLIB"/stdlib.cma 2>&1 || echo "stdlib.cma missing!"
                 file "$STDLIB"/stdlib.cma 2>&1 || true
 
+                echo "--- ocamlc.opt direct check ---"
+                ${PREFIX}/bin/ocamlc.opt -version
+                echo "Version exit: $?"
+
+                echo "--- Check config load ---"
+                ${PREFIX}/bin/ocamlc.opt -config 2>&1 | head -5
+                echo "Config exit: $?"
+
+                echo "--- Compile empty ---"
+                echo '' > empty.ml
+                ${PREFIX}/bin/ocamlc.opt -c empty.ml 2>&1
+                echo "Compile exit: $?"
+
+                echo "--- Try ocamlopt instead ---"
+                ${PREFIX}/bin/ocamlopt.opt -c empty.ml 2>&1
+                echo "Ocamlopt exit: $?"
+                
+                echo "--- Minimal compile test ---"
+                echo '' > empty.ml  # Completely empty file
+                ocamlc -c empty.ml 2>&1; echo "Empty compile: $?"
+
+                echo "--- Parse only test ---"
+                ocamlc -stop-after parsing test.ml 2>&1; echo "Parse only: $?"
+
+                echo "--- Type check only ---"
+                ocamlc -stop-after typing test.ml 2>&1; echo "Type check: $?"
+                
                 echo "--- Verbose bytecode compile ---"
                 echo 'print_endline "test"' > test.ml
                 ocamlc -verbose -o test_bytecode test.ml 2>&1 || echo "EXIT CODE: $?"
