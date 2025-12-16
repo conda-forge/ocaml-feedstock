@@ -173,7 +173,8 @@ run_logged "stage2_configure" ./configure \
 # Patch utils/config.generated.ml for cross-compilation
 # These values are baked into the cross-compiler and used at compile time
 echo "Stage 2: Patching utils/config.generated.ml for cross-compilation..."
-export _TARGET_ASM="${_CC}"
+# CRITICAL: macOS clang needs -c flag or it tries to link (causing "_main" symbol error)
+export _TARGET_ASM="${_CC} -c"
 export _MKDLL="${_CC} -shared -undefined dynamic_lookup -L."
 export _CC_TARGET="${_CC}"
 export _MKEXE="${_CC} ${_LDFLAGS}"

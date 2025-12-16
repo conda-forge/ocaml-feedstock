@@ -186,9 +186,14 @@ tests:
           - echo "Skipped test for ARM64"
         else:
           # Debug: Check binary architecture and dependencies
-          - file ${PREFIX}/bin/ocamlrun 2>/dev/null | cut -d: -f2 | head -c 50
-          - file ${PREFIX}/bin/ocamlc.opt 2>/dev/null | cut -d: -f2 | head -c 50
-          - file ${PREFIX}/bin/ocamlopt.opt 2>/dev/null | cut -d: -f2 | head -c 50
+          - file ${PREFIX}/bin/ocamlrun
+          - file ${PREFIX}/bin/ocamlc.opt
+          - file ${PREFIX}/bin/ocamlopt.opt
+          - file ${PREFIX}/bin/ocamlc
+          - head -1 ${PREFIX}/bin/ocamlc
+          - file ${PREFIX}/lib/ocaml/stublibs/*.so | head -3
+          - ocamlrun ${PREFIX}/lib/ocaml/ocamlc -version || echo "ocamlrun failed"
+          
           - if: unix
             then:
               - grep -E "^(MODEL|ARCH)" ${PREFIX}/lib/ocaml/Makefile.config 2>/dev/null | sed 's/^/║    /' || true
