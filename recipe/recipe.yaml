@@ -192,7 +192,7 @@ tests:
               - file ${PREFIX}/bin/ocamlc.opt
               - file ${PREFIX}/bin/ocamlopt.opt
               - file ${PREFIX}/bin/ocamlc
-              - head -1 ${PREFIX}/bin/ocamlc
+              - readlink ${PREFIX}/bin/ocamlc || echo "not a symlink"
               - readelf -h ${PREFIX}/lib/ocaml/stublibs/dllunixnat.so 2>&1 | head -10 || echo "readelf failed"
               - od -A x -t x1z -N 32 ${PREFIX}/lib/ocaml/stublibs/dllunixnat.so || echo "od failed"
               - head -c 4 ${PREFIX}/lib/ocaml/stublibs/dllunixnat.so | od -c
