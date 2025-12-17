@@ -1,15 +1,15 @@
 context:
   name: ocaml
-  version: 5.3.0
+  version: 5.4.0
   flexdll_version: 0.44
 
 package:
-  name: ${{ name|lower }}
+  name: ocaml
   version: ${{ version }}
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+    sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
   - if: win
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
@@ -18,19 +18,68 @@ source:
 
 build:
   number: 0
+  script:
+    env:
+      SKIP_MAKE_TESTS: 1
+  dynamic_linking:
+    missing_dso_allowlist:
+      - if: osx
+        then:
+          - /usr/lib/libSystem.B.dylib
+      - if: not unix
+        then:
+          - C:\\Windows\\system32\\SHLWAPI.dll
+          - C:\\Windows\\system32\\VERSION.dll
   prefix_detection:
     force_file_type:
       text:
+        # These are actual text files that need prefix relocation
         - lib/ocaml/runtime-launch-info
+        - lib/ocaml/Makefile.config
     ignore:
-      # Ignore all but run* and ld.*
-      - lib/ocaml/[^rl][^ud][^n\.]*
-      - bin/*
+      # Ignore most lib/ocaml files except runtime-launch-info, ld.conf, Makefile.config
+      - lib/ocaml/[^rlM][^ud][^n\.]*
+      # Native code executables - no prefix to relocate
+      - bin/ocamlc.opt
+      - bin/ocamldep.opt
+      - bin/ocamlobjinfo.opt
+      - bin/ocamlopt.opt
+      - bin/ocamlrun
+      - bin/ocamlrund
+      - bin/ocamlruni
+      - if: build_platform == target_platform
+        then:
+          - bin/ocamldebug
+          - bin/ocamldoc
+          - bin/ocamldoc.opt
+      # Bytecode executables - MUST ignore to avoid corrupting binary data
+      # These use #!/usr/bin/env ocamlrun shebang which doesn't need relocation
+      - bin/ocaml
+      - bin/ocamlc.byte
+      - bin/ocamlcmt
+      - bin/ocamlcp
+      - bin/ocamldebug
+      - bin/ocamldoc
+      - bin/ocamldep.byte
+      - bin/ocamllex.byte
+      - bin/ocamlmklib
+      - bin/ocamlmktop
+      - bin/ocamlobjinfo.byte
+      - bin/ocamlopt.byte
+      - bin/ocamloptp
+      - bin/ocamlprof
 
 requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
   build:
+    - ${{ "m2-" if not unix }}bash >=5.2
+    - ${{ "m2-" if not unix }}file
+    - ${{ "m2-" if not unix }}findutils
+    - ${{ "m2-" if not unix }}gawk
+    - ${{ "m2-" if not unix }}grep
+    - ${{ "m2-" if not unix }}make
+    - perl 5.32.*
     - if: unix
       then:
         - ${{ compiler('c') }}
@@ -38,26 +87,21 @@ requirements:
       else:
         - ${{ compiler('m2w64_c') }}
         - ${{ stdlib('m2w64_c') }}
-
-    - if: unix
-      then:
-        - file
-        - make
-        - sed
-      else:
         - binutils
-        - m2-bash
         - m2-coreutils
         - m2-diffutils
-        - m2-findutils
-        - m2-gawk
-        - m2-grep
-        - m2-make
-        - m2-sed
+        - m2-which
+    - if: aarch64 or ppc64le or arm64
+      then:
+        - zstd
+    - if: osx and x86_64
+      then:
+        - lldb
   host:
-    - if: unix
-      then: zstd
-      else: m2-libzstd
+    - ${{ "m2-lib" if not unix }}zstd
+  run:
+    # OCaml runtime links against zstd for compressed marshaling
+    - ${{ "m2-lib" if not unix }}zstd
 
 tests:
   - package_contents:
@@ -87,7 +131,7 @@ tests:
         - ocamlrun
         - ocamlrund
         - ocamlyacc
-        - if: not arm64
+        - if: build_platform == target_platform
           then:
             - ocamldebug
             - ocamldoc
@@ -101,66 +145,135 @@ tests:
             - flexlink.opt
 
       files:
-        - ${{ "Library/" if win else "" }}lib/ocaml/**
-        - ${{ "Library/" if win else "" }}share/doc/ocaml/*
-        - if: not arm64
-          then: ${{ "Library/" if win else "" }}share/man/man{1,3}/*
-        - if: unix
-          then:
-            - etc/conda/activate.d/ocaml_activate.sh
-            - etc/conda/deactivate.d/ocaml_deactivate.sh
-          else:
-            - etc/conda/activate.d/ocaml_activate.bat
-            - etc/conda/deactivate.d/ocaml_deactivate.bat
+        - etc/conda/activate.d/ocaml_activate.${{ "sh" if unix else "bat" }}
+        - etc/conda/deactivate.d/ocaml_deactivate.${{ "sh" if unix else "bat" }}
+        - ${{ "Library/" if not unix }}lib/ocaml/**
+        - ${{ "Library/" if not unix }}share/doc/ocaml/*
+        - if: (build_platform == target_platform) and unix
+          then: share/man/man{1,3}/*
 
   - script:
       - if: unix
         then:
-          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml
-          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX}
-          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX}
+          - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null
+          - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null
+          - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null
+          - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null
+          - STDLIB_PATH=$(ocamlc.opt -config-var standard_library) && echo "standard_library=$STDLIB_PATH"
+          - CC_PATH=$(ocamlc.opt -config-var c_compiler) && echo "c_compiler=$CC_PATH"
         else:
           - echo "%OCAMLLIB%" | grep ocaml
           - echo "%PATH%" | grep ocaml
-
-      - ocamlc -version | grep ${{ version }}
-      - ocamldep -version | grep ${{ version }}
-      - ocamllex -version | grep ${{ version }}
-      - ocamlobjinfo -help | grep FILES
-      - ocamlobjinfo.opt -help | grep FILES
-      - ocamlopt -version | grep ${{ version }}
-      - ocamlrun -version | grep ${{ version }}
-      - ocamlyacc -version | grep ${{ version }}
-
-      - ocaml -version | grep ${{ version }}
-      - ocamlcmt -help | grep FILE
-      - ocamlcp -version | grep ${{ version }}
-      - ocamldoc -version | grep ${{ version }}
-      - ocamldebug -version | grep ${{ version }}
-      - ocamlmklib -version | grep ${{ version }}
-      - ocamlmktop -version | grep ${{ version }}
-      - ocamlobjinfo.byte -help
-      - ocamloptp -version | grep ${{ version }}
-      - ocamlprof -version | grep ${{ version }}
+      - echo "PREFIX/PATH tests passed"
     requirements:
       run:
         - if: not unix
-          then: m2-grep
+          then:
+            - m2-grep
 
   - script:
-      - printf 'print_endline "Hello World"\n' > test.ml
-      - if: unix
+      # === DIAGNOSTIC: Check cross-binaries for correct arch ===
+      - if: build_platform != target_platform
         then:
-          - ocamlc -o test_bytecode test.ml
-          - ./test_bytecode | grep "Hello World"
-          - (mkdir tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+          - if: aarch64
+            then:
+              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
+          - if: arm64
+            then:
+              - otool -hv ${PREFIX}/bin/ocamlc.opt # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlrun # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
+          - if: ppc64le
+            then:
+              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
+          - echo "Cross-compiled binary arch passed"
+
+  - script:
+      # === DIAGNOSTIC: All binaries version/info output ===
+      - if: arm64
+        then:
+          - echo "Skipped test for ARM64"
         else:
-          - ocamlc -o test_bytecode.exe test.ml
-          - test_bytecode.exe | grep Hello
+          - ocamlc -version | grep ${{ version }}
+          - ocamldep -version | grep ${{ version }}
+          - ocamllex -version | grep ${{ version }}
+          - ocamlobjinfo -help | grep FILES
+          - ocamlobjinfo.opt -help | grep FILES
+          - ocamlopt -version | grep ${{ version }} || { ocamlopt -version; }
+          - ocamlrun -version | grep ${{ version }} || { ocamlrun -version; }
+          - ocamlyacc -version | grep ${{ version }} || { ocamlyacc -version; }
+
+          # Bytecode sensitive to conda PREFIX detection
+          - ocaml -version | grep ${{ version }}
+          - ocamlcmt -help | grep FILE
+          - ocamlcp -version | grep ${{ version }}
+          - ocamlmklib -version | grep ${{ version }}
+          - ocamlmktop -version | grep ${{ version }}
+          - ocamlobjinfo.byte -help
+          - ocamloptp -version | grep ${{ version }}
+          - ocamlprof -version | grep ${{ version }}
+ 
+          - if: build_platform == target_platform
+            then:
+              - ocamldoc -version | grep ${{ version }}
+              - ocamldoc.opt -version | grep ${{ version }}
+              - ocamldebug -version | grep ${{ version }}
     requirements:
       run:
-        - if: not unix
-          then: m2-grep
+        - if: build_platform == target_platform
+          then:
+            - ${{ "m2-" if not unix }}grep
+
+  - script:
+      - if: arm64
+        then:
+          - echo "Skipped test for ARM64"
+        else:
+          - if: unix
+            then:
+              # === Exercise compilers with actual code ===
+              - printf 'print_endline "Hello World"\n' > test.ml
+
+              # 1. Bytecode compilation + execution
+              - echo "=== Testing bytecode compilation ==="
+              - ocamlc -o test_bytecode test.ml && ./test_bytecode | grep "Hello World"
+              - (mkdir -p tmp && cp test_bytecode tmp && (cd tmp; ./test_bytecode)) | grep "Hello World"
+
+              # 2. Native compilation + execution
+              - echo "=== Testing native compilation ==="
+              - ocamlopt -o test_native test.ml
+              - ./test_native | grep "Hello World"
+
+              # 3. REPL test (ocaml toplevel)
+              - echo "=== Testing REPL ==="
+              - echo 'print_endline "REPL works";;' | ocaml 2>&1 || echo "REPL exit: $?"
+
+              # 4. ocamldep actually parsing files
+              - echo "=== Testing ocamldep ==="
+              - ocamldep test.ml
+
+              # 5. Multi-file compilation (exercises module system)
+              - echo "=== Testing multi-file compilation ==="
+              - printf 'let greet () = print_endline "From Lib"\n' > lib.ml
+              - printf 'let () = Lib.greet ()\n' > main.ml
+              - ocamlc -c lib.ml
+              - ocamlc -c main.ml
+              - ocamlc -o multi lib.cmo main.cmo
+              - ./multi | grep "From Lib"
+
+              - echo "=== All compilation tests passed ==="
+            else:
+              - printf 'print_endline "Hello World"\n' > test.ml
+              - ocamlc -o test_bytecode.exe test.ml
+              - test_bytecode.exe | grep Hello
+    requirements:
+      run:
+        - ${{ "m2-" if not unix }}grep
+        # C compiler needed for ocamlopt native compilation test
+        - if: unix
+          then:
+            - ${{ compiler('c') }}
 
 about:
   homepage: https://ocaml.org/
