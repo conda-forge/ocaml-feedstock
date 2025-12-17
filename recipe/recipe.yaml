@@ -32,24 +32,33 @@ build:
     force_file_type:
       text:
         # These are actual text files that need prefix relocation
-        - lib/ocaml/runtime-launch-info
+        - lib/ocaml/ld.conf
         - lib/ocaml/Makefile.config
+        - lib/ocaml/runtime-launch-info
     ignore:
       # Ignore most lib/ocaml files except runtime-launch-info, ld.conf, Makefile.config
-      - lib/ocaml/[^rlM][^ud][^n\.]*
+      # - lib/ocaml/[^rlM][^ud][^n\.]*
       # Native code executables - no prefix to relocate
       # - bin/ocamlc.opt
       # - bin/ocamldep.opt
       # - bin/ocamlobjinfo.opt
       # - bin/ocamlopt.opt
-      - bin/ocamlrun
-      - bin/ocamlrund
-      - bin/ocamlruni
-      - if: build_platform == target_platform
-        then:
-          - bin/ocamldebug
-          - bin/ocamldoc
-          - bin/ocamldoc.opt
+      # - bin/ocamlrun
+      # - bin/ocamlrund
+      # - bin/ocamlruni
+      # - if: build_platform == target_platform
+      #   then:
+      #     - bin/ocamldebug
+      #     - bin/ocamldoc
+      #     - bin/ocamldoc.opt
+      
+      # Only ignore bytecode files (binary format, relocation corrupts them)
+      - lib/ocaml/**/*.cmo
+      - lib/ocaml/**/*.cma
+      - lib/ocaml/**/*.cmi
+      - lib/ocaml/**/*.cmx
+      - lib/ocaml/**/*.cmt
+      - lib/ocaml/**/*.cmti
       # Bytecode executables - MUST ignore to avoid corrupting binary data
       # These use #!/usr/bin/env ocamlrun shebang which doesn't need relocation
       - bin/ocaml
