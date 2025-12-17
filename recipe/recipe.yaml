@@ -285,7 +285,25 @@ tests:
                 echo "."
                 echo "."
                 echo "--- Compile empty ---"
-                find ${PREFIX} -type f \( -executable -o -name "*.a" -o -name "*.so" -o -name "*.cmxa" \) -exec sh -c 'strings "$1" 2>/dev/null | grep -q "placehold\|build_env" && echo "$1"' _ {} \;
+                ocamlc.opt -where                    # Just prints stdlib path
+                ocamlc.opt -help                     # Just prints help
+                ocamlc.opt -nostdlib -c empty.ml     # Skip stdlib
+                ocamlc.opt -nopervasives -nostdlib -c empty.ml  # Minimal mode
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                strings ${PREFIX}/bin/ocamlc.opt | grep -E "placehold|build_env"
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                strings ${PREFIX}/bin/ocamldep.opt | grep -E "placehold|build_env"
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                find ${PREFIX}/lib/ocaml -type f \( -executable -o -name "*.a" -o -name "*.so" -o -name "*.cmxa" \) -exec sh -c 'strings "$1" 2>/dev/null | grep -q "placehold\|build_env" && echo "$1"' _ {} \;
                 ulimit -c unlimited
                 echo '' > empty.ml
                 gdb -batch \
