@@ -261,6 +261,20 @@ tests:
                 ${PREFIX}/bin/ocamlc.opt -config 2>&1 | head -5
                 echo "Config exit: $?"
 
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
                 echo "--- Compile empty ---"
                 ulimit -c unlimited
                 echo '' > empty.ml
@@ -274,6 +288,20 @@ tests:
                   ${PREFIX}/bin/ocamlc.opt core
                 echo "Compile exit: $?"
 
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
+                echo ""
                 echo "--- Try ocamlopt instead ---"
                 ${PREFIX}/bin/ocamlopt.opt -c empty.ml 2>&1
                 echo "Ocamlopt exit: $?"
