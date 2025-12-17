@@ -287,8 +287,9 @@ tests:
                 echo "--- Compile empty ---"
                 echo '(* empty *)' > empty.ml
                 ocamlc.opt -where                    # Just prints stdlib path
-                ocamlc.opt -help                     # Just prints help
+                echo "."
                 ocamlc.opt -nostdlib -c empty.ml     # Skip stdlib
+                echo "."
                 ocamlc.opt -nopervasives -nostdlib -c empty.ml  # Minimal mode
                 echo "."
                 echo "."
