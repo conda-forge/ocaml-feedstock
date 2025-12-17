@@ -302,7 +302,7 @@ run_logged "stage3_configure" ./configure \
 
 # Patch ar to use shell variable (like asm/cc)
 config_file="utils/config.generated.ml"
-perl -i -pe 's|^let ar = .*|let ar = {|\$AR|}|' "$config_file"
+perl -i -pe 's/^let ar = .*/let ar = \{|\$AR|\}/' "$config_file"
 
 # Apply cross-compilation patches (needed again after configure regenerates Makefile)
 cp "${RECIPE_DIR}"/building/Makefile.cross .

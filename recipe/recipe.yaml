@@ -80,6 +80,9 @@ requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
   build:
+    - ${{ compiler('c') }}
+    - ${{ stdlib('c') }}
+    
     - ${{ "m2-" if not unix }}bash >=5.2
     - ${{ "m2-" if not unix }}file
     - ${{ "m2-" if not unix }}findutils
@@ -87,13 +90,9 @@ requirements:
     - ${{ "m2-" if not unix }}grep
     - ${{ "m2-" if not unix }}make
     - perl 5.32.*
-    - if: unix
+    
+    - if: not unix
       then:
-        - ${{ compiler('c') }}
-        - ${{ stdlib('c') }}
-      else:
-        - ${{ compiler('m2w64_c') }}
-        - ${{ stdlib('m2w64_c') }}
         - binutils
         - m2-coreutils
         - m2-diffutils
@@ -197,13 +196,18 @@ tests:
         else:
           - if: unix
             then:
-              # === Check for unrelocated paths in binaries ===
-              - echo "=== Checking for build_env/placehold paths ==="
               - |
+                # Set QEMU_LD_PREFIX for cross-compiled aarch64 binaries
+                if [ -d "${PREFIX}/aarch64-conda-linux-gnu/sysroot" ]; then
+                  export QEMU_LD_PREFIX=${PREFIX}/aarch64-conda-linux-gnu/sysroot
+                  echo "QEMU_LD_PREFIX set to $QEMU_LD_PREFIX"
+                fi
+
+                echo "=== Checking for build_env/placehold paths ==="
                 echo "Files with unrelocated paths:"
                 find ${PREFIX} -type f \( -name "*.opt" -o -name "ocamlrun*" -o -name "*.so" -o -name "*.a" \) \
                   -exec sh -c 'strings "$1" 2>/dev/null | grep -qE "placehold|build_env" && echo "  $1"' _ {} \; || true
-              - |
+
                 # Check compiled-in config
                 STDLIB_PATH=$(ocamlc.opt -config-var standard_library)
                 echo "standard_library: $STDLIB_PATH"
@@ -212,23 +216,26 @@ tests:
                   exit 1
                 fi
 
-              # === Diagnostic: Bytecode vs Native execution ===
-              - echo "=== Bytecode tools (should work under QEMU) ==="
-              - ocamlrun -version
-              - echo "=== Native tools - simple ops ==="
-              - ocamldep.opt -version || echo "CRASH: ocamldep.opt -version"
-              - ocamllex.opt -version || echo "CRASH: ocamllex.opt -version"
-              - ocamlc.opt -where || echo "CRASH: ocamlc.opt -where"
-              - echo "=== Native tools - compilation ops ==="
-              - printf '(* empty *)' > empty.ml
-              - ocamlc.opt -nostdlib -c empty.ml && echo "OK: ocamlc.opt -nostdlib" || echo "CRASH: ocamlc.opt -nostdlib"
-              - ocamlopt.opt -version && echo "OK: ocamlopt.opt -version" || echo "CRASH: ocamlopt.opt -version"
-              - echo "=== Bytecode compiler via ocamlrun ==="
-              - ocamlrun ${PREFIX}/bin/ocamlc.byte -version && echo "OK: bytecode ocamlc" || echo "CRASH: bytecode ocamlc"
-              - printf 'print_endline "Hello"\n' > test.ml
-              - ocamlrun ${PREFIX}/bin/ocamlc.byte -o test_bc test.ml && echo "OK: bytecode compile" || echo "CRASH: bytecode compile"
-              - ./test_bc && echo "OK: bytecode execution" || echo "CRASH: bytecode execution"
-              - echo "=== Summary: If bytecode works but native crashes, it's QEMU+native issue ==="
+                echo "=== Bytecode tools (should work under QEMU) ==="
+                ocamlrun -version
+
+                echo "=== Native tools - simple ops ==="
+                ocamldep.opt -version || echo "CRASH: ocamldep.opt -version"
+                ocamllex.opt -version || echo "CRASH: ocamllex.opt -version"
+                ocamlc.opt -where || echo "CRASH: ocamlc.opt -where"
+
+                echo "=== Native tools - compilation ops ==="
+                printf '(* empty *)' > empty.ml
+                ocamlc.opt -nostdlib -c empty.ml && echo "OK: ocamlc.opt -nostdlib" || echo "CRASH: ocamlc.opt -nostdlib"
+                ocamlopt.opt -version && echo "OK: ocamlopt.opt -version" || echo "CRASH: ocamlopt.opt -version"
+
+                echo "=== Bytecode compiler via ocamlrun ==="
+                ocamlrun ${PREFIX}/bin/ocamlc.byte -version && echo "OK: bytecode ocamlc" || echo "CRASH: bytecode ocamlc"
+                printf 'print_endline "Hello"\n' > test.ml
+                ocamlrun ${PREFIX}/bin/ocamlc.byte -o test_bc test.ml && echo "OK: bytecode compile" || echo "CRASH: bytecode compile"
+                ./test_bc && echo "OK: bytecode execution" || echo "CRASH: bytecode execution"
+
+                echo "=== Summary: If bytecode works but native crashes, it's QEMU+native issue ==="
             else:
               - printf 'print_endline "Hello World"\n' > test.ml
               - ocamlc -o test_bytecode.exe test.ml
@@ -238,47 +245,35 @@ tests:
         - ${{ "m2-" if not unix }}file
         - ${{ "m2-" if not unix }}grep
         # C compiler needed for ocamlopt native compilation test
-        - if: unix
-          then:
-            - ${{ compiler('c') }}
-        - if: linux
-          then:
-            - ${{ stdlib('c') }}
+        - ${{ compiler('c') }}
+        - ${{ stdlib('c') }}
 
-  - script:
-      - if: arm64
-        then:
-          - echo "Skipped test for ARM64"
-        else:
-          - ocamlc -version | grep ${{ version }}
-          - ocamldep -version | grep ${{ version }}
-          - ocamllex -version | grep ${{ version }}
-          - ocamlobjinfo -help | grep FILES
-          - ocamlobjinfo.opt -help | grep FILES
-          - ocamlopt -version | grep ${{ version }} || { ocamlopt -version; }
-          - ocamlrun -version | grep ${{ version }} || { ocamlrun -version; }
-          - ocamlyacc -version | grep ${{ version }} || { ocamlyacc -version; }
-
-          # Bytecode sensitive to conda PREFIX detection
-          - ocaml -version | grep ${{ version }}
-          - ocamlcmt -help | grep FILE
-          - ocamlcp -version | grep ${{ version }}
-          - ocamlmklib -version | grep ${{ version }}
-          - ocamlmktop -version | grep ${{ version }}
-          - ocamlobjinfo.byte -help
-          - ocamloptp -version | grep ${{ version }}
-          - ocamlprof -version | grep ${{ version }}
- 
-          - if: build_platform == target_platform
-            then:
-              - ocamldoc -version | grep ${{ version }}
-              - ocamldoc.opt -version | grep ${{ version }}
-              - ocamldebug -version | grep ${{ version }}
-    requirements:
-      run:
-        - if: build_platform == target_platform
-          then:
-            - ${{ "m2-" if not unix }}grep
+  - if: build_platform == target_platform
+    then:
+      script:
+        # Native platform tests - run all tools
+        - ocamlc -version | grep ${{ version }}
+        - ocamldep -version | grep ${{ version }}
+        - ocamllex -version | grep ${{ version }}
+        - ocamlobjinfo -help | grep FILES
+        - ocamlobjinfo.opt -help | grep FILES
+        - ocamlopt -version | grep ${{ version }}
+        - ocamlrun -version | grep ${{ version }}
+        - ocamlyacc -version | grep ${{ version }}
+        - ocaml -version | grep ${{ version }}
+        - ocamlcmt -help | grep FILE
+        - ocamlcp -version | grep ${{ version }}
+        - ocamlmklib -version | grep ${{ version }}
+        - ocamlmktop -version | grep ${{ version }}
+        - ocamlobjinfo.byte -help
+        - ocamloptp -version | grep ${{ version }}
+        - ocamlprof -version | grep ${{ version }}
+        - ocamldoc -version | grep ${{ version }}
+        - ocamldoc.opt -version | grep ${{ version }}
+        - ocamldebug -version | grep ${{ version }}
+      requirements:
+        run:
+          - ${{ "m2-" if not unix }}grep
 
 about:
   homepage: https://ocaml.org/
