@@ -17,6 +17,7 @@ source:
       target_directory: flexdll
 
 build:
+  skip: not aarch64
   number: 1
   dynamic_linking:
     missing_dso_allowlist:
@@ -261,8 +262,11 @@ tests:
                 echo "Config exit: $?"
 
                 echo "--- Compile empty ---"
+                ulint -c unlimited
                 echo '' > empty.ml
                 ${PREFIX}/bin/ocamlc.opt -c empty.ml 2>&1
+                gdb ${PREFIX}/bin/ocamlc.opt core
+                bt full  # backtrace
                 echo "Compile exit: $?"
 
                 echo "--- Try ocamlopt instead ---"
@@ -329,6 +333,8 @@ tests:
         - if: linux
           then:
             - ${{ stdlib('c') }}
+            - bt
+            - gdb
 
   - script:
       - if: arm64
