@@ -300,6 +300,10 @@ run_logged "stage3_configure" ./configure \
   "${_CONFIG_ARGS[@]}" \
   ac_cv_func_getentropy=no
 
+# Patch ar to use shell variable (like asm/cc)
+config_file="utils/config.generated.ml"
+perl -i -pe 's|^let ar = .*|let ar = {|\$AR|}|' "$config_file"
+
 # Apply cross-compilation patches (needed again after configure regenerates Makefile)
 cp "${RECIPE_DIR}"/building/Makefile.cross .
 patch -N -p0 < ${RECIPE_DIR}/building/tmp_Makefile.patch || true
@@ -333,19 +337,6 @@ fi
 echo "  Verifying patched values in utils/config.generated.ml:"
 grep -E "^let (asm|c_compiler|mkdll|mkexe) =" utils/config.generated.ml
 
-# Debug: Show key variables before crosscompiledopt
-echo ""
-echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  STAGE 3 DEBUG: Key variables before crosscompiledopt           ║"
-echo "╠══════════════════════════════════════════════════════════════════╣"
-echo "║  _TARGET_ARCH = ${_TARGET_ARCH}"
-echo "║  _CROSS_OCAMLOPT = ${_CROSS_OCAMLOPT}"
-echo "║  _CC = ${_CC}"
-echo "║  _AS = ${_AS}"
-echo "║  Cross-compiler: $(file "${_CROSS_OCAMLOPT}.opt" 2>/dev/null | cut -d: -f2 || echo 'NOT FOUND')"
-echo "╚══════════════════════════════════════════════════════════════════╝"
-echo ""
-
 # Build with target cross-toolchain
 # CRITICAL: Use _CROSS_OCAMLOPT (cross-compiler) not ocamlopt from PATH (native)
 # The cross-compiler produces ARM64 code and links with ARM64 stdlib
@@ -363,38 +354,11 @@ run_logged "stage3_crosscompiledopt" make crosscompiledopt \
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   -j${CPU_COUNT}
 
-# Debug: Verify built binary architectures after crosscompiledopt
-echo ""
-echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  STAGE 3 DEBUG: Built binary architectures                      ║"
-echo "╠══════════════════════════════════════════════════════════════════╣"
-echo "║  ocamlopt.opt: $(file ocamlopt.opt 2>/dev/null | cut -d: -f2 || echo 'NOT FOUND')"
-echo "║  ocamlc.opt:   $(file ocamlc.opt 2>/dev/null | cut -d: -f2 || echo 'NOT FOUND')"
-echo "╠══════════════════════════════════════════════════════════════════╣"
-echo "║  Runtime library (libasmrun.a) objects:                         ║"
-if [[ -f runtime/libasmrun.a ]]; then
-  rm -rf /tmp/ocaml_debug && mkdir -p /tmp/ocaml_debug
-  cd /tmp/ocaml_debug && ar -x "${SRC_DIR}/runtime/libasmrun.a" 2>/dev/null
-  for f in *.o; do
-    [[ -f "$f" ]] && echo "║    $f: $(file "$f" | cut -d: -f2)" | head -c 70
-    echo ""
-  done | head -5
-  cd "${SRC_DIR}"
-else
-  echo "║    libasmrun.a NOT FOUND"
-fi
-echo "╚══════════════════════════════════════════════════════════════════╝"
-echo ""
-
 # Fix build_config.h paths for target
 # CRITICAL: Use double quotes so shell expands ${SRC_DIR} and ${PREFIX} to actual paths!
 # Single quotes would literally search for "$SRC_DIR" string which never matches.
 perl -pe "s#${SRC_DIR}/_native/lib/ocaml#${PREFIX}/lib/ocaml#g" "${SRC_DIR}"/build_config.h > runtime/build_config.h
 perl -i -pe "s#${_build_alias}#${_host_alias}#g" runtime/build_config.h
-
-echo "=== build_config.h for target ==="
-cat runtime/build_config.h
-echo "================================="
 
 # Build runtime with target cross-toolchain
 # BYTECCLIBS/NATIVECCLIBS needed for dlopen/dlclose/dlsym (glibc 2.17 needs -ldl) and zstd compression
