@@ -38,10 +38,10 @@ build:
       # Ignore most lib/ocaml files except runtime-launch-info, ld.conf, Makefile.config
       - lib/ocaml/[^rlM][^ud][^n\.]*
       # Native code executables - no prefix to relocate
-      - bin/ocamlc.opt
-      - bin/ocamldep.opt
-      - bin/ocamlobjinfo.opt
-      - bin/ocamlopt.opt
+      # - bin/ocamlc.opt
+      # - bin/ocamldep.opt
+      # - bin/ocamlobjinfo.opt
+      # - bin/ocamlopt.opt
       - bin/ocamlrun
       - bin/ocamlrund
       - bin/ocamlruni
@@ -276,6 +276,7 @@ tests:
                 echo "."
                 echo "."
                 echo "--- Compile empty ---"
+                find ${PREFIX} -type f \( -executable -o -name "*.a" -o -name "*.so" -o -name "*.cmxa" \) -exec sh -c 'strings "$1" 2>/dev/null | grep -q "placehold\|build_env" && echo "$1"' _ {} \;
                 ulimit -c unlimited
                 echo '' > empty.ml
                 gdb -batch \
@@ -285,10 +286,6 @@ tests:
                   -ex "info frame" \
                   --args ${PREFIX}/bin/ocamlc.opt -c empty.ml
                 echo "Compile exit: $?"
-                nm ${PREFIX}/bin/ocamlc.opt | grep -i "init\|config\|stdlib" | head -10
-                strings ${PREFIX}/bin/ocamlc.opt | grep placehold
-                readelf -p .rodata ${PREFIX}/bin/ocamlc.opt 2>/dev/null | grep -i placehold | head -5
-                ${PREFIX}/bin/ocamlrun ${PREFIX}/bin/ocamlc.byte -c empty.ml
                 echo "."
                 echo "."
                 echo "."
