@@ -265,13 +265,13 @@ tests:
                 ulint -c unlimited
                 echo '' > empty.ml
                 ${PREFIX}/bin/ocamlc.opt -c empty.ml 2>&1
-                gdb ${PREFIX}/bin/ocamlc.opt core << 'EOF'
-info registers
-x/i $pc
-x/10i $pc-20
-p $_siginfo
-quit
-EOF
+                gdb -batch \
+                  -ex "info registers" \
+                  -ex "x/i \$pc" \
+                  -ex "x/10i \$pc-20" \
+                  -ex "p \$_siginfo" \
+                  -ex "quit" \
+                  ${PREFIX}/bin/ocamlc.opt core
                 bt full  # backtrace
                 echo "Compile exit: $?"
 
