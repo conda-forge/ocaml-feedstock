@@ -265,7 +265,13 @@ tests:
                 ulint -c unlimited
                 echo '' > empty.ml
                 ${PREFIX}/bin/ocamlc.opt -c empty.ml 2>&1
-                gdb ${PREFIX}/bin/ocamlc.opt core
+                gdb ${PREFIX}/bin/ocamlc.opt core << 'EOF'
+info registers
+x/i $pc
+x/10i $pc-20
+p $_siginfo
+quit
+EOF
                 bt full  # backtrace
                 echo "Compile exit: $?"
 
