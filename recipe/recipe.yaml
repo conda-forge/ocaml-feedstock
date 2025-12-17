@@ -285,7 +285,10 @@ tests:
                   -ex "info frame" \
                   --args ${PREFIX}/bin/ocamlc.opt -c empty.ml
                 echo "Compile exit: $?"
-
+                nm ${PREFIX}/bin/ocamlc.opt | grep -i "init\|config\|stdlib" | head -10
+                strings ${PREFIX}/bin/ocamlc.opt | grep -c placehold
+                readelf -p .rodata ${PREFIX}/bin/ocamlc.opt 2>/dev/null | grep -i placehold | head -5
+                ${PREFIX}/bin/ocamlrun ${PREFIX}/bin/ocamlc.byte -c empty.ml
                 echo "."
                 echo "."
                 echo "."
