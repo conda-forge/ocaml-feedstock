@@ -261,47 +261,45 @@ tests:
                 ${PREFIX}/bin/ocamlc.opt -config 2>&1 | head -5
                 echo "Config exit: $?"
 
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
                 echo "--- Compile empty ---"
                 ulimit -c unlimited
                 echo '' > empty.ml
-                ${PREFIX}/bin/ocamlc.opt -c empty.ml 2>&1
                 gdb -batch \
+                  -ex "run" \
                   -ex "info registers" \
                   -ex "x/i \$pc" \
-                  -ex "x/10i \$pc-20" \
-                  -ex "p \$_siginfo" \
-                  -ex "quit" \
-                  ${PREFIX}/bin/ocamlc.opt core
+                  -ex "info frame" \
+                  --args ${PREFIX}/bin/ocamlc.opt -c empty.ml
                 echo "Compile exit: $?"
 
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
-                echo ""
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
+                echo "."
                 echo "--- Try ocamlopt instead ---"
                 ${PREFIX}/bin/ocamlopt.opt -c empty.ml 2>&1
                 echo "Ocamlopt exit: $?"
