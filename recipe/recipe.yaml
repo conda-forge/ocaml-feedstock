@@ -326,6 +326,9 @@ tests:
         - if: unix
           then:
             - ${{ compiler('c') }}
+        - if: linux
+          then:
+            - ${{ stdlib('c') }}
 
   - script:
       - if: arm64
