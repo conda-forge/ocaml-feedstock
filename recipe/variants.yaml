@@ -4,7 +4,7 @@ c_stdlib:
       - sysroot
   - if: osx
     then:
-      - m2w64-sysroot
+      - macosx_deployment_target
   - if: not unix
     then:
       - m2w64-sysroot
