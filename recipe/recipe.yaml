@@ -339,7 +339,6 @@ tests:
         - if: linux
           then:
             - ${{ stdlib('c') }}
-            - bt
             - gdb
 
   - script:
