@@ -39,9 +39,10 @@ else
   # Set up compiler variables (paths are hardcoded in binaries, simplify to basename)
   export CC=$(basename "${CC}")
   export ASPP="$CC -c"
-  export AS=$(basename "${AS}")
-  export AR=$(basename "${AR}")
-  export RANLIB=$(basename "${RANLIB}")
+  # Windows (MSYS2/MinGW) doesn't set AS/AR/RANLIB - provide defaults
+  export AS=$(basename "${AS:-as}")
+  export AR=$(basename "${AR:-ar}")
+  export RANLIB=$(basename "${RANLIB:-ranlib}")
 
   # Windows: flexdll needs windres with proper preprocessor setup
   if [[ "${target_platform}" == "win-"* ]]; then
@@ -60,6 +61,22 @@ EOF
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "1" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
   ./configure "${CONFIG_ARGS[@]}" >& /dev/null
+
+  # Patch config to use shell variables (like cross-compilation does)
+  # This avoids baking in placeholder paths that break with prefix relocation
+  config_file="utils/config.generated.ml"
+  if [[ -f "$config_file" ]]; then
+    perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
+    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
+    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
+    if [[ "${target_platform}" == "osx-"* ]]; then
+      perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
+    else
+      perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
+    fi
+    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
+  fi
+
   make world.opt -j"${CPU_COUNT}" >& /dev/null
 
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
