@@ -72,7 +72,7 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ stdlib('c') }}
-    
+    - binutils
     - ${{ m2 }}bash >=5.2
     - ${{ m2 }}file
     - ${{ m2 }}findutils
@@ -80,10 +80,8 @@ requirements:
     - ${{ m2 }}grep
     - ${{ m2 }}make
     - perl 5.32.*
-    
     - if: not unix
       then:
-        - binutils
         - ${{ m2 }}coreutils
         - ${{ m2 }}diffutils
         - ${{ m2 }}which
@@ -177,6 +175,8 @@ tests:
               - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
               - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
           - echo "Cross-compiled binary arch passed"
+        else:
+          echo "All good"
     requirements:
       run:
         - ${{ stdlib('c') }}
@@ -214,10 +214,10 @@ tests:
             ocamldoc -version | grep ${{ version }}
             ocamldoc.opt -version | grep ${{ version }}
             ocamldebug -version | grep ${{ version }}
-      requirements:
-        run:
-          - ${{ stdlib('c') }}
-          - ${{ m2 }}grep
+    requirements:
+      run:
+        - ${{ stdlib('c') }}
+        - ${{ m2 }}grep
 
   - script:
       env:
@@ -265,12 +265,12 @@ tests:
                   echo "=== All compilation tests passed ==="
               else:
                 - ocamlc -o hi.exe hi.ml && hi.exe | grep Hello && rm hi.exe
-      requirements:
-        run:
-          - ${{ compiler('c') }}
-          - ${{ stdlib('c') }}
-          - ${{ m2 }}file
-          - ${{ m2 }}grep
+    requirements:
+      run:
+        - ${{ compiler('c') }}
+        - ${{ stdlib('c') }}
+        - ${{ m2 }}file
+        - ${{ m2 }}grep
 
 about:
   homepage: https://ocaml.org/
