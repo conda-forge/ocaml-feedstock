@@ -60,7 +60,7 @@ EOF
 
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
-  ./configure "${CONFIG_ARGS[@]}" >& /dev/null
+  ./configure "${CONFIG_ARGS[@]}" # >& /dev/null
 
   # Patch config to use shell variables (like cross-compilation does)
   # This avoids baking in placeholder paths that break with prefix relocation
@@ -77,7 +77,7 @@ EOF
     perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
   fi
 
-  make world.opt -j"${CPU_COUNT}" >& /dev/null
+  make world.opt -j"${CPU_COUNT}" # >& /dev/null
 
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
     rm testsuite/tests/unicode/$'\u898b'.ml
