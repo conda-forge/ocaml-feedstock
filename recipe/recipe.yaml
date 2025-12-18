@@ -214,10 +214,10 @@ tests:
             ocamldoc -version | grep ${{ version }}
             ocamldoc.opt -version | grep ${{ version }}
             ocamldebug -version | grep ${{ version }}
-     requirements:
-       run:
-         - ${{ stdlib('c') }}
-         - ${{ m2 }}grep
+      requirements:
+        run:
+          - ${{ stdlib('c') }}
+          - ${{ m2 }}grep
 
   - script:
       env:
