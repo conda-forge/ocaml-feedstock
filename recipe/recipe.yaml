@@ -167,7 +167,6 @@ tests:
           ocamlobjinfo.opt -help | grep FILES
           ocamlopt -version | grep ${{ version }} || { ocamlopt -version; }
           ocamlrun -version | grep ${{ version }} || { ocamlrun -version; }
-          ocamlrun ${PREFIX}/bin/ocamlc.byte -version | grep ${{ version }}
           ocamlyacc -version | grep ${{ version }} || { ocamlyacc -version; }
 
           # Bytecode sensitive to conda PREFIX detection
@@ -225,6 +224,7 @@ tests:
                 echo "=== Testing bytecode compilation ==="
                 ocamlc -o hi hi.ml && ./hi | grep "Hello World"
                 (mkdir -p tmp && cp hi tmp && (cd tmp; ./hi)) | grep "Hello World" && rm ./hi
+                ocamlrun ${PREFIX}/bin/ocamlc.byte -version | grep ${{ version }}
 
                 # 2. Native compilation + execution
                 echo "=== Testing native compilation ==="
@@ -237,7 +237,7 @@ tests:
                 # 4. ocamldep actually parsing files
                 echo "=== Testing ocamldep ==="
                 ocamldep hi.ml
-
+                
                 # 5. Multi-file compilation (exercises module system)
                 echo "=== Testing multi-file compilation ==="
                 printf 'let greet () = print_endline "From Lib"\n' > lib.ml
