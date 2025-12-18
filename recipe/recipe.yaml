@@ -214,13 +214,13 @@ tests:
           - printf 'print_endline "Hello World"\n' > hi.ml
           - if: unix
             then:
-              - if: aarch64
-                then:
-                  - export QEMU_LD_PREFIX=${PREFIX}/aarch64-conda-linux-gnu/sysroot
-              - if: ppc64le
-                then:
-                  - export QEMU_LD_PREFIX=${PREFIX}/powerpc64le-conda-linux-gnu/sysroot
               - |
+                if [ -f ${PREFIX}/aarch64-conda-linux-gnu/sysroot ]; then
+                  export QEMU_LD_PREFIX=${PREFIX}/aarch64-conda-linux-gnu/sysroot
+                fi
+                if [ -f ${PREFIX}/powerpc64le-conda-linux-gnu/sysroot ]; then
+                  export QEMU_LD_PREFIX=${PREFIX}/powerpc64le-conda-linux-gnu/sysroot
+                fi
                 # 1. Bytecode compilation + execution
                 echo "=== Testing bytecode compilation ==="
                 ocamlc -o hi hi.ml && ./hi | grep "Hello World"

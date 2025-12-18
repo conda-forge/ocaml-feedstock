@@ -4,9 +4,9 @@ set -eu
 # Paths are hardcoded in binaries, simplify to basename
 export CC=$(basename "$CC")
 export ASPP="$CC -c"
-export AS=$(basename "$AS")
-export AR=$(basename "$AR")
-export RANLIB=$(basename "$RANLIB")
+export AS=$(basename "${AS:-ar}")
+export AR=$(basename "${AR:-as}")
+export RANLIB=$(basename "${RANLIBR:-ranlib}")
 
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
