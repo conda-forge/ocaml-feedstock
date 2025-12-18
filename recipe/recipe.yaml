@@ -146,39 +146,37 @@ tests:
           then: share/man/man{1,3}/*
 
   - script:
-      content:
-        - if: unix
-          then:
-            - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null && { echo "OCAMLLIB set"; }
-            - head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null && { echo "runtime-launch-info clean"; }
-            - head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null && { echo "ld.conf clean"; }
-            - cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null && { echo "Makefile.config clean"; }
-          else:
-            - echo "%OCAMLLIB%" | grep ocaml
-            - echo "%PATH%" | grep ocaml
-        - echo "PREFIX/PATH tests passed"
+      - if: unix
+        then: |
+          echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null && { echo "OCAMLLIB set"; }
+          head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null && { echo "runtime-launch-info clean"; }
+          head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null && { echo "ld.conf clean"; }
+          cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null && { echo "Makefile.config clean"; }
+        else: |
+          echo "%OCAMLLIB%" | grep ocaml
+          echo "%PATH%" | grep ocaml
+      - echo "PREFIX/PATH tests passed"
     requirements:
       run:
         - ${{ stdlib('c') }}
         - ${{ m2 }}grep
 
   - script:
-      content:
-        - if: build_platform != target_platform
-          then:
-            - if: aarch64
-              then:
-                - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
-                - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
-            - if: arm64
-              then:
-                - otool -hv ${PREFIX}/bin/ocamlc.opt # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
-                - otool -hv ${PREFIX}/bin/ocamlrun # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
-            - if: ppc64le
-              then:
-                - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
-                - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
-            - echo "Cross-compiled binary arch passed"
+      - if: build_platform != target_platform
+        then:
+          - if: aarch64
+            then:
+              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
+          - if: arm64
+            then:
+              - otool -hv ${PREFIX}/bin/ocamlc.opt # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlrun # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
+          - if: ppc64le
+            then:
+              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
+          - echo "Cross-compiled binary arch passed"
     requirements:
       run:
         - ${{ stdlib('c') }}
@@ -216,10 +214,10 @@ tests:
             ocamldoc -version | grep ${{ version }}
             ocamldoc.opt -version | grep ${{ version }}
             ocamldebug -version | grep ${{ version }}
-    requirements:
-      run:
-        - ${{ stdlib('c') }}
-        - ${{ m2 }}grep
+     requirements:
+       run:
+         - ${{ stdlib('c') }}
+         - ${{ m2 }}grep
 
   - script:
       env:
@@ -267,12 +265,12 @@ tests:
                   echo "=== All compilation tests passed ==="
               else:
                 - ocamlc -o hi.exe hi.ml && hi.exe | grep Hello && rm hi.exe
-    requirements:
-      run:
-        - ${{ compiler('c') }}
-        - ${{ stdlib('c') }}
-        - ${{ m2 }}file
-        - ${{ m2 }}grep
+      requirements:
+        run:
+          - ${{ compiler('c') }}
+          - ${{ stdlib('c') }}
+          - ${{ m2 }}file
+          - ${{ m2 }}grep
 
 about:
   homepage: https://ocaml.org/
