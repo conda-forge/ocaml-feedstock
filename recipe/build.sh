@@ -63,6 +63,11 @@ EOF
   # Ensure pkg-config finds zstd from host environment
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
+  # Ensure linker can find zstd in host environment
+  # pkg-config returns -lzstd but OCaml's configure strips the -L path from ZSTD_LIBS
+  # The linker needs -L${PREFIX}/lib to find libzstd
+  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
+
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
   ./configure "${CONFIG_ARGS[@]}" # >& /dev/null

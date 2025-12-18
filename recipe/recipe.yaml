@@ -69,7 +69,7 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ stdlib('c') }}
-    
+    - binutils
     - ${{ m2 }}bash >=5.2
     - ${{ m2 }}file
     - ${{ m2 }}findutils
@@ -77,11 +77,8 @@ requirements:
     - ${{ m2 }}grep
     - ${{ m2 }}make
     - perl 5.32.*
-    
     - if: not unix
       then:
-        - m2w64-toolchain
-        - binutils
         - ${{ m2 }}coreutils
         - ${{ m2 }}diffutils
         - ${{ m2 }}which
