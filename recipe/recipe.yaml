@@ -80,6 +80,7 @@ requirements:
     
     - if: not unix
       then:
+        - m2w64-toolchain
         - binutils
         - ${{ m2 }}coreutils
         - ${{ m2 }}diffutils
