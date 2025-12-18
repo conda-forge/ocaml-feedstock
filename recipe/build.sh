@@ -2,11 +2,12 @@
 set -eu
 
 # Paths are hardcoded in binaries, simplify to basename
-export CC=$(basename "$CC")
+# Oddly, only non-unix seems to not activate GCC with pixi (?)
+export CC=$(basename "${CC:-x86_64-w64-mingw32-gcc}")
 export ASPP="$CC -c"
-export AS=$(basename "${AS:-ar}")
-export AR=$(basename "${AR:-as}")
-export RANLIB=$(basename "${RANLIBR:-ranlib}")
+export AS=$(basename "${AS:-x86_64-w64-mingw32-ar}")
+export AR=$(basename "${AR:-x86_64-w64-mingw32-as}")
+export RANLIB=$(basename "${RANLIBR:-x86_64-w64-mingw32-ranlib}")
 
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
@@ -39,27 +40,27 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     exit 1
   fi
 else
-  if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
+  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]] && [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
   ./configure "${CONFIG_ARGS[@]}" >& /dev/null
   make world.opt -j${CPU_COUNT} >& /dev/null
 
-  # if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
-  #   if [ "$(uname)" == "Darwin" ]; then
-  #     # Tests failing on macOS. Seems to be a known issue.
-  #     rm testsuite/tests/lib-str/t01.ml
-  #     rm testsuite/tests/lib-threads/beat.ml
-  #   fi
+  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]] && [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
+    if [ "$(uname)" == "Darwin" ]; then
+      # Tests failing on macOS. Seems to be a known issue.
+      rm testsuite/tests/lib-str/t01.ml
+      rm testsuite/tests/lib-threads/beat.ml
+    fi
 
-  #   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
-  #     rm testsuite/tests/unicode/$'\u898b'.ml
-  #   fi
+    if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+      rm testsuite/tests/unicode/$'\u898b'.ml
+    fi
 
-  #   make ocamltest -j ${CPU_COUNT}
-  #   make tests
-  # fi
+    make ocamltest -j ${CPU_COUNT}
+    make tests
+  fi
 
   make install >& /dev/null
 
