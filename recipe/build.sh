@@ -37,15 +37,11 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
 else
   # Native build: self-bootstrap
   # Set up compiler variables (paths are hardcoded in binaries, simplify to basename)
-  export CC=$(basename "${CC}")
-  export ASPP="$CC -c"
-  # Windows (MSYS2/MinGW) doesn't set AS/AR/RANLIB - provide defaults
-  export AS=$(basename "${AS:-as}")
-  export AR=$(basename "${AR:-ar}")
-  export RANLIB=$(basename "${RANLIB:-ranlib}")
-
-  # Windows: flexdll needs windres with proper preprocessor setup
-  if [[ "${target_platform}" == "win-"* ]]; then
+  if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+    AR=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-ar -type f | head -1)
+    AS=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-as -type f | head -1)
+    CC=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-gcc -type f | head -1)
+    RANLIB=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-ranlib -type f | head -1)
     # Create shell script wrapper for windres that sets up the preprocessor
     # Make calls 'windres' from MSYS2 bash, so we need a shell script
     cat > "${BUILD_PREFIX}/Library/bin/windres" << EOF
@@ -57,6 +53,15 @@ exec "\${REAL_WINDRES}" --preprocessor="\${CPP}" --preprocessor-arg=-E --preproc
 EOF
     chmod +x "${BUILD_PREFIX}/Library/bin/windres"
   fi
+
+  export CC=$(basename "${CC}")
+  export ASPP="$CC -c"
+  export AS=$(basename "${AS}")
+  export AR=$(basename "${AR}")
+  export RANLIB=$(basename "${RANLIB}")
+
+  # Ensure pkg-config finds zstd from host environment
+  export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
