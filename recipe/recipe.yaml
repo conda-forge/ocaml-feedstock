@@ -39,22 +39,6 @@ build:
         - lib/ocaml/Makefile.config
         - lib/ocaml/runtime-launch-info
     ignore:
-      # Ignore most lib/ocaml files except runtime-launch-info, ld.conf, Makefile.config
-      # - lib/ocaml/[^rlM][^ud][^n\.]*
-      # Native code executables - no prefix to relocate
-      # - bin/ocamlc.opt
-      # - bin/ocamldep.opt
-      # - bin/ocamlobjinfo.opt
-      # - bin/ocamlopt.opt
-      # - bin/ocamlrun
-      # - bin/ocamlrund
-      # - bin/ocamlruni
-      # - if: build_platform == target_platform
-      #   then:
-      #     - bin/ocamldebug
-      #     - bin/ocamldoc
-      #     - bin/ocamldoc.opt
-      
       # Only ignore bytecode files (binary format, relocation corrupts them)
       - lib/ocaml/**/*.cmo
       - lib/ocaml/**/*.cma
@@ -162,6 +146,7 @@ tests:
           then: share/man/man{1,3}/*
 
   - script:
+      # === DIAGNOSTIC: Env., Resource files ===
       - if: unix
         then:
           - echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null

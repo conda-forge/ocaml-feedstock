@@ -58,7 +58,7 @@ EOF
     chmod +x "${BUILD_PREFIX}/Library/bin/windres"
   fi
 
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "1" ]] && CONFIG_ARGS+=(--enable-ocamltest)
+  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
   ./configure "${CONFIG_ARGS[@]}" >& /dev/null
 
@@ -83,8 +83,8 @@ EOF
     rm testsuite/tests/unicode/$'\u898b'.ml
   fi
 
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "1" ]] && make ocamltest -j "${CPU_COUNT}"
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "1" ]] && make tests
+  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make ocamltest -j "${CPU_COUNT}"
+  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make tests
   make install >& /dev/null
 fi
 
