@@ -51,25 +51,48 @@ else
   fi
 
   # macOS: use lld to avoid ld64/ar incompatibility (ld64 rejects LLVM ar archives)
+  # Also add -headerpad_max_install_names so install_name_tool can modify rpaths during packaging
   if [[ "${target_platform}" == "osx-"* ]]; then
-    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
+    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+    # Set DYLD_LIBRARY_PATH so freshly-built ocamlc.opt can find libzstd at runtime during build
+    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   fi
 
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" 2>&1 "$SRC_DIR}"/_logs/configure.log || { cat "$SRC_DIR}"/_logs/configure.log; exit 1; }
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
-  # Windows: ensure FLEXDLL_CHAIN is set to mingw64 (not empty)
+  # Windows: ensure TOOLCHAIN and FLEXDLL_CHAIN are set to mingw64 (not empty)
+  # TOOLCHAIN is used by flexdll's Makefile directly (via include of Makefile.config)
+  # FLEXDLL_CHAIN is used by OCaml to pass CHAINS=$(FLEXDLL_CHAIN) to flexdll
   # If empty, flexdll defaults to building ALL chains including 32-bit mingw
   # which requires i686-w64-mingw32-gcc that conda-forge doesn't provide
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
     if [[ -f "Makefile.config" ]]; then
-      if ! grep -q "^FLEXDLL_CHAIN=mingw64" Makefile.config; then
-        echo "Fixing FLEXDLL_CHAIN in Makefile.config..."
-        if grep -q "^FLEXDLL_CHAIN=" Makefile.config; then
-          perl -i -pe 's/^FLEXDLL_CHAIN=.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
+      echo "=== Windows toolchain fix ==="
+      echo "Before fix:"
+      grep -E "^(TOOLCHAIN|FLEXDLL_CHAIN)" Makefile.config || echo "  (not found)"
+
+      # Fix TOOLCHAIN (used by flexdll directly)
+      if ! grep -qE "^TOOLCHAIN[[:space:]]*=.*mingw64" Makefile.config; then
+        echo "Fixing TOOLCHAIN..."
+        if grep -qE "^TOOLCHAIN" Makefile.config; then
+          perl -i -pe 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' Makefile.config
+        else
+          echo "TOOLCHAIN=mingw64" >> Makefile.config
+        fi
+      fi
+
+      # Fix FLEXDLL_CHAIN (used by OCaml to pass CHAINS to flexdll)
+      if ! grep -qE "^FLEXDLL_CHAIN[[:space:]]*=.*mingw64" Makefile.config; then
+        echo "Fixing FLEXDLL_CHAIN..."
+        if grep -qE "^FLEXDLL_CHAIN" Makefile.config; then
+          perl -i -pe 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
         else
           echo "FLEXDLL_CHAIN=mingw64" >> Makefile.config
         fi
       fi
+
+      echo "After fix:"
+      grep -E "^(TOOLCHAIN|FLEXDLL_CHAIN)" Makefile.config || echo "  (not found)"
     fi
   fi
 
@@ -97,7 +120,7 @@ else
     perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
   fi
 
-  make world.opt -j${CPU_COUNT} 2>&1 "$SRC_DIR}"/_logs/world.log || { cat "$SRC_DIR}"/_logs/world.log; exit 1; }
+  make world.opt -j${CPU_COUNT} > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
 
   if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
     if [ "$(uname)" == "Darwin" ]; then
@@ -110,11 +133,11 @@ else
       rm testsuite/tests/unicode/$'\u898b'.ml
     fi
 
-    make ocamltest -j ${CPU_COUNT} 2>&1 "$SRC_DIR}"/_logs/ocamltest.log || { cat "$SRC_DIR}"/_logs/ocamltest.log; exit 1; }
-    make tests 2>&1 "$SRC_DIR}"/_logs/tests.log || { cat "$SRC_DIR}"/_logs/tests.log; exit 1; }
+    make ocamltest -j ${CPU_COUNT} > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; exit 1; }
+    make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { cat "${SRC_DIR}"/_logs/tests.log; exit 1; }
   fi
 
-  make install 2>&1 "$SRC_DIR}"/_logs/install.log || { cat "$SRC_DIR}"/_logs/install.log; exit 1; }
+  make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 
   # Fix compiled-in tool paths for runtime
   # During build we used actual paths (e.g., /path/to/clang -fuse-ld=lld)
