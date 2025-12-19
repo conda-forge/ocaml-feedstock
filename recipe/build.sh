@@ -238,15 +238,15 @@ EOF
       grep "^let asm" "$config_file" || echo "(not found)"
       echo ""
 
-      # Try using Windows %VAR% syntax for environment variable expansion
-      # cmd.exe expands %CC%, %AS% when invoking commands via system()
+      # On Windows, DON'T patch mkexe/mkdll - configure sets them to use flexlink
+      # which is required for proper symbol resolution during the build.
+      # flexlink handles the -link flag and symbol table generation that gcc cannot.
+      # Only patch asm and c_compiler for runtime tool lookup.
       perl -i -pe 's/^let asm = .*/let asm = {|%AS%|}/' "$config_file"
       perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|%CC%|}/' "$config_file"
-      perl -i -pe 's/^let mkexe = .*/let mkexe = {|%CC%|}/' "$config_file"
-      perl -i -pe 's/^let mkdll = .*/let mkdll = {|%CC% -shared|}/' "$config_file"
-      perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|%CC% -shared|}/' "$config_file"
+      # Keep mkexe, mkdll, mkmaindll as configured by ./configure (uses flexlink)
 
-      echo "After patching:"
+      echo "After patching (mkexe/mkdll left as flexlink from configure):"
       grep "^let asm\|^let c_compiler\|^let mkexe\|^let mkdll" "$config_file"
       echo "=== End config debug ==="
     fi
@@ -258,8 +258,8 @@ EOF
     rm testsuite/tests/unicode/$'\u898b'.ml
   fi
 
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
+  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && (make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; })
+  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && (make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; })
   make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 fi
 
