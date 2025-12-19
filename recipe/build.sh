@@ -51,7 +51,53 @@ else
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
-  ./configure "${CONFIG_ARGS[@]}" >& /dev/null
+  # macOS: use lld to avoid ld64/ar incompatibility (ld64 rejects LLVM ar archives)
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
+  fi
+
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" >& /dev/null
+
+  # Windows: ensure FLEXDLL_CHAIN is set to mingw64 (not empty)
+  # If empty, flexdll defaults to building ALL chains including 32-bit mingw
+  # which requires i686-w64-mingw32-gcc that conda-forge doesn't provide
+  if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+    if [[ -f "Makefile.config" ]]; then
+      if ! grep -q "^FLEXDLL_CHAIN=mingw64" Makefile.config; then
+        echo "Fixing FLEXDLL_CHAIN in Makefile.config..."
+        if grep -q "^FLEXDLL_CHAIN=" Makefile.config; then
+          perl -i -pe 's/^FLEXDLL_CHAIN=.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
+        else
+          echo "FLEXDLL_CHAIN=mingw64" >> Makefile.config
+        fi
+      fi
+    fi
+  fi
+
+  # Patch config.generated.ml with actual compiler paths for BUILD
+  # OCaml can't expand $CC - it treats it as literal string
+  # Use $ENV{} to expand Perl environment variables during patching
+  config_file="utils/config.generated.ml"
+  if [[ -f "$config_file" ]] && [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]; then
+    echo "Patching $config_file for build..."
+    # Need full path to CC for build (basename was exported above, get original)
+    _FULL_CC=$(command -v "${CC}" 2>/dev/null || echo "${CC}")
+    export _FULL_CC
+    export _FULL_AS=$(command -v "${AS}" 2>/dev/null || echo "${AS}")
+    if [[ "${target_platform}" == "osx-"* ]]; then
+      export _BUILD_MKEXE="${_FULL_CC} -fuse-ld=lld"
+      export _BUILD_MKDLL="${_FULL_CC} -fuse-ld=lld -shared -undefined dynamic_lookup"
+    else
+      export _BUILD_MKEXE="${_FULL_CC}"
+      export _BUILD_MKDLL="${_FULL_CC} -shared"
+    fi
+    perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_FULL_AS}|}/' "$config_file"
+    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_FULL_CC}|}/' "$config_file"
+    perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_BUILD_MKEXE}|}/' "$config_file"
+    perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
+    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
+  fi
+
   make world.opt -j${CPU_COUNT} >& /dev/null
 
   if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
@@ -72,9 +118,8 @@ else
   make install >& /dev/null
 
   # Fix compiled-in tool paths for runtime
-  # Configure bakes the conda toolchain names (e.g., x86_64-conda-linux-gnu-as)
-  # into utils/config.generated.ml, but these tools aren't available at runtime.
-  # Replace with generic names that work with the user's compiler.
+  # During build we used actual paths (e.g., /path/to/clang -fuse-ld=lld)
+  # For runtime we use shell variables that get expanded by user's environment
   echo ""
   echo "=== Fixing compiled-in tool paths for runtime ==="
   CONFIG_ML="${OCAML_PREFIX}/lib/ocaml/config.ml"
@@ -83,21 +128,30 @@ else
 
     # Show current values
     echo "  Before:"
-    grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
+    grep -E "^let (asm|c_compiler|mkexe) =" "$CONFIG_ML" | head -3
 
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      # Unix: use generic 'as' and 'cc' (works on Linux/macOS)
-      perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|as|}/' "$CONFIG_ML"
-      perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|cc|}/' "$CONFIG_ML"
+      # Unix: use shell variables that get expanded at runtime
+      perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|\$AS|}/' "$CONFIG_ML"
+      perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
+      if [[ "${target_platform}" == "osx-"* ]]; then
+        # macOS: keep -fuse-ld=lld for runtime to avoid ld64/ar incompatibility
+        perl -i -pe 's/^let mkexe = \{\|.*\|\}/let mkexe = {|\$CC -fuse-ld=lld|}/' "$CONFIG_ML"
+        perl -i -pe 's/^let mkdll = \{\|.*\|\}/let mkdll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+        perl -i -pe 's/^let mkmaindll = \{\|.*\|\}/let mkmaindll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+      else
+        perl -i -pe 's/^let mkexe = \{\|.*\|\}/let mkexe = {|\$CC|}/' "$CONFIG_ML"
+        perl -i -pe 's/^let mkdll = \{\|.*\|\}/let mkdll = {|\$CC -shared|}/' "$CONFIG_ML"
+        perl -i -pe 's/^let mkmaindll = \{\|.*\|\}/let mkmaindll = {|\$CC -shared|}/' "$CONFIG_ML"
+      fi
     else
       # Windows: use mingw tool basenames (must be in PATH)
-      # These are set at the top of build.sh and added to PATH
       perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|as|}/' "$CONFIG_ML"
       perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|gcc|}/' "$CONFIG_ML"
     fi
 
     echo "  After:"
-    grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
+    grep -E "^let (asm|c_compiler|mkexe) =" "$CONFIG_ML" | head -3
   else
     echo "WARNING: $CONFIG_ML not found, skipping tool path fixes"
   fi
