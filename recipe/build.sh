@@ -258,8 +258,8 @@ EOF
     rm testsuite/tests/unicode/$'\u898b'.ml
   fi
 
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make ocamltest -j "${CPU_COUNT}"
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make tests
+  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
+  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
   make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 fi
 
