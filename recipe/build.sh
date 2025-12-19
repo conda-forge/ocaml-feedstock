@@ -95,8 +95,9 @@ EOF
   export RANLIB=$(basename "${RANLIB:-ranlib}")
 
   # macOS: Use lld to match LLVM's ar (ld64 rebuild _2 incompatible with ar archives)
+  # Also add -headerpad_max_install_names so install_name_tool can modify rpaths during packaging
   if [[ "${target_platform}" == "osx-"* ]]; then
-    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
+    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   fi
 
   echo "=== Final compiler settings ==="
