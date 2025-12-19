@@ -47,14 +47,14 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     exit 1
   fi
 else
-  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]] && [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
+  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
   ./configure "${CONFIG_ARGS[@]}" >& /dev/null
   make world.opt -j${CPU_COUNT} >& /dev/null
 
-  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]] && [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
+  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
     if [ "$(uname)" == "Darwin" ]; then
       # Tests failing on macOS. Seems to be a known issue.
       rm testsuite/tests/lib-str/t01.ml
