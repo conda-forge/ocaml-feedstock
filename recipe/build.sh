@@ -52,6 +52,8 @@ CPP="${BUILD_PREFIX}/Library/bin/x86_64-w64-mingw32-cpp.exe"
 exec "\${REAL_WINDRES}" --preprocessor="\${CPP}" --preprocessor-arg=-E --preprocessor-arg=-xc-header --preprocessor-arg=-DRC_INVOKED "\$@"
 EOF
     chmod +x "${BUILD_PREFIX}/Library/bin/windres"
+    # Add mingw bin directory to PATH so basename-only commands are found
+    export PATH="$(dirname "${CC}"):${PATH}"
   fi
 
   export CC=$(basename "${CC}")
@@ -63,14 +65,12 @@ EOF
   # Ensure pkg-config finds zstd from host environment
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
-  # Ensure linker can find zstd in host environment
-  # pkg-config returns -lzstd but OCaml's configure strips the -L path from ZSTD_LIBS
-  # The linker needs -L${PREFIX}/lib to find libzstd
-  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
-
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
-  ./configure "${CONFIG_ARGS[@]}" # >& /dev/null
+  # Pass LDFLAGS to configure - need -L${PREFIX}/lib for zstd
+  # Don't export globally as it can interfere with runtime build
+  ./configure "${CONFIG_ARGS[@]}" \
+    LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
 
   # Patch config to use shell variables (like cross-compilation does)
   # This avoids baking in placeholder paths that break with prefix relocation
