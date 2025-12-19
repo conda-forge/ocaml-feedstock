@@ -38,22 +38,53 @@ else
   # Native build: self-bootstrap
   # Set up compiler variables (paths are hardcoded in binaries, simplify to basename)
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
-    AR=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-ar -type f | head -1)
-    AS=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-as -type f | head -1)
-    CC=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-gcc -type f | head -1)
-    RANLIB=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-ranlib -type f | head -1)
+    # Windows: Debug compiler environment
+    echo "=== Windows Compiler Detection ==="
+    echo "BUILD_PREFIX=${BUILD_PREFIX}"
+    echo "CC from env: ${CC:-unset}"
+    echo "AR from env: ${AR:-unset}"
+    echo "PATH (first 500 chars): ${PATH:0:500}"
+    echo ""
+    echo "Searching for mingw gcc in BUILD_PREFIX..."
+    find "${BUILD_PREFIX}" -name "*gcc*" -type f 2>/dev/null | head -10 || echo "  (none found)"
+    echo ""
+    echo "Searching for mingw ar in BUILD_PREFIX..."
+    find "${BUILD_PREFIX}" -name "*-ar*" -type f 2>/dev/null | head -5 || echo "  (none found)"
+    echo ""
+
+    # Windows: Try to find mingw tools, fall back to environment CC
+    _MINGW_CC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc*" -type f 2>/dev/null | head -1)
+    if [[ -n "${_MINGW_CC}" ]]; then
+      echo "Found mingw gcc: ${_MINGW_CC}"
+      _MINGW_DIR=$(dirname "${_MINGW_CC}")
+      AR="${_MINGW_DIR}/x86_64-w64-mingw32-ar"
+      AS="${_MINGW_DIR}/x86_64-w64-mingw32-as"
+      CC="${_MINGW_CC}"
+      RANLIB="${_MINGW_DIR}/x86_64-w64-mingw32-ranlib"
+      export PATH="${_MINGW_DIR}:${PATH}"
+    else
+      echo "WARNING: mingw gcc not found via find, using CC from environment: ${CC:-unset}"
+      # Trust conda activation - CC should be set
+      if [[ -n "${CC:-}" ]]; then
+        _CC_DIR=$(dirname "$(command -v "${CC}" 2>/dev/null || echo "${CC}")")
+        [[ -d "${_CC_DIR}" ]] && export PATH="${_CC_DIR}:${PATH}"
+      fi
+    fi
     # Create shell script wrapper for windres that sets up the preprocessor
-    # Make calls 'windres' from MSYS2 bash, so we need a shell script
-    cat > "${BUILD_PREFIX}/Library/bin/windres" << EOF
+    _WINDRES_DIR="${BUILD_PREFIX}/Library/mingw-w64/bin"
+    [[ ! -d "${_WINDRES_DIR}" ]] && _WINDRES_DIR="${BUILD_PREFIX}/Library/bin"
+    if [[ -f "${_WINDRES_DIR}/windres.exe" ]] || [[ -f "${_WINDRES_DIR}/x86_64-w64-mingw32-windres.exe" ]]; then
+      cat > "${BUILD_PREFIX}/Library/bin/windres" << EOF
 #!/bin/bash
 # Windres wrapper to set up GCC preprocessor
-REAL_WINDRES="${BUILD_PREFIX}/Library/bin/x86_64-w64-mingw32-windres.exe"
-CPP="${BUILD_PREFIX}/Library/bin/x86_64-w64-mingw32-cpp.exe"
+REAL_WINDRES="${_WINDRES_DIR}/x86_64-w64-mingw32-windres.exe"
+[[ ! -f "\${REAL_WINDRES}" ]] && REAL_WINDRES="${_WINDRES_DIR}/windres.exe"
+CPP="${_WINDRES_DIR}/x86_64-w64-mingw32-cpp.exe"
+[[ ! -f "\${CPP}" ]] && CPP="${_WINDRES_DIR}/cpp.exe"
 exec "\${REAL_WINDRES}" --preprocessor="\${CPP}" --preprocessor-arg=-E --preprocessor-arg=-xc-header --preprocessor-arg=-DRC_INVOKED "\$@"
 EOF
-    chmod +x "${BUILD_PREFIX}/Library/bin/windres"
-    # Add mingw bin directory to PATH so basename-only commands are found
-    export PATH="$(dirname "${CC}"):${PATH}"
+      chmod +x "${BUILD_PREFIX}/Library/bin/windres"
+    fi
   fi
 
   export CC=$(basename "${CC}")
@@ -61,6 +92,14 @@ EOF
   export AS=$(basename "${AS}")
   export AR=$(basename "${AR}")
   export RANLIB=$(basename "${RANLIB}")
+
+  echo "=== Final compiler settings ==="
+  echo "CC=${CC}"
+  echo "AS=${AS}"
+  echo "AR=${AR}"
+  echo "RANLIB=${RANLIB}"
+  echo "which CC: $(command -v "${CC}" 2>/dev/null || echo 'not found')"
+  echo ""
 
   # Ensure pkg-config finds zstd from host environment
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
