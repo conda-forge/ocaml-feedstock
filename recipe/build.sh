@@ -114,6 +114,13 @@ EOF
   export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
 
+  # macOS: Set DYLD_LIBRARY_PATH so freshly-built ocamlc.opt can find libzstd at runtime
+  # The binary has @rpath/libzstd.1.dylib but rpath doesn't include $PREFIX/lib during build
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    echo "DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}"
+  fi
+
   echo "LIBRARY_PATH=${LIBRARY_PATH}"
   echo "LDFLAGS=${LDFLAGS}"
 
@@ -122,6 +129,22 @@ EOF
   # Pass LDFLAGS explicitly to configure - OCaml configure needs this for -fuse-ld=lld
   # on macOS to work around ld64/ar incompatibility
   ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS}"
+
+  # Windows: ensure FLEXDLL_CHAIN is set to mingw64 (not empty)
+  # If empty, flexdll defaults to building ALL chains including 32-bit mingw
+  # which requires i686-w64-mingw32-gcc that conda-forge doesn't provide
+  if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+    if [[ -f "Makefile.config" ]]; then
+      if ! grep -q "^FLEXDLL_CHAIN=mingw64" Makefile.config; then
+        echo "Fixing FLEXDLL_CHAIN in Makefile.config..."
+        if grep -q "^FLEXDLL_CHAIN=" Makefile.config; then
+          perl -i -pe 's/^FLEXDLL_CHAIN=.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
+        else
+          echo "FLEXDLL_CHAIN=mingw64" >> Makefile.config
+        fi
+      fi
+    fi
+  fi
 
   # Patch config to use shell variables (like cross-compilation does)
   # This avoids baking in placeholder paths that break with prefix relocation
