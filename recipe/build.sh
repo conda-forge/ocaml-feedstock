@@ -3,25 +3,32 @@ set -eu
 
 # Windows: find mingw toolchain and add to PATH
 if [[ "${target_platform:-}" != "linux-"* ]] && [[ "${target_platform:-}" != "osx-"* ]]; then
-  _MINGW_GCC=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-gcc -type f 2>/dev/null | head -1)
+  _MINGW_GCC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc.exe" -type f 2>/dev/null | head -1)
   if [[ -n "${_MINGW_GCC}" ]]; then
-    export PATH="$(dirname "${_MINGW_GCC}"):${PATH}"
+    _MINGW_DIR=$(dirname "${_MINGW_GCC}")
+    export PATH="${_MINGW_DIR}:${PATH}"
+
+    # Create 'gcc' alias for windres preprocessor (windres calls 'gcc' not 'x86_64-w64-mingw32-gcc')
+    if [[ ! -f "${_MINGW_DIR}/gcc.exe" ]]; then
+      cp "${_MINGW_GCC}" "${_MINGW_DIR}/gcc.exe"
+    fi
   fi
 
   # Find windres (needed by flexdll to create version resources)
-  _WINDRES=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-windres.exe" -o -name "windres.exe" 2>/dev/null | head -1)
+  _WINDRES=$(find "${BUILD_PREFIX}" \( -name "x86_64-w64-mingw32-windres.exe" -o -name "windres.exe" \) 2>/dev/null | head -1)
   if [[ -n "${_WINDRES}" ]]; then
     _WINDRES_DIR=$(dirname "${_WINDRES}")
     export PATH="${_WINDRES_DIR}:${PATH}"
-    # Create 'windres' copy if only prefixed version exists (Windows doesn't support symlinks)
+    # Create 'windres' copy if only prefixed version exists
     if [[ ! -f "${_WINDRES_DIR}/windres" ]] && [[ ! -f "${_WINDRES_DIR}/windres.exe" ]]; then
       cp "${_WINDRES}" "${_WINDRES_DIR}/windres.exe"
     fi
   fi
+
   echo "=== Windows PATH setup ==="
   echo "PATH (first 500 chars): ${PATH:0:500}"
+  which gcc 2>/dev/null || echo "gcc not found in PATH"
   which windres 2>/dev/null || echo "windres not found in PATH"
-  which x86_64-w64-mingw32-gcc 2>/dev/null || echo "gcc not found in PATH"
 fi
 
 # Paths are hardcoded in binaries, simplify to basename
