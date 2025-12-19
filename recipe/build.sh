@@ -3,7 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # Avoids an annoying 'directory not found'
-mkdir -p "${PREFIX}"/lib
+mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
   export OCAML_PREFIX="${PREFIX}"
@@ -128,21 +128,43 @@ EOF
 
   # Pass LDFLAGS explicitly to configure - OCaml configure needs this for -fuse-ld=lld
   # on macOS to work around ld64/ar incompatibility
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS}"
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
-  # Windows: ensure FLEXDLL_CHAIN is set to mingw64 (not empty)
+  # Windows: ensure TOOLCHAIN and FLEXDLL_CHAIN are set to mingw64 (not empty)
+  # TOOLCHAIN is used by flexdll's Makefile directly (via include of Makefile.config)
+  # FLEXDLL_CHAIN is used by OCaml to pass CHAINS=$(FLEXDLL_CHAIN) to flexdll
   # If empty, flexdll defaults to building ALL chains including 32-bit mingw
   # which requires i686-w64-mingw32-gcc that conda-forge doesn't provide
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
     if [[ -f "Makefile.config" ]]; then
-      if ! grep -q "^FLEXDLL_CHAIN=mingw64" Makefile.config; then
-        echo "Fixing FLEXDLL_CHAIN in Makefile.config..."
-        if grep -q "^FLEXDLL_CHAIN=" Makefile.config; then
-          perl -i -pe 's/^FLEXDLL_CHAIN=.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
+      echo "=== Windows toolchain fix ==="
+      echo "Before fix:"
+      grep -E "^(TOOLCHAIN|FLEXDLL_CHAIN)" Makefile.config || echo "  (not found)"
+
+      # Fix TOOLCHAIN (used by flexdll directly)
+      if ! grep -qE "^TOOLCHAIN[[:space:]]*=.*mingw64" Makefile.config; then
+        echo "Fixing TOOLCHAIN..."
+        if grep -qE "^TOOLCHAIN" Makefile.config; then
+          perl -i -pe 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' Makefile.config
+        else
+          echo "TOOLCHAIN=mingw64" >> Makefile.config
+        fi
+      fi
+
+      # Fix FLEXDLL_CHAIN (used by OCaml to pass CHAINS to flexdll)
+      if ! grep -qE "^FLEXDLL_CHAIN[[:space:]]*=.*mingw64" Makefile.config; then
+        echo "Fixing FLEXDLL_CHAIN..."
+        if grep -qE "^FLEXDLL_CHAIN" Makefile.config; then
+          perl -i -pe 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
         else
           echo "FLEXDLL_CHAIN=mingw64" >> Makefile.config
         fi
       fi
+
+      echo "After fix:"
+      grep -E "^(TOOLCHAIN|FLEXDLL_CHAIN)" Makefile.config || echo "  (not found)"
+    else
+      echo "WARNING: Makefile.config not found after configure!"
     fi
   fi
 
@@ -195,7 +217,7 @@ EOF
     fi
   fi
 
-  make world.opt -j"${CPU_COUNT}" # >& /dev/null
+  make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
 
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
     rm testsuite/tests/unicode/$'\u898b'.ml
@@ -203,7 +225,7 @@ EOF
 
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make ocamltest -j "${CPU_COUNT}"
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && make tests
-  make install >& /dev/null
+  make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 fi
 
 # Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX paths
