@@ -7,6 +7,21 @@ if [[ "${target_platform:-}" != "linux-"* ]] && [[ "${target_platform:-}" != "os
   if [[ -n "${_MINGW_GCC}" ]]; then
     export PATH="$(dirname "${_MINGW_GCC}"):${PATH}"
   fi
+
+  # Find windres (needed by flexdll to create version resources)
+  _WINDRES=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-windres.exe" -o -name "windres.exe" 2>/dev/null | head -1)
+  if [[ -n "${_WINDRES}" ]]; then
+    _WINDRES_DIR=$(dirname "${_WINDRES}")
+    export PATH="${_WINDRES_DIR}:${PATH}"
+    # Create 'windres' copy if only prefixed version exists (Windows doesn't support symlinks)
+    if [[ ! -f "${_WINDRES_DIR}/windres" ]] && [[ ! -f "${_WINDRES_DIR}/windres.exe" ]]; then
+      cp "${_WINDRES}" "${_WINDRES_DIR}/windres.exe"
+    fi
+  fi
+  echo "=== Windows PATH setup ==="
+  echo "PATH (first 500 chars): ${PATH:0:500}"
+  which windres 2>/dev/null || echo "windres not found in PATH"
+  which x86_64-w64-mingw32-gcc 2>/dev/null || echo "gcc not found in PATH"
 fi
 
 # Paths are hardcoded in binaries, simplify to basename

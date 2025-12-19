@@ -1,6 +1,6 @@
 --- a/Makefile
 +++ b/Makefile
-@@ -139,6 +139,19 @@ RES=version_res.o
+@@ -139,6 +139,12 @@ RES=version_res.o
  RES_PREFIX=
  endif
 
@@ -9,38 +9,14 @@
 +# gcc is used directly which doesn't understand -link
 +ifneq ($(filter mingw mingw64,$(TOOLCHAIN)),)
 +LINKFLAGS = -cclib "$(RES)"
-+# Link flexdll C objects to resolve flexdll_* symbols needed by libasmrun.a
-+FLEXDLL_OBJS = flexdll_$(TOOLCHAIN).o flexdll_initer_$(TOOLCHAIN).o
-+FLEXDLL_CCLIBS = $(addprefix -cclib ,$(FLEXDLL_OBJS))
-+# BUILD_FLEXLINK includes flexdll objects for mingw bootstrap
-+BUILD_FLEXLINK = $(RES_PREFIX) $(OCAMLOPT) -o $@ $(LINKFLAGS) $(OBJS) $(FLEXDLL_CCLIBS)
-+FLEXLINK_DEPS = $(FLEXDLL_OBJS)
 +else
-+FLEXDLL_CCLIBS =
  ifeq ($(NATDYNLINK), false)
  #when ocaml is not built with flexlink i.e. -no-shared-libs
  LINKFLAGS = -cclib "$(RES)"
-@@ -146,6 +159,10 @@ else
+@@ -146,6 +152,7 @@ else
  LINKFLAGS = -cclib "-link $(RES)"
  endif
-
-+BUILD_FLEXLINK = $(RES_PREFIX) $(OCAMLOPT) -o $@ $(LINKFLAGS) $(OBJS)
-+FLEXLINK_DEPS =
 +endif
-+
+
  support: $(addprefix build_, $(CHAINS))
 
- build_gnat: flexdll_gnat.o flexdll_initer_gnat.o
-@@ -177,10 +194,10 @@ COMPAT_LEVEL := \
- Compat.ml: Compat.ml.in COMPILER-$(COMPAT_VERSION)
- 	sed -E -e '$(if $(COMPAT_LEVEL),/^$(subst $(SPACE),:|^,$(COMPAT_LEVEL)):/d;)s/^[0-9]*://' $< > $@
-
--flexlink.exe: $(OBJS) $(RES)
-+flexlink.exe: $(OBJS) $(RES) $(FLEXLINK_DEPS)
- 	@echo Building flexlink.exe with TOOLCHAIN=$(TOOLCHAIN) for OCaml $(OCAML_VERSION)
- 	rm -f $@
--	$(RES_PREFIX) $(OCAMLOPT) -o $@ $(LINKFLAGS) $(OBJS)
-+	$(BUILD_FLEXLINK)
-
- # VERSION at present is x.y, but there would be no reason not to have x.y.z in
- # future. Windows versions have four components. $(FLEXDLL_FULL_VERSION) adds
