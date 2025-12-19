@@ -129,16 +129,23 @@ EOF
   config_file="utils/config.generated.ml"
   if [[ -f "$config_file" ]]; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      # Unix: use shell variables that get expanded at runtime
-      perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
-      perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
-      perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
+      # Patch config with actual compiler paths for BUILD
+      # Use $ENV{} to expand Perl environment variables during patching
+      # After install, we'll patch again to use $CC/$AS for runtime
       if [[ "${target_platform}" == "osx-"* ]]; then
-        perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
+        # macOS: use lld to avoid ld64/ar incompatibility (ld64 rejects LLVM ar archives)
+        export _BUILD_MKEXE="${CC} -fuse-ld=lld"
+        export _BUILD_MKDLL="${CC} -fuse-ld=lld -shared -undefined dynamic_lookup"
       else
-        perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
+        export _BUILD_MKEXE="${CC}"
+        export _BUILD_MKDLL="${CC} -shared"
       fi
-      perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
+      # Use actual compiler path during build (not $CC which OCaml can't expand)
+      perl -i -pe 's/^let asm = .*/let asm = {|$ENV{AS}|}/' "$config_file"
+      perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{CC}|}/' "$config_file"
+      perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_BUILD_MKEXE}|}/' "$config_file"
+      perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
+      perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
     else
       # Windows: Debug environment variables
       echo "=== Windows config patching debug ==="
@@ -180,6 +187,28 @@ fi
 # BUILD_PREFIX won't be relocated by conda, so we need to use PREFIX
 if [[ -f "${OCAML_PREFIX}/lib/ocaml/Makefile.config" ]]; then
   perl -pe -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
+fi
+
+# Fix config.ml: replace build-time compiler paths with runtime $CC/$AS
+# During build we used actual paths (e.g., /path/to/clang -fuse-ld=lld)
+# For runtime we use shell variables that get expanded by user's environment
+CONFIG_ML="${OCAML_PREFIX}/lib/ocaml/config.ml"
+if [[ -f "$CONFIG_ML" ]] && [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]; then
+  echo "Patching $CONFIG_ML for runtime..."
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    # macOS: keep -fuse-ld=lld for runtime to avoid ld64/ar incompatibility
+    perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC -fuse-ld=lld|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+  else
+    perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$CONFIG_ML"
+  fi
 fi
 
 # Windows doesn't support symlinks - replace with copies
