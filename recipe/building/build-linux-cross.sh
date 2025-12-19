@@ -64,7 +64,8 @@ _ensure_full_path() {
 _CC="$(_ensure_full_path "${CC}")"
 _AR="$(_ensure_full_path "${AR}")"
 _AS="$(_ensure_full_path "${AS}")"
-_RANLIB="$(_ensure_full_path "${RANLIB}")"
+# Derive RANLIB from AR (conda doesn't always set RANLIB correctly for cross-compilation)
+_RANLIB="${_AR%-ar}-ranlib"
 _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
 
@@ -72,7 +73,7 @@ echo "Cross-compiler paths (resolved):"
 echo "  CC=${CC} -> _CC=${_CC}"
 echo "  AR=${AR} -> _AR=${_AR}"
 echo "  AS=${AS} -> _AS=${_AS}"
-echo "  RANLIB=${RANLIB} -> _RANLIB=${_RANLIB}"
+echo "  RANLIB (derived from AR) -> _RANLIB=${_RANLIB}"
 
 # Clear cross-compilation environment for Stage 1
 unset build_alias

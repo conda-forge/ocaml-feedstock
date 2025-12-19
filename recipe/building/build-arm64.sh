@@ -63,14 +63,16 @@ _ensure_full_path() {
 }
 _CC="$(_ensure_full_path "${CC}")"
 _AR="$(_ensure_full_path "${AR}")"
-_RANLIB="$(_ensure_full_path "${RANLIB}")"
+# Derive RANLIB from AR (conda doesn't always set RANLIB correctly for cross-compilation)
+# AR=arm64-apple-darwin20.0.0-ar -> RANLIB=arm64-apple-darwin20.0.0-ranlib
+_RANLIB="${_AR%-ar}-ranlib"
 _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
 
 echo "Cross-compiler paths (resolved):"
 echo "  CC=${CC} -> _CC=${_CC}"
 echo "  AR=${AR} -> _AR=${_AR}"
-echo "  RANLIB=${RANLIB} -> _RANLIB=${_RANLIB}"
+echo "  RANLIB (derived from AR) -> _RANLIB=${_RANLIB}"
 
 # Clear cross-compilation environment for Stage 1
 # CRITICAL: Unset LDFLAGS/CFLAGS - conda-build sets these with -L$PREFIX/lib

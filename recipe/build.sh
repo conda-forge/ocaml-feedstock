@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 set -eu
 
+# Windows: find mingw toolchain and add to PATH
+if [[ "${target_platform:-}" != "linux-"* ]] && [[ "${target_platform:-}" != "osx-"* ]]; then
+  _MINGW_GCC=$(find "${BUILD_PREFIX}" -name x86_64-w64-mingw32-gcc -type f 2>/dev/null | head -1)
+  if [[ -n "${_MINGW_GCC}" ]]; then
+    export PATH="$(dirname "${_MINGW_GCC}"):${PATH}"
+  fi
+fi
+
 # Paths are hardcoded in binaries, simplify to basename
-# Oddly, only non-unix seems to not activate GCC with pixi (?)
 export CC=$(basename "${CC:-x86_64-w64-mingw32-gcc}")
 export ASPP="$CC -c"
-export AS=$(basename "${AS:-x86_64-w64-mingw32-ar}")
-export AR=$(basename "${AR:-x86_64-w64-mingw32-as}")
-export RANLIB=$(basename "${RANLIBR:-x86_64-w64-mingw32-ranlib}")
+export AS=$(basename "${AS:-x86_64-w64-mingw32-as}")
+export AR=$(basename "${AR:-x86_64-w64-mingw32-ar}")
+export RANLIB=$(basename "${RANLIB:-x86_64-w64-mingw32-ranlib}")
 
 # Avoids an annoying 'directory not found'
 mkdir -p ${PREFIX}/lib
