@@ -53,7 +53,8 @@ else
     echo ""
 
     # Windows: Try to find mingw tools, fall back to environment CC
-    _MINGW_CC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc*" -type f 2>/dev/null | head -1)
+    # Use exact name gcc.exe - glob gcc* also matches gcc-ar.exe which is wrong
+    _MINGW_CC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc.exe" -type f 2>/dev/null | head -1)
     if [[ -n "${_MINGW_CC}" ]]; then
       echo "Found mingw gcc: ${_MINGW_CC}"
       _MINGW_DIR=$(dirname "${_MINGW_CC}")
