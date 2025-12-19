@@ -1,6 +1,6 @@
 --- a/Makefile
 +++ b/Makefile
-@@ -172,10 +172,23 @@ else
+@@ -172,6 +172,19 @@ else
  RES = version_res.o
  endif
 
@@ -12,28 +12,33 @@
 +# Link flexdll C objects to resolve flexdll_* symbols needed by libasmrun.a
 +FLEXDLL_OBJS = flexdll_$(TOOLCHAIN).o flexdll_initer_$(TOOLCHAIN).o
 +FLEXDLL_CCLIBS = $(addprefix -cclib ,$(FLEXDLL_OBJS))
++# BUILD_FLEXLINK: complete link command including flexdll objects
++BUILD_FLEXLINK = $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS) $(FLEXDLL_CCLIBS)
++FLEXLINK_DEPS = $(FLEXDLL_OBJS)
 +else
++FLEXDLL_CCLIBS =
  ifeq ($(NATDYNLINK), false)
  #when ocaml is not built with flexlink i.e. -no-shared-libs
  LINKFLAGS = -cclib "$(RES)"
- else
+@@ -179,6 +192,9 @@ else
  LINKFLAGS = -cclib "-link $(RES)"
  endif
-+FLEXDLL_OBJS =
-+FLEXDLL_CCLIBS =
-+endif
 
++BUILD_FLEXLINK = $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
++FLEXLINK_DEPS =
++endif
  support: $(addprefix build_, $(CHAINS))
 
-@@ -187,8 +200,11 @@ build_mingw64: flexdll_mingw64.o flexdll_initer_mingw64.o
+ build_mingw: flexdll_mingw.o flexdll_initer_mingw.o
+@@ -188,9 +204,9 @@ build_mingw64: flexdll_mingw64.o flexdll_initer_mingw64.o
 
  OBJS = version.ml Compat.ml coff.ml cmdline.ml create_dll.ml reloc.ml
 
 -flexlink.exe: COMPILER-$(COMPAT_VERSION) support $(OBJS)
-+# For mingw: depend on FLEXDLL_OBJS to ensure they're built first
-+flexlink.exe: COMPILER-$(COMPAT_VERSION) support $(OBJS) $(FLEXDLL_OBJS)
++flexlink.exe: COMPILER-$(COMPAT_VERSION) support $(OBJS) $(FLEXLINK_DEPS)
  	@echo Building $@ with TOOLCHAIN=$(TOOLCHAIN) for OCaml $(COMPAT_VERSION)
  	rm -f flexlink.exe
 -	$(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
-+	$(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS) $(FLEXDLL_CCLIBS)
++	$(BUILD_FLEXLINK)
 
+ flexlink.byte.exe: COMPILER-$(COMPAT_VERSION) support $(OBJS)

@@ -119,9 +119,9 @@ EOF
 
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
-  # Let configure use LDFLAGS from environment (set by conda activation)
-  # Don't override - conda sets proper -L paths and -rpath
-  ./configure "${CONFIG_ARGS[@]}"
+  # Pass LDFLAGS explicitly to configure - OCaml configure needs this for -fuse-ld=lld
+  # on macOS to work around ld64/ar incompatibility
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS}"
 
   # Patch config to use shell variables (like cross-compilation does)
   # This avoids baking in placeholder paths that break with prefix relocation
