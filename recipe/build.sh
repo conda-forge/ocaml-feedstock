@@ -169,6 +169,34 @@ EOF
 
       echo "After fix:"
       grep -E "^(TOOLCHAIN|FLEXDLL_CHAIN)" Makefile.config || echo "  (not found)"
+
+      # Fix NATIVECCLIBS: When building native executables, libasmrun.a has calls
+      # to flexdll_* functions (flexdll_wdlopen, flexdll_dlclose, etc. in win32.c).
+      # These symbols must be provided by linking against the flexdll support object.
+      # Build the support object first, then add it to NATIVECCLIBS.
+      echo ""
+      echo "=== Building flexdll support object ==="
+      if [[ -d "flexdll" ]]; then
+        # Build flexdll_mingw64.o which provides the flexdll API implementation
+        make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o || echo "WARNING: Could not build flexdll_mingw64.o"
+
+        if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
+          echo "Adding flexdll_mingw64.o to NATIVECCLIBS..."
+          # Get absolute path to the object file
+          FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
+          if grep -q "^NATIVECCLIBS" Makefile.config; then
+            perl -i -pe "s|^(NATIVECCLIBS=.*)|\$1 ${FLEXDLL_OBJ}|" Makefile.config
+          else
+            echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
+          fi
+          echo "NATIVECCLIBS now:"
+          grep "^NATIVECCLIBS" Makefile.config || echo "  (not found)"
+        else
+          echo "WARNING: flexdll_mingw64.o not found after build"
+        fi
+      else
+        echo "WARNING: flexdll directory not found"
+      fi
     else
       echo "WARNING: Makefile.config not found after configure!"
     fi
@@ -185,7 +213,8 @@ EOF
       # After install, we'll patch again to use $CC/$AS for runtime
       if [[ "${target_platform}" == "osx-"* ]]; then
         # macOS: use lld to avoid ld64/ar incompatibility (ld64 rejects LLVM ar archives)
-        export _BUILD_MKEXE="${CC} -fuse-ld=lld"
+        # Add -headerpad_max_install_names so install_name_tool can modify rpaths during packaging
+        export _BUILD_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
         export _BUILD_MKDLL="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
       else
         export _BUILD_MKEXE="${CC}"
@@ -248,9 +277,10 @@ if [[ -f "$CONFIG_ML" ]] && [[ "${target_platform}" == "linux-"* || "${target_pl
   echo "Patching $CONFIG_ML for runtime..."
   if [[ "${target_platform}" == "osx-"* ]]; then
     # macOS: keep -fuse-ld=lld for runtime to avoid ld64/ar incompatibility
+    # Add -headerpad_max_install_names for install_name_tool compatibility
     perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
     perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
-    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC -fuse-ld=lld|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names|}/' "$CONFIG_ML"
     perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
     perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
   else
