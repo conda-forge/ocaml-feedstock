@@ -1,0 +1,38 @@
+--- a/Makefile
++++ b/Makefile
+@@ -172,10 +172,23 @@ else
+ RES = version_res.o
+ endif
+
++# For mingw toolchains, always use simple LINKFLAGS without -link
++# The -link flag is flexlink-specific, but during flexlink bootstrap
++# gcc is used directly which doesn't understand -link
++ifneq ($(filter mingw mingw64,$(TOOLCHAIN)),)
++LINKFLAGS = -cclib "$(RES)"
++# Link flexdll C objects to resolve flexdll_* symbols needed by libasmrun.a
++FLEXDLL_OBJS = flexdll_$(TOOLCHAIN).o flexdll_initer_$(TOOLCHAIN).o
++FLEXDLL_CCLIBS = $(addprefix -cclib ,$(FLEXDLL_OBJS))
++else
+ ifeq ($(NATDYNLINK), false)
+ #when ocaml is not built with flexlink i.e. -no-shared-libs
+ LINKFLAGS = -cclib "$(RES)"
+ else
+ LINKFLAGS = -cclib "-link $(RES)"
+ endif
++FLEXDLL_OBJS =
++FLEXDLL_CCLIBS =
++endif
+
+ support: $(addprefix build_, $(CHAINS))
+
+@@ -187,8 +200,11 @@ build_mingw64: flexdll_mingw64.o flexdll_initer_mingw64.o
+
+ OBJS = version.ml Compat.ml coff.ml cmdline.ml create_dll.ml reloc.ml
+
+-flexlink.exe: COMPILER-$(COMPAT_VERSION) support $(OBJS)
++# For mingw: depend on FLEXDLL_OBJS to ensure they're built first
++flexlink.exe: COMPILER-$(COMPAT_VERSION) support $(OBJS) $(FLEXDLL_OBJS)
+ 	@echo Building $@ with TOOLCHAIN=$(TOOLCHAIN) for OCaml $(COMPAT_VERSION)
+ 	rm -f flexlink.exe
+-	$(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
++	$(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS) $(FLEXDLL_CCLIBS)
