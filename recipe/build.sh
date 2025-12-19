@@ -56,7 +56,7 @@ else
     export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
   fi
 
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" >& /dev/null
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" # >& /dev/null
 
   # Windows: ensure FLEXDLL_CHAIN is set to mingw64 (not empty)
   # If empty, flexdll defaults to building ALL chains including 32-bit mingw
@@ -98,7 +98,7 @@ else
     perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
   fi
 
-  make world.opt -j${CPU_COUNT} >& /dev/null
+  make world.opt -j${CPU_COUNT} # >& /dev/null
 
   if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
     if [ "$(uname)" == "Darwin" ]; then
