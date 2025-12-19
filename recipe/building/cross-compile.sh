@@ -309,13 +309,20 @@ else
 fi
 echo "Target ARCH for crossopt: ${_TARGET_ARCH}"
 
+# SAK_LDFLAGS: LDFLAGS for BUILD machine (e.g., -fuse-ld=lld on macOS for ld64 compatibility)
+if [[ "${build_platform}" == "osx-"* ]]; then
+  _SAK_LDFLAGS="-fuse-ld=lld"
+else
+  _SAK_LDFLAGS=""
+fi
+
 # crossopt needs:
 # - ARCH for correct runtime assembly file selection (configure detected wrong arch)
 # - CAMLOPT=ocamlopt to use native ocamlopt from Stage 1 (via PATH) - REQUIRED!
 # - CC for target code (runtime shared libs)
 # - CFLAGS for target C compilation flags
 # - CPPFLAGS for feature test macros (getentropy needs _DEFAULT_SOURCE on glibc)
-# - SAK_CC/SAK_CFLAGS/SAK_LINK for build-time tools (sak runs on build machine)
+# - SAK_CC/SAK_CFLAGS/SAK_LDFLAGS/SAK_LINK for build-time tools (sak runs on build machine)
 # - CROSS_MKLIB for cross-compilation of otherlibs (uses CROSS_CC/CROSS_AR)
 # - ZSTD_LIBS to link against BUILD zstd (cross-compiler runs on build machine)
 make crossopt \
@@ -331,7 +338,8 @@ make crossopt \
   CPPFLAGS="-D_DEFAULT_SOURCE" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_CFLAGS="${_SAK_CFLAGS}" \
-  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+  SAK_LDFLAGS="${_SAK_LDFLAGS}" \
+  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(SAK_LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
   -j"${CPU_COUNT}"
 make installcross
@@ -455,6 +463,8 @@ fi
 # CRITICAL: Use _CROSS_OCAMLOPT (cross-compiler) not ocamlopt from PATH (native)
 # The cross-compiler produces ARM64/PPC64LE code and links with correct stdlib
 # ZSTD_LIBS: Link against HOST (target arch) zstd library for compression support
+# LDFLAGS: TARGET linker flags (e.g., -fuse-ld=lld on macOS)
+# SAK_LDFLAGS: BUILD linker flags for sak tool
 make crosscompiledopt \
   ARCH="${_TARGET_ARCH}" \
   CAMLOPT="${_CROSS_OCAMLOPT}" \
@@ -465,6 +475,10 @@ make crosscompiledopt \
   CROSS_AR="${_AR}" \
   CROSS_MKLIB="${_CROSS_MKLIB}" \
   CPPFLAGS="-D_DEFAULT_SOURCE" \
+  LDFLAGS="${_LDFLAGS}" \
+  SAK_CC="${CC_FOR_BUILD}" \
+  SAK_CFLAGS="${_SAK_CFLAGS}" \
+  SAK_LDFLAGS="${_SAK_LDFLAGS}" \
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   -j"${CPU_COUNT}"
 
@@ -482,7 +496,8 @@ fi
 # Build runtime with target cross-toolchain
 # BYTECCLIBS needed for dlopen/dlclose/dlsym (glibc 2.17 needs -ldl) and zstd compression
 # ZSTD_LIBS for finding target-arch zstd library
-# SAK_CC/SAK_CFLAGS for build-time tools that run on build machine
+# SAK_CC/SAK_CFLAGS/SAK_LDFLAGS for build-time tools that run on build machine
+# LDFLAGS: TARGET linker flags (e.g., -fuse-ld=lld on macOS)
 make crosscompiledruntime \
   ARCH="${_TARGET_ARCH}" \
   CAMLOPT="${_CROSS_OCAMLOPT}" \
@@ -493,12 +508,14 @@ make crosscompiledruntime \
   CROSS_AR="${_AR}" \
   CROSS_MKLIB="${_CROSS_MKLIB}" \
   CPPFLAGS="-D_DEFAULT_SOURCE" \
+  LDFLAGS="${_LDFLAGS}" \
   BYTECCLIBS="${_BYTECCLIBS} -L${PREFIX}/lib -lzstd" \
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_CFLAGS="${_SAK_CFLAGS}" \
-  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
+  SAK_LDFLAGS="${_SAK_LDFLAGS}" \
+  SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(SAK_LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)" \
   -j"${CPU_COUNT}"
 
 # Install

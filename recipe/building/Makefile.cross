@@ -42,14 +42,16 @@ HOST_ZSTD_LIBS=ZSTD_LIBS=$(ZSTD_LIBS)
 # takes precedence over local runtime objects
 VPATH := + $(VPATH)
 
-# SAK_CC, SAK_CFLAGS, and SAK_LINK should be set to build-machine values when cross-compiling
+# SAK_CC, SAK_CFLAGS, SAK_LDFLAGS, and SAK_LINK should be set to build-machine values when cross-compiling
 # SAK is a build tool that must run on the BUILD machine, not the TARGET
-# Default to CC/CFLAGS if not defined (native build case)
+# Default to CC/CFLAGS/empty if not defined (native build case)
 SAK_CC ?= $(CC)
 # SAK_CFLAGS: CFLAGS for BUILD machine (sak runs on build, not target)
 # Must NOT contain target-specific flags like -mtune=power8
 SAK_CFLAGS ?= $(CFLAGS)
-SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$(1) $(2)
+# SAK_LDFLAGS: LDFLAGS for BUILD machine (e.g., -fuse-ld=lld on macOS for ld64 compatibility)
+SAK_LDFLAGS ?=
+SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(SAK_LDFLAGS) $(OUTPUTEXE)$(1) $(2)
 
 # Override SAK_BUILD to use SAK_CC/SAK_CFLAGS instead of CC/CFLAGS for cross-compilation
 # sak is a build tool that must run on the BUILD machine
@@ -118,14 +120,15 @@ CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
 # RUNTIME_VARS: variables that must be passed to runtimeopt/crosscompiledruntime
 # ARCH selects the correct .S file (arm64.S vs amd64.S)
 # AS/ASPP/CC are the cross-toolchain for assembling/compiling TARGET native runtime
+# LDFLAGS passed here is for the TARGET cross-linker (e.g., -fuse-ld=lld on macOS)
 # SAK_CC/SAK_CFLAGS are for the sak tool which must run on BUILD machine
 # SAK_LINK uses $$ escaping so $(1) and $(2) survive to the sub-make's $(call SAK_LINK,...)
 # Values must be quoted because ASPP contains spaces (e.g., "gcc -c")
 # runtime_ASM_OBJECTS is hardcoded at configure time (Makefile.build_config),
 # must override to use correct $(ARCH).o for cross-compilation
-RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' \
+RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFLAGS)' \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
-  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
   runtime_ASM_OBJECTS='runtime/$(ARCH).o'
 
 # BYTECODE_RUNTIME_VARS: for building bytecode runtime on BUILD machine
@@ -148,13 +151,15 @@ crossopt: cross-flexdll
 	# Build bytecode runtime with BUILD compiler (SAK_CC), not cross-compiler
 	# ocamlrun must be x86_64 to run on build machine
 	# CFLAGS override needed: ppc64le builds fail with "bad value 'power8' for '-mtune='"
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# LDFLAGS override needed: macOS needs -fuse-ld=lld for ld64/ar compatibility
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 else
 crossopt:
 	# Build bytecode runtime with BUILD compiler (SAK_CC), not cross-compiler
 	# ocamlrun must be x86_64 to run on build machine
 	# CFLAGS override needed: ppc64le builds fail with "bad value 'power8' for '-mtune='"
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# LDFLAGS override needed: macOS needs -fuse-ld=lld for ld64/ar compatibility
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 endif
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
