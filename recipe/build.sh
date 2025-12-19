@@ -90,9 +90,14 @@ EOF
 
   export CC=$(basename "${CC}")
   export ASPP="$CC -c"
-  export AS=$(basename "${AS}")
-  export AR=$(basename "${AR}")
-  export RANLIB=$(basename "${RANLIB}")
+  export AS=$(basename "${AS:-as}")
+  export AR=$(basename "${AR:-ar}")
+  export RANLIB=$(basename "${RANLIB:-ranlib}")
+
+  # macOS: Use lld to match LLVM's ar (ld64 rebuild _2 incompatible with ar archives)
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
+  fi
 
   echo "=== Final compiler settings ==="
   echo "CC=${CC}"
@@ -107,24 +112,50 @@ EOF
 
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
-  # Pass LDFLAGS to configure - need -L${PREFIX}/lib for zstd
-  # Don't export globally as it can interfere with runtime build
-  ./configure "${CONFIG_ARGS[@]}" \
-    LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
+  # Let configure use LDFLAGS from environment (set by conda activation)
+  # Don't override - conda sets proper -L paths and -rpath
+  ./configure "${CONFIG_ARGS[@]}"
 
   # Patch config to use shell variables (like cross-compilation does)
   # This avoids baking in placeholder paths that break with prefix relocation
+  # NOTE: Only do this on Unix - Windows cmd.exe doesn't expand $VAR syntax
   config_file="utils/config.generated.ml"
   if [[ -f "$config_file" ]]; then
-    perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
-    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
-    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
-    if [[ "${target_platform}" == "osx-"* ]]; then
-      perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
+    if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+      # Unix: use shell variables that get expanded at runtime
+      perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
+      perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
+      perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
+      if [[ "${target_platform}" == "osx-"* ]]; then
+        perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
+      else
+        perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
+      fi
+      perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
     else
-      perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
+      # Windows: Debug environment variables
+      echo "=== Windows config patching debug ==="
+      echo "CC=${CC:-unset}"
+      echo "AS=${AS:-unset}"
+      echo "AR=${AR:-unset}"
+      echo "which CC: $(command -v "${CC}" 2>/dev/null || echo 'not found')"
+      echo "which AS: $(command -v "${AS}" 2>/dev/null || echo 'not found')"
+      echo "Current config.generated.ml asm line:"
+      grep "^let asm" "$config_file" || echo "(not found)"
+      echo ""
+
+      # Try using Windows %VAR% syntax for environment variable expansion
+      # cmd.exe expands %CC%, %AS% when invoking commands via system()
+      perl -i -pe 's/^let asm = .*/let asm = {|%AS%|}/' "$config_file"
+      perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|%CC%|}/' "$config_file"
+      perl -i -pe 's/^let mkexe = .*/let mkexe = {|%CC%|}/' "$config_file"
+      perl -i -pe 's/^let mkdll = .*/let mkdll = {|%CC% -shared|}/' "$config_file"
+      perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|%CC% -shared|}/' "$config_file"
+
+      echo "After patching:"
+      grep "^let asm\|^let c_compiler\|^let mkexe\|^let mkdll" "$config_file"
+      echo "=== End config debug ==="
     fi
-    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
   fi
 
   make world.opt -j"${CPU_COUNT}" # >& /dev/null

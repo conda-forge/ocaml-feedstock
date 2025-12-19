@@ -85,6 +85,9 @@ requirements:
     - if: aarch64 or ppc64le or arm64
       then:
         - zstd
+    - if: osx
+      then:
+        - lld
     - if: osx and x86_64
       then:
         - lldb
