@@ -1,0 +1,19 @@
+--- a/Makefile
++++ b/Makefile
+@@ -172,10 +172,17 @@ else
+ RES = version_res.o
+ endif
+
++# For mingw toolchains, always use simple LINKFLAGS without -link
++# The -link flag is flexlink-specific, but during flexlink bootstrap
++# gcc is used directly which doesn't understand -link
++ifneq ($(filter mingw mingw64,$(TOOLCHAIN)),)
++LINKFLAGS = -cclib "$(RES)"
++else
+ ifeq ($(NATDYNLINK), false)
+ #when ocaml is not built with flexlink i.e. -no-shared-libs
+ LINKFLAGS = -cclib "$(RES)"
+ else
+ LINKFLAGS = -cclib "-link $(RES)"
+ endif
++endif

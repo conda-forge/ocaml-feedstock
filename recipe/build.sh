@@ -110,6 +110,13 @@ EOF
   # Ensure pkg-config finds zstd from host environment
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
+  # Ensure linker can find zstd library at build time
+  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
+
+  echo "LIBRARY_PATH=${LIBRARY_PATH}"
+  echo "LDFLAGS=${LDFLAGS}"
+
   [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
   # Let configure use LDFLAGS from environment (set by conda activation)
