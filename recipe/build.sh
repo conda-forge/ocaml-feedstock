@@ -74,8 +74,10 @@ else
 
   # macOS: use lld to avoid ld64/ar incompatibility (ld64 rejects LLVM ar archives)
   # Also add -headerpad_max_install_names so install_name_tool can modify rpaths during packaging
+  # And -L${PREFIX}/lib so linker can find zstd
   if [[ "${target_platform}" == "osx-"* ]]; then
-    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names -L${PREFIX}/lib"
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
     # Set DYLD_LIBRARY_PATH so freshly-built ocamlc.opt can find libzstd at runtime during build
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   fi
