@@ -16,6 +16,9 @@ source:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
+      patches:
+        # Fix -link flag for mingw: gcc doesn't understand flexlink-specific -link option
+        - patches/flexdll-mingw-linkflags.patch
 
 build:
   number: 1
@@ -88,6 +91,9 @@ requirements:
     - if: aarch64 or ppc64le or arm64
       then:
         - zstd
+    - if: osx
+      then:
+        - lld
   host:
     - ${{ "m2-lib" if not unix }}zstd
   run:

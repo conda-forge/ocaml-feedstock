@@ -69,6 +69,9 @@ _RANLIB="${_AR%-ar}-ranlib"
 _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
 
+# macOS: Add -fuse-ld=lld to use LLVM's linker (ld64 _2 rebuild incompatible with LLVM ar)
+_LDFLAGS="-fuse-ld=lld ${_LDFLAGS}"
+
 echo "Cross-compiler paths (resolved):"
 echo "  CC=${CC} -> _CC=${_CC}"
 echo "  AR=${AR} -> _AR=${_AR}"
@@ -119,7 +122,8 @@ _CONFIG_ARGS=(
   RANLIB="$_build_alias-ranlib"
   STRIP="$_build_alias-strip"
   CFLAGS="-march=core2 -mtune=haswell -mssse3 -I${BUILD_PREFIX}/include"
-  LDFLAGS="-L${BUILD_PREFIX}/lib -lzstd -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib"
+  # -fuse-ld=lld: Use LLVM's linker to match LLVM's ar (ld64 _2 rebuild incompatible)
+  LDFLAGS="-fuse-ld=lld -L${BUILD_PREFIX}/lib -lzstd -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib"
 )
 
 # Target ARCH for OCaml (arm64 for macOS ARM)
@@ -225,6 +229,7 @@ run_logged "stage2_crossopt" make crossopt \
   CFLAGS="${_CFLAGS}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_CFLAGS="${_SAK_CFLAGS}" \
+  SAK_LDFLAGS="-fuse-ld=lld" \
   ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
   -j${CPU_COUNT}
 run_logged "stage2_installcross" make installcross
@@ -333,6 +338,8 @@ run_logged "stage3_crosscompiledopt" make crosscompiledopt \
   CROSS_CC="${_CC}" \
   CROSS_AR="${_AR}" \
   CROSS_MKLIB="${_CROSS_MKLIB}" \
+  LDFLAGS="${_LDFLAGS}" \
+  SAK_LDFLAGS="-fuse-ld=lld" \
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   -j${CPU_COUNT}
 
@@ -383,9 +390,11 @@ run_logged "stage3_crosscompiledruntime" make crosscompiledruntime \
   CROSS_CC="${_CC}" \
   CROSS_AR="${_AR}" \
   CROSS_MKLIB="${_CROSS_MKLIB}" \
+  LDFLAGS="${_LDFLAGS}" \
   CHECKSTACK_CC="${CC_FOR_BUILD}" \
   SAK_CC="${CC_FOR_BUILD}" \
   SAK_CFLAGS="${_SAK_CFLAGS}" \
+  SAK_LDFLAGS="-fuse-ld=lld" \
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd" \
   -j${CPU_COUNT}
 

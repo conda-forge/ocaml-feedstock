@@ -116,7 +116,8 @@ CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
 # Values must be quoted because ASPP contains spaces (e.g., "gcc -c")
 # runtime_ASM_OBJECTS is hardcoded at configure time (Makefile.build_config),
 # must override to use correct $(ARCH).o for cross-compilation
-RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' \
+# LDFLAGS passed here is for the TARGET cross-linker (e.g., -fuse-ld=lld on macOS)
+RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFLAGS)' \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
   'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
   runtime_ASM_OBJECTS='runtime/$(ARCH).o'
@@ -125,6 +126,8 @@ RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' \
 # ocamlrun must run on the BUILD machine, so use BUILD compiler (not cross-compiler)
 # The x86_64 ocamlrun from Stage 1 (_native/bin) is available via PATH
 # SAK tool also runs on BUILD machine
+# SAK_LDFLAGS: linker flags for BUILD machine (e.g., -fuse-ld=lld on macOS)
+SAK_LDFLAGS ?=
 BYTECODE_RUNTIME_VARS = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
   'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
@@ -136,14 +139,16 @@ crossopt: cross-flexdll
 	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC and SAK_CFLAGS
 	# CC/CFLAGS override command-line values (cross-compiler) that propagate via MAKEFLAGS
 	# Without CFLAGS override, ppc64le builds fail with "bad value 'power8' for '-mtune='"
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# SAK_LDFLAGS: linker flags for BUILD machine (e.g., -fuse-ld=lld on macOS for ld64/ar compat)
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 else
 crossopt:
 	# CRITICAL: Build bytecode runtime with BUILD compiler (not cross-compiler)
 	# ocamlrun must run on BUILD machine (x86_64), so use SAK_CC and SAK_CFLAGS
 	# CC/CFLAGS override command-line values (cross-compiler) that propagate via MAKEFLAGS
 	# Without CFLAGS override, ppc64le builds fail with "bad value 'power8' for '-mtune='"
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# SAK_LDFLAGS: linker flags for BUILD machine (e.g., -fuse-ld=lld on macOS for ld64/ar compat)
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 endif
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)

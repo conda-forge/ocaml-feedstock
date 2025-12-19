@@ -74,7 +74,7 @@ else
   # Fix compiled-in tool paths for runtime
   # Configure bakes the conda toolchain names (e.g., x86_64-conda-linux-gnu-as)
   # into utils/config.generated.ml, but these tools aren't available at runtime.
-  # Replace with generic names (as, cc) that work with any compiler the user has.
+  # Replace with generic names that work with the user's compiler.
   echo ""
   echo "=== Fixing compiled-in tool paths for runtime ==="
   CONFIG_ML="${OCAML_PREFIX}/lib/ocaml/config.ml"
@@ -85,12 +85,16 @@ else
     echo "  Before:"
     grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
 
-    # Replace assembler: use generic 'as' (works on Linux/macOS)
-    # On macOS with clang, 'as' invokes the system assembler
-    perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|as|}/' "$CONFIG_ML"
-
-    # Replace C compiler: use generic 'cc' (works on Linux/macOS)
-    perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|cc|}/' "$CONFIG_ML"
+    if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+      # Unix: use generic 'as' and 'cc' (works on Linux/macOS)
+      perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|as|}/' "$CONFIG_ML"
+      perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|cc|}/' "$CONFIG_ML"
+    else
+      # Windows: use mingw tool basenames (must be in PATH)
+      # These are set at the top of build.sh and added to PATH
+      perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|as|}/' "$CONFIG_ML"
+      perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|gcc|}/' "$CONFIG_ML"
+    fi
 
     echo "  After:"
     grep -E "^let (asm|c_compiler) =" "$CONFIG_ML" | head -2
