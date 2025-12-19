@@ -16,8 +16,7 @@ export AS=$(basename "${AS:-x86_64-w64-mingw32-as}")
 export AR=$(basename "${AR:-x86_64-w64-mingw32-ar}")
 export RANLIB=$(basename "${RANLIB:-x86_64-w64-mingw32-ranlib}")
 
-# Avoids an annoying 'directory not found'
-mkdir -p ${PREFIX}/lib
+mkdir -p ${PREFIX}/lib "${SRC_DIR}"/_logs
 
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   export OCAML_PREFIX="${PREFIX}/Library"
@@ -56,7 +55,7 @@ else
     export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
   fi
 
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" # >& /dev/null
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" 2>&1 "$SRC_DIR}"/_logs/configure.log || { cat "$SRC_DIR}"/_logs/configure.log; exit 1; }
 
   # Windows: ensure FLEXDLL_CHAIN is set to mingw64 (not empty)
   # If empty, flexdll defaults to building ALL chains including 32-bit mingw
@@ -98,7 +97,7 @@ else
     perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
   fi
 
-  make world.opt -j${CPU_COUNT} # >& /dev/null
+  make world.opt -j${CPU_COUNT} 2>&1 "$SRC_DIR}"/_logs/world.log || { cat "$SRC_DIR}"/_logs/world.log; exit 1; }
 
   if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
     if [ "$(uname)" == "Darwin" ]; then
@@ -111,11 +110,11 @@ else
       rm testsuite/tests/unicode/$'\u898b'.ml
     fi
 
-    make ocamltest -j ${CPU_COUNT}
-    make tests
+    make ocamltest -j ${CPU_COUNT} 2>&1 "$SRC_DIR}"/_logs/ocamltest.log || { cat "$SRC_DIR}"/_logs/ocamltest.log; exit 1; }
+    make tests 2>&1 "$SRC_DIR}"/_logs/tests.log || { cat "$SRC_DIR}"/_logs/tests.log; exit 1; }
   fi
 
-  make install >& /dev/null
+  make install 2>&1 "$SRC_DIR}"/_logs/install.log || { cat "$SRC_DIR}"/_logs/install.log; exit 1; }
 
   # Fix compiled-in tool paths for runtime
   # During build we used actual paths (e.g., /path/to/clang -fuse-ld=lld)
