@@ -63,6 +63,11 @@ else
       CC="${_MINGW_CC}"
       RANLIB="${_MINGW_DIR}/x86_64-w64-mingw32-ranlib"
       export PATH="${_MINGW_DIR}:${PATH}"
+
+      # Create 'gcc' alias for windres preprocessor (windres calls 'gcc' not 'x86_64-w64-mingw32-gcc')
+      if [[ ! -f "${_MINGW_DIR}/gcc.exe" ]]; then
+        cp "${_MINGW_CC}" "${_MINGW_DIR}/gcc.exe"
+      fi
     else
       echo "WARNING: mingw gcc not found via find, using CC from environment: ${CC:-unset}"
       # Trust conda activation - CC should be set
@@ -181,7 +186,7 @@ EOF
       if [[ "${target_platform}" == "osx-"* ]]; then
         # macOS: use lld to avoid ld64/ar incompatibility (ld64 rejects LLVM ar archives)
         export _BUILD_MKEXE="${CC} -fuse-ld=lld"
-        export _BUILD_MKDLL="${CC} -fuse-ld=lld -shared -undefined dynamic_lookup"
+        export _BUILD_MKDLL="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
       else
         export _BUILD_MKEXE="${CC}"
         export _BUILD_MKDLL="${CC} -shared"
@@ -246,8 +251,8 @@ if [[ -f "$CONFIG_ML" ]] && [[ "${target_platform}" == "linux-"* || "${target_pl
     perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
     perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
     perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC -fuse-ld=lld|}/' "$CONFIG_ML"
-    perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
-    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
   else
     perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
     perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
