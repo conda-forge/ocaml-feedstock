@@ -49,6 +49,11 @@ _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
 _PATH="${PATH}"
 
+# macOS: Add -fuse-ld=lld to use LLVM's linker (ld64 _2 rebuild incompatible with LLVM ar)
+if [[ "${build_platform}" == "osx-"* ]]; then
+  _LDFLAGS="-fuse-ld=lld ${_LDFLAGS}"
+fi
+
 echo "Cross-compiler paths (resolved):"
 echo "  CC=${CC} -> _CC=${_CC}"
 echo "  AR=${AR} -> _AR=${_AR}"
@@ -107,7 +112,8 @@ if [[ "${build_platform}" == "osx-"* ]]; then
     RANLIB="${_build_alias}-ranlib"
     STRIP="${_build_alias}-strip"
     CFLAGS="-march=core2 -mtune=haswell -mssse3"
-    LDFLAGS="-Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+    # -fuse-ld=lld: Use LLVM's linker to match LLVM's ar (ld64 _2 rebuild incompatible)
+    LDFLAGS="-fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
   )
 else
   # Linux: use gcc with build_alias prefix
