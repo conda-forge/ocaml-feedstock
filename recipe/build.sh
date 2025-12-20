@@ -68,7 +68,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
     exit 1
   fi
 else
-  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
+  if [[ ${SKIP_MAKE_TESTS:-"0"} == "0" ]]; then
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
@@ -131,8 +131,9 @@ else
     export _FULL_CC
     export _FULL_AS=$(command -v "${AS}" 2>/dev/null || echo "${AS}")
     if [[ "${target_platform}" == "osx-"* ]]; then
-      export _BUILD_MKEXE="${_FULL_CC} -fuse-ld=lld"
-      export _BUILD_MKDLL="${_FULL_CC} -fuse-ld=lld -shared -undefined dynamic_lookup"
+      # macOS: -fuse-ld=lld for ld64/ar compatibility, -headerpad_max_install_names for install_name_tool
+      export _BUILD_MKEXE="${_FULL_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+      export _BUILD_MKDLL="${_FULL_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
     else
       # Linux: -Wl,-E exports all symbols from executable for ocamlnat (native toplevel)
       # Without this, dynamically loaded .so files can't resolve caml_alloc1, caml_initialize, etc.
@@ -148,7 +149,7 @@ else
 
   make world.opt -j${CPU_COUNT} > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
 
-  if [[ ${SKIP_MAKE_TEST:-"0"} == "0" ]]; then
+  if [[ ${SKIP_MAKE_TESTS:-"0"} == "0" ]]; then
     make ocamltest -j ${CPU_COUNT} > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; exit 1; }
     
     # Let's simply document the failed tests
@@ -175,10 +176,10 @@ else
       perl -i -pe 's/^let asm = \{\|.*\|\}/let asm = {|\$AS|}/' "$CONFIG_ML"
       perl -i -pe 's/^let c_compiler = \{\|.*\|\}/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
       if [[ "${target_platform}" == "osx-"* ]]; then
-        # macOS: keep -fuse-ld=lld for runtime to avoid ld64/ar incompatibility
-        perl -i -pe 's/^let mkexe = \{\|.*\|\}/let mkexe = {|\$CC -fuse-ld=lld|}/' "$CONFIG_ML"
-        perl -i -pe 's/^let mkdll = \{\|.*\|\}/let mkdll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
-        perl -i -pe 's/^let mkmaindll = \{\|.*\|\}/let mkmaindll = {|\$CC -fuse-ld=lld -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+        # macOS: -fuse-ld=lld for ld64/ar compatibility, -headerpad_max_install_names for install_name_tool
+        perl -i -pe 's/^let mkexe = \{\|.*\|\}/let mkexe = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names|}/' "$CONFIG_ML"
+        perl -i -pe 's/^let mkdll = \{\|.*\|\}/let mkdll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
+        perl -i -pe 's/^let mkmaindll = \{\|.*\|\}/let mkmaindll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
       else
         # Linux: -Wl,-E exports all symbols from executable for ocamlnat (native toplevel)
         perl -i -pe 's/^let mkexe = \{\|.*\|\}/let mkexe = {|\$CC -Wl,-E|}/' "$CONFIG_ML"
