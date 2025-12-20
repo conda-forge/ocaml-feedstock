@@ -39,7 +39,7 @@ _ensure_full_path() {
 apply_cross_patches() {
   # Apply Makefile.cross and platform-specific patches
   cp "${RECIPE_DIR}"/building/Makefile.cross .
-  patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch || true
+  patch -N -p0 < "${RECIPE_DIR}"/building/Makefile.patch || true
   if [[ "${_NEEDS_DL}" == "1" ]]; then
     perl -i -pe 's/^(BYTECCLIBS=.*)$/$1 -ldl/' Makefile.config
   fi
@@ -108,8 +108,10 @@ fi
 # BUILD platform toolchain (for Stage 1 native build and cross-compiler runtime)
 # ============================================================================
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  # macOS: MUST use -fuse-ld=lld for ld64/LLVM ar compatibility
+  # MUST include -L${BUILD_PREFIX}/lib -lzstd to find x86_64 zstd (not arm64 from $PREFIX)
   _BUILD_CFLAGS="-march=core2 -mtune=haswell -mssse3 -I${BUILD_PREFIX}/include"
-  _BUILD_LDFLAGS="-L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names"
+  _BUILD_LDFLAGS="-fuse-ld=lld -L${BUILD_PREFIX}/lib -lzstd -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
   _CROSS_AS="${_CC}"  # macOS: clang integrated assembler for cross
 else
   _BUILD_CFLAGS="-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -I${BUILD_PREFIX}/include"
@@ -121,6 +123,8 @@ fi
 # Clear cross-compilation environment for Stage 1
 # ============================================================================
 unset build_alias host_alias HOST TARGET_ARCH
+# CRITICAL: Unset CFLAGS/LDFLAGS - conda-build sets these with -L$PREFIX/lib
+# which causes the linker to find arm64 libraries instead of x86_64
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
   unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS
 fi
@@ -132,12 +136,14 @@ echo ""
 echo "=== Stage 1: Building native x86_64 OCaml compiler ==="
 export OCAML_PREFIX=${SRC_DIR}/_native && mkdir -p ${SRC_DIR}/_native
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
+
+# CRITICAL: Override PKG_CONFIG_PATH to find x86_64 zstd in BUILD_PREFIX
+# Without this, pkg-config might find target-arch zstd from $PREFIX causing linker errors
 export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${BUILD_PREFIX}/share/pkgconfig"
 export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
 
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-  unset DYLD_LIBRARY_PATH 2>/dev/null || true
+  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
 else
   export LD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 fi
@@ -145,17 +151,23 @@ fi
 # Common configure args (used in all stages)
 CONFIG_ARGS=(--enable-shared --disable-static --mandir=${OCAML_PREFIX}/share/man)
 
-# Stage 1 uses BUILD toolchain with rpath to native prefix
-_STAGE1_LDFLAGS="${_BUILD_LDFLAGS} -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib"
-if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
-  _STAGE1_LDFLAGS="${_STAGE1_LDFLAGS} -Wl,-rpath-link,${OCAML_PREFIX}/lib"
+# Stage 1 uses BUILD toolchain
+if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  # macOS: use simple flags matching proven build-arm64.sh
+  _STAGE1_LDFLAGS="${_BUILD_LDFLAGS}"
+else
+  # Linux: add rpath for finding libraries at runtime
+  _STAGE1_LDFLAGS="${_BUILD_LDFLAGS} -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${OCAML_PREFIX}/lib"
 fi
+
+# Stage 1 configure args - use only build-specific flags, not target CFLAGS
+_STAGE1_CFLAGS="${_BUILD_CFLAGS}"
 
 _CONFIG_ARGS=(
   --build="$_build_alias" --host="$_build_alias"
   AR="$_build_alias-ar" AS="$_build_alias-as" ASPP="${CC_FOR_BUILD} -c"
   CC="${CC_FOR_BUILD}" RANLIB="$_build_alias-ranlib" STRIP="$_build_alias-strip"
-  CFLAGS="${_BUILD_CFLAGS}" LDFLAGS="${_STAGE1_LDFLAGS}"
+  CFLAGS="${_STAGE1_CFLAGS}" LDFLAGS="${_STAGE1_LDFLAGS}"
 )
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
   _CONFIG_ARGS+=(CPP="$_build_alias-clang-cpp" LD="$_build_alias-ld" LIPO="$_build_alias-lipo" NM="$_build_alias-nm" NMEDIT="$_build_alias-nmedit" OTOOL="$_build_alias-otool")

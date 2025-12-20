@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IFS=$'\n\t'                                                                                                                                                       
+IFS=$'\n\t'
 
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
@@ -19,6 +19,7 @@ CONFIG_ARGS=(
   --enable-shared
   --disable-static
   --mandir="${OCAML_PREFIX}"/share/man
+  --with-target-bindir="${PREFIX}"/bin
   -prefix "${OCAML_PREFIX}"
 )
 
@@ -162,7 +163,9 @@ else
   make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 fi
 
-# Post-install fixes
+# ============================================================================
+# Post-install fixes (applies to both native and cross-compiled builds)
+# ============================================================================
 
 # Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX
 if [[ -f "${OCAML_PREFIX}/lib/ocaml/Makefile.config" ]]; then
