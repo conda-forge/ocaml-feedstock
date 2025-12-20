@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IFS=$'\n\t'
+IFS=$'\n\t'                                                                                                                                                       
 
-# Avoids an annoying 'directory not found'
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
+# Platform detection and OCAML_PREFIX setup
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
   export OCAML_PREFIX="${PREFIX}"
   SH_EXT="sh"
@@ -12,6 +12,8 @@ else
   export OCAML_PREFIX="${PREFIX}"/Library
   SH_EXT="bat"
 fi
+
+export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
 
 CONFIG_ARGS=(
   --enable-shared
@@ -21,42 +23,15 @@ CONFIG_ARGS=(
 )
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-  # Cross-compilation: use separate script for 3-stage build
-  # This builds NATIVE target binaries (not just a cross-compiler)
-  #
-  # The script will be REMOVED once OCaml 5.4.0 is available natively on conda-forge.
-  # At that point, we can simplify to a 2-stage process using native 5.4.0 to cross-compile.
-  #
-  # Current 3-stage process:
-  #   Stage 1: Build native OCaml for build platform (x86_64)
-  #   Stage 2: Build cross-compiler (runs on x86_64, generates target code)
-  #   Stage 3: Use cross-compiler to build native target binaries
-
-  export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
+  # Cross-compilation: use unified 3-stage build script
   source "${RECIPE_DIR}/building/cross-compile.sh"
 else
   # Native build: self-bootstrap
-  # Set up compiler variables (paths are hardcoded in binaries, simplify to basename)
-  if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
-    # Windows: Debug compiler environment
-    echo "=== Windows Compiler Detection ==="
-    echo "BUILD_PREFIX=${BUILD_PREFIX}"
-    echo "CC from env: ${CC:-unset}"
-    echo "AR from env: ${AR:-unset}"
-    echo "PATH (first 500 chars): ${PATH:0:500}"
-    echo ""
-    echo "Searching for mingw gcc in BUILD_PREFIX..."
-    find "${BUILD_PREFIX}" -name "*gcc*" -type f 2>/dev/null | head -10 || echo "  (none found)"
-    echo ""
-    echo "Searching for mingw ar in BUILD_PREFIX..."
-    find "${BUILD_PREFIX}" -name "*-ar*" -type f 2>/dev/null | head -5 || echo "  (none found)"
-    echo ""
 
-    # Windows: Try to find mingw tools, fall back to environment CC
-    # Use exact name gcc.exe - glob gcc* also matches gcc-ar.exe which is wrong
+  # non-Unix: setup mingw toolchain
+  if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
     _MINGW_CC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc.exe" -type f 2>/dev/null | head -1)
     if [[ -n "${_MINGW_CC}" ]]; then
-      echo "Found mingw gcc: ${_MINGW_CC}"
       _MINGW_DIR=$(dirname "${_MINGW_CC}")
       AR="${_MINGW_DIR}/x86_64-w64-mingw32-ar"
       AS="${_MINGW_DIR}/x86_64-w64-mingw32-as"
@@ -64,92 +39,54 @@ else
       RANLIB="${_MINGW_DIR}/x86_64-w64-mingw32-ranlib"
       export PATH="${_MINGW_DIR}:${PATH}"
 
-      # Create 'gcc' alias for windres preprocessor (windres calls 'gcc' not 'x86_64-w64-mingw32-gcc')
+      # Create 'gcc' alias for windres preprocessor
       if [[ ! -f "${_MINGW_DIR}/gcc.exe" ]]; then
         cp "${_MINGW_CC}" "${_MINGW_DIR}/gcc.exe"
       fi
-    else
-      echo "WARNING: mingw gcc not found via find, using CC from environment: ${CC:-unset}"
-      # Trust conda activation - CC should be set
-      if [[ -n "${CC:-}" ]]; then
-        _CC_DIR=$(dirname "$(command -v "${CC}" 2>/dev/null || echo "${CC}")")
-        [[ -d "${_CC_DIR}" ]] && export PATH="${_CC_DIR}:${PATH}"
-      fi
     fi
-    # Create shell script wrapper for windres that sets up the preprocessor
-    _WINDRES_DIR="${BUILD_PREFIX}/Library/mingw-w64/bin"
-    [[ ! -d "${_WINDRES_DIR}" ]] && _WINDRES_DIR="${BUILD_PREFIX}/Library/bin"
-    if [[ -f "${_WINDRES_DIR}/windres.exe" ]] || [[ -f "${_WINDRES_DIR}/x86_64-w64-mingw32-windres.exe" ]]; then
-      cat > "${BUILD_PREFIX}/Library/bin/windres" << EOF
-#!/bin/bash
-# Windres wrapper to set up GCC preprocessor
-REAL_WINDRES="${_WINDRES_DIR}/x86_64-w64-mingw32-windres.exe"
-[[ ! -f "\${REAL_WINDRES}" ]] && REAL_WINDRES="${_WINDRES_DIR}/windres.exe"
-CPP="${_WINDRES_DIR}/x86_64-w64-mingw32-cpp.exe"
-[[ ! -f "\${CPP}" ]] && CPP="${_WINDRES_DIR}/cpp.exe"
-exec "\${REAL_WINDRES}" --preprocessor="\${CPP}" --preprocessor-arg=-E --preprocessor-arg=-xc-header --preprocessor-arg=-DRC_INVOKED "\$@"
-EOF
-      chmod +x "${BUILD_PREFIX}/Library/bin/windres"
+
+    # Find and setup windres
+    _WINDRES=$(find "${BUILD_PREFIX}" \( -name "x86_64-w64-mingw32-windres.exe" -o -name "windres.exe" \) 2>/dev/null | head -1)
+    if [[ -n "${_WINDRES}" ]]; then
+      _WINDRES_DIR=$(dirname "${_WINDRES}")
+      export PATH="${_WINDRES_DIR}:${PATH}"
+      if [[ ! -f "${_WINDRES_DIR}/windres.exe" ]]; then
+        cp "${_WINDRES}" "${_WINDRES_DIR}/windres.exe"
+      fi
     fi
   fi
 
+  # Simplify compiler paths to basenames (hardcoded in binaries)
   export CC=$(basename "${CC}")
   export ASPP="$CC -c"
   export AS=$(basename "${AS:-as}")
   export AR=$(basename "${AR:-ar}")
   export RANLIB=$(basename "${RANLIB:-ranlib}")
 
-  # macOS: Use lld to match LLVM's ar (ld64 rebuild _2 incompatible with ar archives)
-  # Also add -headerpad_max_install_names so install_name_tool can modify rpaths during packaging
+  # Platform-specific linker flags
   if [[ "${target_platform}" == "osx-"* ]]; then
-    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+    # macOS: lld for ld64/ar compatibility, headerpad for install_name_tool
+    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names -L${PREFIX}/lib"
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  elif [[ "${target_platform}" == "linux-"* ]]; then
+    export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
 
-  echo "=== Final compiler settings ==="
-  echo "CC=${CC}"
-  echo "AS=${AS}"
-  echo "AR=${AR}"
-  echo "RANLIB=${RANLIB}"
-  echo "which CC: $(command -v "${CC}" 2>/dev/null || echo 'not found')"
-  echo ""
-
-  # Ensure pkg-config finds zstd from host environment
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
-  # Ensure linker can find zstd library at build time
-  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
-
-  # macOS: Set DYLD_LIBRARY_PATH so freshly-built ocamlc.opt can find libzstd at runtime
-  # The binary has @rpath/libzstd.1.dylib but rpath doesn't include $PREFIX/lib during build
-  if [[ "${target_platform}" == "osx-"* ]]; then
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-    echo "DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}"
+  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
+    CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
-  echo "LIBRARY_PATH=${LIBRARY_PATH}"
-  echo "LDFLAGS=${LDFLAGS}"
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
-
-  # Pass LDFLAGS explicitly to configure - OCaml configure needs this for -fuse-ld=lld
-  # on macOS to work around ld64/ar incompatibility
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
-
-  # Windows: ensure TOOLCHAIN and FLEXDLL_CHAIN are set to mingw64 (not empty)
-  # TOOLCHAIN is used by flexdll's Makefile directly (via include of Makefile.config)
-  # FLEXDLL_CHAIN is used by OCaml to pass CHAINS=$(FLEXDLL_CHAIN) to flexdll
-  # If empty, flexdll defaults to building ALL chains including 32-bit mingw
-  # which requires i686-w64-mingw32-gcc that conda-forge doesn't provide
+  # non-Unix: fix TOOLCHAIN and FLEXDLL_CHAIN, build flexdll support object
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
     if [[ -f "Makefile.config" ]]; then
-      echo "=== Windows toolchain fix ==="
-      echo "Before fix:"
-      grep -E "^(TOOLCHAIN|FLEXDLL_CHAIN)" Makefile.config || echo "  (not found)"
-
       # Fix TOOLCHAIN (used by flexdll directly)
       if ! grep -qE "^TOOLCHAIN[[:space:]]*=.*mingw64" Makefile.config; then
-        echo "Fixing TOOLCHAIN..."
         if grep -qE "^TOOLCHAIN" Makefile.config; then
           perl -i -pe 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' Makefile.config
         else
@@ -159,7 +96,6 @@ EOF
 
       # Fix FLEXDLL_CHAIN (used by OCaml to pass CHAINS to flexdll)
       if ! grep -qE "^FLEXDLL_CHAIN[[:space:]]*=.*mingw64" Makefile.config; then
-        echo "Fixing FLEXDLL_CHAIN..."
         if grep -qE "^FLEXDLL_CHAIN" Makefile.config; then
           perl -i -pe 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
         else
@@ -167,132 +103,92 @@ EOF
         fi
       fi
 
-      echo "After fix:"
-      grep -E "^(TOOLCHAIN|FLEXDLL_CHAIN)" Makefile.config || echo "  (not found)"
-
-      # Fix NATIVECCLIBS: When building native executables, libasmrun.a has calls
-      # to flexdll_* functions (flexdll_wdlopen, flexdll_dlclose, etc. in win32.c).
-      # These symbols must be provided by linking against the flexdll support object.
-      # Build the support object first, then add it to NATIVECCLIBS.
-      echo ""
-      echo "=== Building flexdll support object ==="
+      # Build flexdll support object for NATIVECCLIBS
       if [[ -d "flexdll" ]]; then
-        # Build flexdll_mingw64.o which provides the flexdll API implementation
-        make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o || echo "WARNING: Could not build flexdll_mingw64.o"
-
+        make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o 2>/dev/null || true
         if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
-          echo "Adding flexdll_mingw64.o to NATIVECCLIBS..."
-          # Get absolute path to the object file
           FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
           if grep -q "^NATIVECCLIBS" Makefile.config; then
             perl -i -pe "s|^(NATIVECCLIBS=.*)|\$1 ${FLEXDLL_OBJ}|" Makefile.config
           else
             echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
           fi
-          echo "NATIVECCLIBS now:"
-          grep "^NATIVECCLIBS" Makefile.config || echo "  (not found)"
-        else
-          echo "WARNING: flexdll_mingw64.o not found after build"
         fi
-      else
-        echo "WARNING: flexdll directory not found"
       fi
-    else
-      echo "WARNING: Makefile.config not found after configure!"
     fi
   fi
 
-  # Patch config to use shell variables (like cross-compilation does)
-  # This avoids baking in placeholder paths that break with prefix relocation
-  # NOTE: Only do this on Unix - Windows cmd.exe doesn't expand $VAR syntax
+  # Patch config.generated.ml with compiler paths for build
   config_file="utils/config.generated.ml"
   if [[ -f "$config_file" ]]; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      # Patch config with actual compiler paths for BUILD
-      # Use $ENV{} to expand Perl environment variables during patching
-      # After install, we'll patch again to use $CC/$AS for runtime
+      _FULL_CC=$(command -v "${CC}" 2>/dev/null || echo "${CC}")
+      _FULL_AS=$(command -v "${AS}" 2>/dev/null || echo "${AS}")
+      export _FULL_CC _FULL_AS
+
       if [[ "${target_platform}" == "osx-"* ]]; then
-        # macOS: use lld to avoid ld64/ar incompatibility (ld64 rejects LLVM ar archives)
-        # Add -headerpad_max_install_names so install_name_tool can modify rpaths during packaging
-        export _BUILD_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-        export _BUILD_MKDLL="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
+        export _BUILD_MKEXE="${_FULL_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+        export _BUILD_MKDLL="${_FULL_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
       else
-        export _BUILD_MKEXE="${CC}"
-        export _BUILD_MKDLL="${CC} -shared"
+        # Linux: -Wl,-E exports symbols for ocamlnat (native toplevel)
+        export _BUILD_MKEXE="${_FULL_CC} -Wl,-E"
+        export _BUILD_MKDLL="${_FULL_CC} -shared"
       fi
-      # Use actual compiler path during build (not $CC which OCaml can't expand)
-      perl -i -pe 's/^let asm = .*/let asm = {|$ENV{AS}|}/' "$config_file"
-      perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{CC}|}/' "$config_file"
+
+      perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_FULL_AS}|}/' "$config_file"
+      perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_FULL_CC}|}/' "$config_file"
       perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_BUILD_MKEXE}|}/' "$config_file"
       perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
       perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_BUILD_MKDLL}|}/' "$config_file"
     else
-      # Windows: Debug environment variables
-      echo "=== Windows config patching debug ==="
-      echo "CC=${CC:-unset}"
-      echo "AS=${AS:-unset}"
-      echo "AR=${AR:-unset}"
-      echo "which CC: $(command -v "${CC}" 2>/dev/null || echo 'not found')"
-      echo "which AS: $(command -v "${AS}" 2>/dev/null || echo 'not found')"
-      echo "Current config.generated.ml asm line:"
-      grep "^let asm" "$config_file" || echo "(not found)"
-      echo ""
-
-      # On Windows, DON'T patch mkexe/mkdll - configure sets them to use flexlink
-      # which is required for proper symbol resolution during the build.
-      # flexlink handles the -link flag and symbol table generation that gcc cannot.
-      # Only patch asm and c_compiler for runtime tool lookup.
+      # non-Unix: use placeholders for runtime
       perl -i -pe 's/^let asm = .*/let asm = {|%AS%|}/' "$config_file"
       perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|%CC%|}/' "$config_file"
-      # Keep mkexe, mkdll, mkmaindll as configured by ./configure (uses flexlink)
-
-      echo "After patching (mkexe/mkdll left as flexlink from configure):"
-      grep "^let asm\|^let c_compiler\|^let mkexe\|^let mkdll" "$config_file"
-      echo "=== End config debug ==="
     fi
   fi
 
   make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
 
+  # non-Unix: remove problematic unicode test file
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
-    rm testsuite/tests/unicode/$'\u898b'.ml
+    rm -f testsuite/tests/unicode/$'\u898b'.ml
   fi
 
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && (make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; })
-  [[ "${SKIP_MAKE_TESTS:-"0"}" == "0" ]] && (make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; })
+  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
+    make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
+    make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
+  fi
+
   make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 fi
 
-# Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX paths
-# BUILD_PREFIX won't be relocated by conda, so we need to use PREFIX
+# Post-install fixes
+
+# Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX
 if [[ -f "${OCAML_PREFIX}/lib/ocaml/Makefile.config" ]]; then
-  perl -pe -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
+  perl -i -pe "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
+  perl -i -pe 's|STRIP=.*/build_env/.*/(?:.*-)?strip|STRIP=strip|g' "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
 fi
 
-# Fix config.ml: replace build-time compiler paths with runtime $CC/$AS
-# During build we used actual paths (e.g., /path/to/clang -fuse-ld=lld)
-# For runtime we use shell variables that get expanded by user's environment
+# Fix config.ml: replace build-time paths with runtime shell variables
 CONFIG_ML="${OCAML_PREFIX}/lib/ocaml/config.ml"
-if [[ -f "$CONFIG_ML" ]] && [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]; then
-  echo "Patching $CONFIG_ML for runtime..."
-  if [[ "${target_platform}" == "osx-"* ]]; then
-    # macOS: keep -fuse-ld=lld for runtime to avoid ld64/ar incompatibility
-    # Add -headerpad_max_install_names for install_name_tool compatibility
+if [[ -f "$CONFIG_ML" ]]; then
+  if [[ "${target_platform}" == "linux-"* ]]; then
+    perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC -Wl,-E|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$CONFIG_ML"
+    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$CONFIG_ML"
+  elif [[ "${target_platform}" == "osx-"* ]]; then
     perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
     perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
     perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names|}/' "$CONFIG_ML"
     perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
     perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup|}/' "$CONFIG_ML"
-  else
-    perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$CONFIG_ML"
-    perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$CONFIG_ML"
-    perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$CONFIG_ML"
-    perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$CONFIG_ML"
-    perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$CONFIG_ML"
   fi
 fi
 
-# Windows doesn't support symlinks - replace with copies
+# non-Unix: replace symlinks with copies
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
   for bin in "${OCAML_PREFIX}"/bin/*; do
     if [[ -L "$bin" ]]; then
@@ -303,29 +199,14 @@ if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"*
   done
 fi
 
-# Fix shebangs and exec paths in installed scripts
-for bin in "${OCAML_PREFIX}"/bin/*
-do
-  # Skip if not a regular file or is a symlink
+# Fix bytecode wrapper shebangs
+for bin in "${OCAML_PREFIX}"/bin/*; do
   [[ -f "$bin" ]] || continue
   [[ -L "$bin" ]] && continue
 
-  # OCaml bytecode executables are shell script wrappers with embedded bytecode:
-  #   Line 1: #!/usr/bin/sh
-  #   Line 2: exec '/hardcoded/path/bin/ocamlrun' "$0" "$@"
-  #   Line 3+: <binary bytecode data>
-  #
-  # We need to fix line 2 to use a relative path, but we MUST preserve
-  # the exact binary content after line 2 (no sed, no text processing on bytecode).
-  #
-  # The fix: Replace exec line to use $(dirname "$0")/ocamlrun
-
-  # Need 300+ bytes because conda placeholder paths are very long (~230 chars)
+  # Check for ocamlrun reference (need 350 bytes for long conda placeholder paths)
   if head -c 350 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      echo "Fixing bytecode wrapper: $bin"
-
-      # Use perl to safely handle the binary content after the shell wrapper
       perl -e '
         use strict;
         use warnings;
@@ -335,63 +216,48 @@ do
         my $content = do { local $/; <$fh> };
         close($fh);
 
-        # Find the first two newlines (end of shebang and end of exec line)
         my $first_nl = index($content, "\n");
-        my $second_nl = index($content, "\n", $first_nl + 1);
+        exit 0 if $first_nl < 0;
 
-        if ($first_nl > 0 && $second_nl > $first_nl) {
-            my $shebang = substr($content, 0, $first_nl);
-            my $exec_line = substr($content, $first_nl + 1, $second_nl - $first_nl - 1);
-            my $rest = substr($content, $second_nl);  # includes the newline
+        my $shebang = substr($content, 0, $first_nl);
 
-            print "  Shebang: $shebang\n";
-            print "  Old exec: $exec_line\n";
+        if ($shebang =~ m{^#!.*/bin/sh}) {
+            # Shell wrapper format: fix the exec line
+            my $second_nl = index($content, "\n", $first_nl + 1);
+            if ($second_nl > $first_nl) {
+                my $exec_line = substr($content, $first_nl + 1, $second_nl - $first_nl - 1);
+                my $rest = substr($content, $second_nl);
 
-            # Check if this is the expected format
-            if ($exec_line =~ /exec.*ocamlrun.*\"\$0\".*\"\$\@\"/) {
-                # Replace with relative path version
-                # Use double quotes for the exec so variable expansion works
-                my $new_exec = q{exec "$(dirname "$0")/ocamlrun" "$0" "$@"};
-                print "  New exec: $new_exec\n";
-
-                my $new_content = $shebang . "\n" . $new_exec . $rest;
-
-                open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
-                print $out $new_content;
-                close($out);
-            } else {
-                print "  SKIP: exec line format not recognized\n";
+                if ($exec_line =~ /exec.*ocamlrun.*\"\$0\".*\"\$\@\"/) {
+                    my $new_exec = q{exec "$(dirname "$0")/ocamlrun" "$0" "$@"};
+                    my $new_content = $shebang . "\n" . $new_exec . $rest;
+                    open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
+                    print $out $new_content;
+                    close($out);
+                }
             }
-        } else {
-            print "  WARNING: Could not find expected structure in $file\n";
+        } elsif ($shebang =~ m{^#!.*ocamlrun}) {
+            # Direct ocamlrun shebang (cross-compiled): use env
+            my $rest = substr($content, $first_nl);
+            my $new_content = "#!/usr/bin/env ocamlrun" . $rest;
+            open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
+            print $out $new_content;
+            close($out);
         }
-      ' "$bin"
-
-      # Verify the fix
-      echo "  Result: $(head -2 "$bin")"
+      ' "$bin" 2>/dev/null || true
     fi
     continue
   fi
 
-  # For pure shell scripts (no bytecode), fix exec statements
+  # Pure shell scripts: fix exec statements
   if file "$bin" 2>/dev/null | grep -qE "shell script|POSIX shell|text"; then
     perl -i -pe "s#exec '([^']*)'#exec \$1#g" "$bin"
     perl -i -pe 's#exec \Q'"${OCAML_PREFIX}"'\E/bin#exec \$(dirname "\$0")#g' "$bin"
   fi
 done
 
-# Fix hardcoded BUILD_PREFIX paths in Makefile.config
-# The build_env paths won't exist at runtime, replace with standard tool names
-if [[ -f "${OCAML_PREFIX}/lib/ocaml/Makefile.config" ]]; then
-  echo ""
-  echo "=== Fixing Makefile.config paths ==="
-  # Replace BUILD_PREFIX paths with just the tool basename
-  # e.g., /path/to/build_env/bin/x86_64-conda-linux-gnu-strip -> strip
-  perl -i -pe 's|STRIP=.*/build_env/.*/(?:.*-)?strip|STRIP=strip|g' "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
-fi
-
-for CHANGE in "activate" "deactivate"
-do
+# Install activation scripts
+for CHANGE in "activate" "deactivate"; do
   mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
   cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.${SH_EXT}"
 done

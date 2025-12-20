@@ -1,3 +1,4 @@
+@echo off
 setlocal enabledelayedexpansion
 
 :: Create conda_build.sh wrapper
