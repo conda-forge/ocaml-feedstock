@@ -92,10 +92,10 @@ requirements:
       then:
         - lld
   host:
-    - ${{ "m2-lib" if not unix }}zstd
+    - zstd
   run:
     # OCaml runtime links against zstd for compressed marshaling
-    - ${{ "m2-lib" if not unix }}zstd
+    - zstd
 
 tests:
   - package_contents:
