@@ -270,6 +270,9 @@ tests:
       run:
         - ${{ compiler('c') }}
         - ${{ m2 }}grep
+        - if: osx
+          then:
+            - lld
 
 about:
   homepage: https://ocaml.org/
