@@ -1,0 +1,19 @@
+c_stdlib:
+  - if: not unix
+    then:
+      - m2w64-sysroot
+
+c_stdlib_version:
+  - if: not unix
+    then:
+      - 12
+
+c_compiler:
+  - if: not unix
+    then:
+      - gcc
+
+c_compiler_version:
+  - if: not unix
+    then:
+      - 14

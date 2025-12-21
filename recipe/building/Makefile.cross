@@ -3,6 +3,7 @@
 #*                                 OCaml                                  *
 #*                                                                        *
 #*                          Samuel Hym, Tarides                           *
+#*                   conda-forge additions by MementoRC                   *
 #*                                                                        *
 #*   Copyright 2024 Tarides                                               *
 #*                                                                        *
@@ -12,41 +13,95 @@
 #*                                                                        *
 #**************************************************************************
 
-# Recipes to build a cross compiler (_not_ cross-compiling the compiler), aka
-# generating code that will run on `target`, assuming that a non-cross OCaml
-# compiler (so targetting our build machine) of the same version is available in
-# $PATH
+# Extended cross-compilation recipes for conda-forge
+#
+# This file extends OCaml's upstream Makefile.cross with additional targets
+# needed to build NATIVE binaries for the target platform (not just a
+# cross-compiler that runs on build and targets the host).
+#
+# Upstream targets (in OCaml's Makefile.cross):
+#   - crossopt: Builds a cross-compiler (runs on BUILD, generates TARGET code)
+#   - installcross: Installs the cross-compiler
+#
+# conda-forge additions (in this file):
+#   - crosscompiledopt: Builds native TARGET binaries using an existing cross-compiler
+#   - crosscompiledruntime: Builds the runtime for TARGET
+#
+# This file will be REMOVED once OCaml 5.4.0 is available natively on conda-forge.
 
 # As the cross compiler will be linked with the _build_ version of
 # libcomprmarsh, we cannot rely on the detection of zstd done during `configure`
 # (as it would have detected the _target_ version). So we recover the flags to
 # link with zstd of the non-cross compiler.
-# Note that the shell call is a variable that is used only once, so it doesn't
-# have to be lazier.
-HOST_ZSTD_LIBS=ZSTD_LIBS=$(shell ocamlopt -config-var compression_c_libraries)
+# ZSTD_LIBS can be overridden from command line for cross-compilation (to use HOST libs)
+# If not provided, fall back to native ocamlopt's compression_c_libraries config
+ZSTD_LIBS ?= $(shell ocamlopt -config-var compression_c_libraries)
+HOST_ZSTD_LIBS=ZSTD_LIBS=$(ZSTD_LIBS)
 
-# The build system adds various include directories which pertain to the current
-# tree, including -I runtime, which is necessary for -custom executables.
-# ocamltest is always a -custom executable, but some others (ocamldoc; the
-# debugger, etc.) are only -custom in specific circumstances. It is therefore
-# fiddly to change this in the main build system, so we perform a slightly
-# different trick by ensuring that "+" is the first entry in VPATH. This will
-# put the host compiler's standard library (and consequently its runtime
-# objects) well above the .a files found with -I runtime. For now, this seems
-# the least nefarious way of ensuring that the bytecode compiler has the C
-# headers in runtime/caml available without breaking builds with an external
-# ocamlopt.
+# VPATH trick: ensure "+" is the first entry so host compiler's stdlib
+# takes precedence over local runtime objects
 VPATH := + $(VPATH)
 
-CROSS_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
-  BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc
-CROSS_COMPILER_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc CAMLOPT=ocamlopt \
-  BEST_OCAMLC=ocamlc BEST_OCAMLOPT=ocamlopt BEST_OCAMLLEX=ocamllex
-CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
-  CAMLOPT="$(ROOTDIR)/ocamlopt.opt$(EXE) $(STDLIBFLAGS)"
+# SAK_CC, SAK_CFLAGS, SAK_LDFLAGS, and SAK_LINK should be set to build-machine values when cross-compiling
+# SAK is a build tool that must run on the BUILD machine, not the TARGET
+# Default to CC/CFLAGS/empty if not defined (native build case)
+SAK_CC ?= $(CC)
+# SAK_CFLAGS: CFLAGS for BUILD machine (sak runs on build, not target)
+# Must NOT contain target-specific flags like -mtune=power8
+SAK_CFLAGS ?= $(CFLAGS)
+# SAK_LDFLAGS: LDFLAGS for BUILD machine (e.g., -fuse-ld=lld on macOS for ld64 compatibility)
+SAK_LDFLAGS ?=
+SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(SAK_LDFLAGS) $(OUTPUTEXE)$(1) $(2)
 
+# Override SAK_BUILD to use SAK_CC/SAK_CFLAGS instead of CC/CFLAGS for cross-compilation
+# sak is a build tool that must run on the BUILD machine
+SAK_BUILD = $(SAK_LINK) $(OC_CFLAGS) $(SAK_CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS)
+
+# CROSS_CC/CROSS_AR must be set on command line for cross-compilation.
+# These are passed through to sub-makes for C libraries (otherlibs).
+# We can't use CC="$(CC)" because $(CC) gets value from Makefile.config (BUILD compiler),
+# not the command-line override (TARGET cross-compiler).
+CROSS_CC ?= $(CC)
+CROSS_AR ?= $(AR)
+
+# CROSS_MKLIB: wrapper for ocamlmklib that uses CROSS_CC/CROSS_AR.
+# ocamlmklib has Config.ar and Config.mkdll baked in from compile time (BUILD tools).
+# For cross-compilation, we need a wrapper that uses TARGET cross-tools.
+# Set to cross-ocamlmklib.sh on command line; defaults to ocamlmklib for native builds.
+CROSS_MKLIB ?= ocamlmklib
+
+# CAMLOPT can be overridden on command line for cross-compilation.
+# Stage 2 (crossopt): use native ocamlopt from PATH
+# Stage 3 (crosscompiledopt): use cross-compiler from _cross/bin to produce target binaries
+CAMLOPT ?= ocamlopt
+
+# CROSS_OVERRIDES for sub-makes.
+# CC/AR must be cross-compiler for C stub libraries in otherlibs.
+# CAMLC=ocamlc uses the installed ocamlc from PATH (required for dynlink, otherlibs)
+# MKLIB=$(CROSS_MKLIB) uses cross-ocamlmklib.sh wrapper for cross-compilation:
+#   - The native ocamlmklib has BUILD linker baked in (Config.mkdll, Config.ar)
+#   - The wrapper script uses CROSS_CC/CROSS_AR for proper cross-compilation
+#   - For native builds, CROSS_MKLIB defaults to ocamlmklib
+CROSS_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
+  BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
+  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)" \
+  CC="$(CROSS_CC)" AR="$(CROSS_AR)"
+
+# CROSS_OTHERLIBS_OVERRIDES: same as CROSS_OVERRIDES
+CROSS_OTHERLIBS_OVERRIDES = $(CROSS_OVERRIDES)
+
+# CAMLOPT is now a variable that can be overridden from command line
+CROSS_COMPILER_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
+  BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) BEST_OCAMLLEX=ocamllex
+
+# For crossopt: use freshly built cross-compiler with absolute path
+# CRITICAL: Use $(abspath ...) because ROOTDIR is relative (.) and breaks with make -C
+CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
+  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt$(EXE) $(STDLIBFLAGS)"
+
+# For crosscompiledopt: use CAMLOPT from command line (cross-compiler path)
 CROSSCOMPILED_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
-  CAMLOPT="ocamlopt $(STDLIBFLAGS)"
+  CAMLOPT="$(CAMLOPT) $(STDLIBFLAGS)"
 
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 # Declare flexlink to be an 'old' file, so that make doesn't try to rebuild it
@@ -62,60 +117,160 @@ endif
 CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
     ocamlcommon ocamlmiddleend ocamlbytecomp ocamloptcomp ocamltoplevel))
 
+# RUNTIME_VARS: variables that must be passed to runtimeopt/crosscompiledruntime
+# ARCH selects the correct .S file (arm64.S vs amd64.S)
+# AS/ASPP/CC are the cross-toolchain for assembling/compiling TARGET native runtime
+# LDFLAGS passed here is for the TARGET cross-linker (e.g., -fuse-ld=lld on macOS)
+# SAK_CC/SAK_CFLAGS are for the sak tool which must run on BUILD machine
+# SAK_LINK uses $$ escaping so $(1) and $(2) survive to the sub-make's $(call SAK_LINK,...)
+# Values must be quoted because ASPP contains spaces (e.g., "gcc -c")
+# runtime_ASM_OBJECTS is hardcoded at configure time (Makefile.build_config),
+# must override to use correct $(ARCH).o for cross-compilation
+RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFLAGS)' \
+  SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
+  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  runtime_ASM_OBJECTS='runtime/$(ARCH).o'
+
+# BYTECODE_RUNTIME_VARS: for building bytecode runtime on BUILD machine
+# CRITICAL: ocamlrun must run on BUILD machine, NOT target!
+# We use SAK_CC (BUILD compiler) instead of command-line CC (cross-compiler)
+# because command-line CC propagates to sub-makes via MAKEFLAGS.
+# Without this fix, Stage 2 builds ARM64 ocamlrun that needs ARM64 zstd,
+# causing "Undefined symbols for architecture arm64: _ZSTD_*" errors.
+BYTECODE_RUNTIME_VARS = \
+  SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
+  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
+
+# ============================================================================
+# crossopt: Build a cross-compiler (runs on BUILD, generates TARGET code)
+# This is upstream functionality, included here for completeness
+# ============================================================================
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 crossopt: cross-flexdll
-	$(MAKE) runtime-all $(OLDS)
+	# Build bytecode runtime with BUILD compiler (SAK_CC), not cross-compiler
+	# ocamlrun must be x86_64 to run on build machine
+	# CFLAGS override needed: ppc64le builds fail with "bad value 'power8' for '-mtune='"
+	# LDFLAGS override needed: macOS needs -fuse-ld=lld for ld64/ar compatibility
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 else
-# In that case, $(OLDS) is empty, we can depend directly on runtime-all
-crossopt: runtime-all
+crossopt:
+	# Build bytecode runtime with BUILD compiler (SAK_CC), not cross-compiler
+	# ocamlrun must be x86_64 to run on build machine
+	# CFLAGS override needed: ppc64le builds fail with "bad value 'power8' for '-mtune='"
+	# LDFLAGS override needed: macOS needs -fuse-ld=lld for ld64/ar compatibility
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 endif
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
-	$(MAKE) library $(CROSS_OVERRIDES) $(OLDS)
+	# Build stdlib directly (not via library or library-cross targets)
+	# - library depends on ocamlc which triggers rebuild
+	# - library-cross sets OCAMLRUN=../runtime/ocamlrun which doesn't work for cross
+	# - COMPILER_DEPS= disables the file dependency check on ../ocamlc
+	# - CAMLC=ocamlc uses the installed ocamlc from PATH
+	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) -C otherlibs all $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) runtimeopt $(OLDS)
+	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
 	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
 	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
-	$(MAKE) libraryopt $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) otherlibrariesopt ocamltoolsopt $(CROSS_OVERRIDES) $(OLDS)
+	# Build stdlib native directly using the FRESHLY BUILT cross-compiler
+	# CRITICAL: Use absolute path to cross-compiler - ROOTDIR is relative (.) and breaks with -C
+	# The cross-compiler produces aarch64 code, native produces x86_64
+	# COMPILER_DEPS= disables bytecode compiler file dependency (for .cmi files)
+	# OPTCOMPILER= disables native compiler file dependency (for .cmx files)
+	$(MAKE) -C stdlib allopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+	# otherlibrariesopt also needs cross-compiler for aarch64 .cmx/.o files
+	$(MAKE) otherlibrariesopt ocamltoolsopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) tools-allopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	# Copy stublibs to where the cross-compiler expects them
+	# The compiler has Config.standard_library baked in (pointing to PREFIX/lib/ocaml)
+	# and looks for stublibs relative to that path. We must copy before CROSSCOMPILERLIBS.
+	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
+	mkdir -p "$(LIBDIR)/stublibs"
+	@for f in otherlibs/*/dll*.so; do \
+	  if [ -f "$$f" ]; then \
+	    echo "  Copying: $$f"; \
+	    cp "$$f" "$(LIBDIR)/stublibs/"; \
+	  fi; \
+	done
 	# We now build the compiler libs again, but for target this time
 	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
 	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
 
+# ============================================================================
+# crosscompiledopt: Build NATIVE TARGET binaries using a cross-compiler
+# conda-forge addition - uses cross-compiler from PATH to build target binaries
+# ============================================================================
 .PHONY: crosscompiledopt
 crosscompiledopt:
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
-	$(MAKE) library $(CROSS_OVERRIDES) $(OLDS)
+	# Build stdlib directly (same reason as crossopt)
+	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) -C otherlibs all $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) runtimeopt $(OLDS)
+	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
 	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
 	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
-	$(MAKE) libraryopt $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) otherlibrariesopt ocamltoolsopt $(CROSS_OVERRIDES) $(OLDS)
+	# Build stdlib native directly using CAMLOPT (cross-compiler passed on command line)
+	# CAMLOPT should be the cross-compiler from _cross/bin that produces target code
+	$(MAKE) -C stdlib allopt CAMLOPT=$(CAMLOPT) OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+	# otherlibrariesopt also needs cross-compiler for target .cmx/.o files
+	$(MAKE) otherlibrariesopt ocamltoolsopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) tools-allopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	# Copy stublibs to where the cross-compiler expects them (same as crossopt)
+	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
+	mkdir -p "$(LIBDIR)/stublibs"
+	@for f in otherlibs/*/dll*.so; do \
+	  if [ -f "$$f" ]; then \
+	    echo "  Copying: $$f"; \
+	    cp "$$f" "$(LIBDIR)/stublibs/"; \
+	  fi; \
+	done
 	# We now build the compiler libs again, but for target this time
 	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
 	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSSCOMPILED_COMPILERLIBS_OVERRIDES) $(OLDS)
 
+# ============================================================================
+# crosscompiledruntime: Build runtime for TARGET platform
+# conda-forge addition - builds native runtime after crosscompiledopt
+# ============================================================================
+# BYTECCLIBS/NATIVECCLIBS must be passed to recursive make for cross-compilation
+# because configure detected libraries for BUILD platform, not TARGET.
+# e.g., TARGET glibc 2.17 needs -ldl but BUILD glibc 2.34 doesn't.
+# Note: We pass these directly in the recipe to ensure command-line overrides propagate.
+
 .PHONY: crosscompiledruntime
 crosscompiledruntime:
-	$(MAKE) runtime-all $(OLDS)
+	$(MAKE) runtime-all $(RUNTIME_VARS) BYTECCLIBS='$(BYTECCLIBS)' NATIVECCLIBS='$(NATIVECCLIBS)' $(OLDS)
 
+# ============================================================================
+# Override otherlibraries targets to use CROSS_OTHERLIBS_OVERRIDES
+# The main Makefile's otherlibraries/otherlibrariesopt don't pass CC/AR/MKLIB,
+# causing wrong linker to be used for C stub libraries (otherlibs).
+# ============================================================================
+.PHONY: otherlibraries
+otherlibraries: ocamltools dynlink-all
+	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES)
+
+.PHONY: otherlibrariesopt
+otherlibrariesopt: dynlink-allopt
+	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES)
+
+# ============================================================================
+# cross-flexdll: Windows FlexDLL support (upstream)
+# ============================================================================
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
 	rm -f $(FLEXDLL_SOURCE_DIR)/flexlink.exe
@@ -129,6 +284,9 @@ cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
 	cp flexlink.opt.exe $(OPT_BINDIR)/flexlink
 	cd $(OPT_BINDIR) && $(LN) flexlink flexlink.exe
 
+# ============================================================================
+# installcross: Install cross-compiled binaries (upstream with modifications)
+# ============================================================================
 INSTALL_OVERRIDES=build_ocamldoc=false WITH_DEBUGGER= OCAMLRUN=ocamlrun
 
 .PHONY: installcross
