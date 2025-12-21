@@ -12,3 +12,5 @@ channel_targets:
 - conda-forge main
 target_platform:
 - win-64
+zstd:
+- '1.5'
