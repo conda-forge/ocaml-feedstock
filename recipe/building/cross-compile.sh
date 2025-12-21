@@ -7,7 +7,7 @@ set -eu
 # 3-Stage Cross-Compilation:
 #   Stage 1: Build native x86_64 compiler (runs on BUILD, produces BUILD code)
 #   Stage 2: Build cross-compiler (runs on BUILD, produces TARGET code)
-#   Stage 3: Cross-compile final binaries (runs on BUILD, produces TARGET binaries)
+#   Stage 3: Cross-compile final binaries (runs on TARGET, produces TARGET binaries)
 
 # ============================================================================
 # Utility functions
@@ -82,6 +82,8 @@ if [[ "${_DISABLE_GETENTROPY}" == "1" ]]; then
   _GETENTROPY_ARGS=(ac_cv_func_getentropy=no)
 fi
 
+CONFIG_ARGS=(--enable-shared --disable-static)
+
 # ============================================================================
 # Save original environment & resolve cross-compiler paths
 # ============================================================================
@@ -90,13 +92,13 @@ _host_alias="$host_alias"
 _OCAML_PREFIX="${OCAML_PREFIX}"
 
 # TARGET cross-compiler (for building target code)
-_CC="$(_ensure_full_path "${CC}")"
-_AR="$(_ensure_full_path "${AR}")"
+_CC="${CC}"
+_AR="${AR}"
 _RANLIB="${_AR%-ar}-ranlib"
 _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
 if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
-  _AS="$(_ensure_full_path "${AS}")"
+  _AS="${AS}"
 fi
 
 # Platform-specific LDFLAGS for target
@@ -130,119 +132,10 @@ if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
 fi
 
 # ============================================================================
-# STAGE 1: Build native x86_64 compiler
-# ============================================================================
-echo ""
-echo "=== Stage 1: Building native x86_64 OCaml compiler ==="
-export OCAML_PREFIX=${SRC_DIR}/_native && mkdir -p ${SRC_DIR}/_native
-export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
-
-# CRITICAL: Override PKG_CONFIG_PATH to find x86_64 zstd in BUILD_PREFIX
-# Without this, pkg-config might find target-arch zstd from $PREFIX causing linker errors
-export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${BUILD_PREFIX}/share/pkgconfig"
-export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
-
-if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-else
-  export LD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
-fi
-
-# Common configure args (used in all stages)
-CONFIG_ARGS=(--enable-shared --disable-static --mandir=${OCAML_PREFIX}/share/man)
-
-# Stage 1 uses BUILD toolchain
-if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  # macOS: use simple flags matching proven build-arm64.sh
-  _STAGE1_LDFLAGS="${_BUILD_LDFLAGS}"
-else
-  # Linux: add rpath for finding libraries at runtime
-  _STAGE1_LDFLAGS="${_BUILD_LDFLAGS} -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${OCAML_PREFIX}/lib"
-fi
-
-# Stage 1 configure args - use only build-specific flags, not target CFLAGS
-_STAGE1_CFLAGS="${_BUILD_CFLAGS}"
-
-_CONFIG_ARGS=(
-  --build="$_build_alias" --host="$_build_alias"
-  AR="$_build_alias-ar" AS="$_build_alias-as" ASPP="${CC_FOR_BUILD} -c"
-  CC="${CC_FOR_BUILD}" RANLIB="$_build_alias-ranlib" STRIP="$_build_alias-strip"
-  CFLAGS="${_STAGE1_CFLAGS}" LDFLAGS="${_STAGE1_LDFLAGS}"
-)
-if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  _CONFIG_ARGS+=(CPP="$_build_alias-clang-cpp" LD="$_build_alias-ld" LIPO="$_build_alias-lipo" NM="$_build_alias-nm" NMEDIT="$_build_alias-nmedit" OTOOL="$_build_alias-otool")
-else
-  _CONFIG_ARGS+=(LD="$_build_alias-ld" NM="$_build_alias-nm")
-fi
-
-run_logged "stage1_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_build_alias"
-run_logged "stage1_world" make world.opt -j${CPU_COUNT}
-run_logged "stage1_install" make install
-
-cp runtime/build_config.h "${SRC_DIR}"
-make distclean
-
-# ============================================================================
 # STAGE 2: Build cross-compiler (runs on x86_64, emits target code)
 # ============================================================================
-echo ""
-echo "=== Stage 2: Building cross-compiler (x86_64 -> ${_host_alias}) ==="
-_PATH="${PATH}"
-export PATH="${SRC_DIR}/_native/bin:${_PATH}"
-export OCAMLLIB=${SRC_DIR}/_native/lib/ocaml
-export OCAML_PREFIX=${SRC_DIR}/_cross
-
-run_logged "stage2_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_host_alias" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
-
-# Patch utils/config.generated.ml for cross-compilation (hardcoded paths for cross-compiler)
-if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  export _TARGET_ASM="${_CC} -c"
-  export _MKDLL="${_CC} -shared -undefined dynamic_lookup -L."
-  export _MKEXE="${_CC} ${_LDFLAGS}"
-else
-  export _TARGET_ASM="${_AS}"
-  export _MKDLL="${_CC} -shared -L."
-  export _MKEXE="${_CC} -Wl,-E ${_LDFLAGS}"
-fi
-export _CC_TARGET="${_CC}"
-
-perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
-perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
-perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
-perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_CC_TARGET}|}/' utils/config.generated.ml
-perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_MKEXE}|}/' utils/config.generated.ml
-if [[ "${_NEEDS_DL}" == "1" ]]; then
-  perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' utils/config.generated.ml
-fi
-if [[ -n "${_MODEL:-}" ]]; then
-  perl -i -pe "s/^let model = .*/let model = {|${_MODEL}|}/" utils/config.generated.ml
-fi
-
-apply_cross_patches
-
-# Setup cross-ocamlmklib wrapper
-chmod +x "${RECIPE_DIR}"/building/cross-ocamlmklib.sh
-export CROSS_CC="${_CC}"
-export CROSS_AR="${_AR}"
-_CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
-
-# Build cross-compiler
-_STAGE2_CROSSOPT_ARGS=(
-  ARCH="${_TARGET_ARCH}" AS="${_CROSS_AS}" ASPP="${_CC} -c"
-  CC="${_CC}" CROSS_CC="${_CC}" CROSS_AR="${_AR}" CROSS_MKLIB="${_CROSS_MKLIB}"
-  CAMLOPT=ocamlopt CFLAGS="${_CFLAGS}"
-  SAK_CC="${CC_FOR_BUILD}" SAK_CFLAGS="${_BUILD_CFLAGS}"
-  ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
-)
-if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  _STAGE2_CROSSOPT_ARGS+=(SAK_LDFLAGS="-fuse-ld=lld")
-else
-  _STAGE2_CROSSOPT_ARGS+=(CPPFLAGS="-D_DEFAULT_SOURCE" SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)")
-fi
-
-run_logged "stage2_crossopt" make crossopt "${_STAGE2_CROSSOPT_ARGS[@]}" -j${CPU_COUNT}
-run_logged "stage2_installcross" make installcross
-make distclean
+source "${RECIPE_DIR}/building/build-cross-compiler.sh"
+run_logged "distclean" make distclean
 
 # ============================================================================
 # STAGE 3: Cross-compile final binaries for target architecture
@@ -257,16 +150,21 @@ export CROSS_AR="${_AR}"
 # Save cross-compiler path BEFORE changing OCAML_PREFIX
 _CROSS_OCAMLOPT="${OCAML_PREFIX}/bin/ocamlopt"
 
-export PATH="${SRC_DIR}/_native/bin:${OCAML_PREFIX}/bin:${_PATH}"
+export PATH="${BUILD_PREFIX}/bin:${OCAML_PREFIX}/bin:${_PATH}"
 export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
 export OCAML_PREFIX="${_OCAML_PREFIX}"
 
 # Stage 3 config targets the host platform
 _CONFIG_ARGS=(
-  --build="$_build_alias" --host="$_host_alias" --target="$_host_alias"
+  --build="$_build_alias"
+  --host="$_host_alias"
+  --target="$_host_alias"
   --with-target-bindir="${PREFIX}"/bin
-  AR="${_AR}" CC="${_CC}" RANLIB="${_RANLIB}"
-  CFLAGS="${_CFLAGS}" LDFLAGS="${_LDFLAGS}"
+  AR="${_AR}"
+  CC="${_CC}"
+  RANLIB="${_RANLIB}"
+  CFLAGS="${_CFLAGS}"
+  LDFLAGS="${_LDFLAGS}"
 )
 if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
   _CONFIG_ARGS+=(AS="${_AS}")
@@ -277,36 +175,41 @@ run_logged "stage3_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_AR
 # Patch config.generated.ml for RUNTIME paths (uses $CC/$AS env vars for relocatable binaries)
 config_file="utils/config.generated.ml"
 if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
-  perl -i -pe 's/^let ar = .*/let ar = {|\$AR|}/' "$config_file"
+  sed -i 's/^let ar = .*/let ar = {|\$AR|}/' "$config_file"
 fi
 
 apply_cross_patches
 if [[ "${_NEEDS_DL}" == "1" ]]; then
-  perl -i -pe 's/^(NATIVECCLIBS=.*)$/$1 -ldl/' Makefile.config
+  sed -i 's/^\(NATIVECCLIBS=.*\)$/\1 -ldl/' Makefile.config
 fi
 
-perl -i -pe 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
-perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
+sed -i 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
+sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
 
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
-  perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
-  perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
+  sed -i 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
+  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
+  sed -i 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
 else
-  perl -i -pe 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
-  perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
-  perl -i -pe 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
-  perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' "$config_file"
+  sed -i 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
+  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
+  sed -i 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
+  sed -i 's/^let native_c_libraries = {|\(.*\)|}/let native_c_libraries = {|\1 -ldl|}/' "$config_file"
 fi
 if [[ -n "${_MODEL:-}" ]]; then
-  perl -i -pe "s/^let model = .*/let model = {|${_MODEL}|}/" "$config_file"
+  sed -i "s/^let model = .*/let model = {|${_MODEL}|}/" "$config_file"
 fi
 
 # Common cross-compilation make args (shared between crosscompiledopt and crosscompiledruntime)
 _CROSS_MAKE_ARGS=(
-  ARCH="${_TARGET_ARCH}" CAMLOPT="${_CROSS_OCAMLOPT}"
-  AS="${_CROSS_AS}" ASPP="${_CC} -c"
-  CC="${_CC}" CROSS_CC="${_CC}" CROSS_AR="${_AR}" CROSS_MKLIB="${_CROSS_MKLIB}"
+  ARCH="${_TARGET_ARCH}"
+  CAMLOPT="${_CROSS_OCAMLOPT}"
+  AS="${_CROSS_AS}"
+  ASPP="${_CC} -c"
+  CC="${_CC}"
+  CROSS_CC="${_CC}"
+  CROSS_AR="${_AR}"
+  CROSS_MKLIB="${_CROSS_MKLIB}"
 )
 
 # Build compiler and libraries
@@ -323,13 +226,15 @@ fi
 run_logged "stage3_crosscompiledopt" make crosscompiledopt "${_STAGE3_CROSSCOMPILEDOPT_ARGS[@]}" -j${CPU_COUNT}
 
 # Fix build_config.h paths for target
-perl -pe "s#${SRC_DIR}/_native/lib/ocaml#${PREFIX}/lib/ocaml#g" "${SRC_DIR}"/build_config.h > runtime/build_config.h
-perl -i -pe "s#${_build_alias}#${_host_alias}#g" runtime/build_config.h
+#sed "s#${BUILD_PREFIX}/lib/ocaml#${PREFIX}/lib/ocaml#g" "${SRC_DIR}"/build_config.h > runtime/build_config.h
+sed -i "s#${BUILD_PREFIX}/lib/ocaml#${PREFIX}/lib/ocaml#g"  runtime/build_config.h
+sed -i "s#${_build_alias}#${_host_alias}#g" runtime/build_config.h
 
 # Build runtime
 _STAGE3_CROSSCOMPILEDRUNTIME_ARGS=(
   "${_CROSS_MAKE_ARGS[@]}"
-  CHECKSTACK_CC="${CC_FOR_BUILD}" SAK_CC="${CC_FOR_BUILD}" SAK_CFLAGS="${_BUILD_CFLAGS}"
+  CHECKSTACK_CC="${CC_FOR_BUILD}"
+  SAK_CC="${CC_FOR_BUILD}" SAK_CFLAGS="${_BUILD_CFLAGS}"
   ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
 )
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
@@ -373,25 +278,25 @@ if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
   done
 fi
 
-# Fix bytecode shebangs
+# Fix bytecode wrapper shebangs (source function)
+source "${RECIPE_DIR}/building/fix-ocamlrun-shebang.sh"
 for bin in "${OCAML_PREFIX}"/bin/*; do
   [[ -f "$bin" ]] || continue
-  head -c 256 "$bin" 2>/dev/null | grep -q 'ocamlrun' || continue
+  [[ -L "$bin" ]] && continue
 
-  perl -e '
-    my $file = $ARGV[0];
-    open(my $fh, "<:raw", $file) or die "Cannot open $file: $!";
-    my $content = do { local $/; <$fh> };
-    close($fh);
+  # Check for ocamlrun reference (need 350 bytes for long conda placeholder paths)
+  if head -c 350 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
+    if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+      fix_ocamlrun_shebang "$bin" 2>/dev/null || true
+    fi
+    continue
+  fi
 
-    my $newline_pos = index($content, "\n");
-    if ($newline_pos > 0 && substr($content, 0, 2) eq "#!") {
-        my $new_content = "#!/usr/bin/env ocamlrun" . substr($content, $newline_pos);
-        open(my $out, ">:raw", $file) or die "Cannot write $file: $!";
-        print $out $new_content;
-        close($out);
-    }
-  ' "$bin"
+  # Pure shell scripts: fix exec statements
+  if file "$bin" 2>/dev/null | grep -qE "shell script|POSIX shell|text"; then
+    sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
+    sed -i "s#exec ${OCAML_PREFIX}/bin#exec \$(dirname \"\$0\")#" "$bin"
+  fi
 done
 
 echo "Cross-compilation complete for ${_host_alias}"
