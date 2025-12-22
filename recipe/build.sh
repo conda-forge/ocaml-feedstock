@@ -42,15 +42,21 @@ else
 
   # Platform-specific linker flags
   if [[ "${target_platform}" == "osx-"* ]]; then
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
     export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  elif [[ "${target_platform}" == "linux-"* ]]; then
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+    export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
   fi
-  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
+
+  export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
-  ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
   # No-op for unix
   unix_noop_update_toolchain

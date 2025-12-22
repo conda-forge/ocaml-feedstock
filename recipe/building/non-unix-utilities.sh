@@ -8,6 +8,7 @@ unix_noop_build_toolchain() {
       CC="${_MINGW_CC}"
       RANLIB="${_MINGW_DIR}/x86_64-w64-mingw32-ranlib"
       export PATH="${_MINGW_DIR}:${PATH}"
+      export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 
       # Create 'gcc' alias for windres preprocessor
       if [[ ! -f "${_MINGW_DIR}/gcc.exe" ]]; then

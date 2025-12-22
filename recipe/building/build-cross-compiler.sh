@@ -13,9 +13,23 @@ export PATH="${BUILD_PREFIX}/bin:${_PATH}"
 export OCAMLLIB=${BUILD_PREFIX}/lib/ocaml
 export OCAML_PREFIX=${SRC_DIR}/_cross
 
+# Use installed libraries
+cp -r ${BUILD_PREFIX}/lib/ocaml/compiler-libs/* compilerlibs/
+cp -r ${BUILD_PREFIX}/lib/ocaml/*.cmi stdlib/
+cp ${BUILD_PREFIX}/lib/ocaml/stdlib.cma stdlib/
+cp ${BUILD_PREFIX}/lib/ocaml/*.cmo stdlib/
+cp ${BUILD_PREFIX}/lib/ocaml/caml/*.h runtime/caml/
+cp ${BUILD_PREFIX}/lib/ocaml/*.a .
+mkdir -p boot
+cp ${BUILD_PREFIX}/bin/ocamlc boot/
+cp ${BUILD_PREFIX}/bin/ocamllex boot/
+
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  # unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
   export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${BUILD_PREFIX}/share/pkgconfig"
-  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+  # export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
 fi
 
 _STAGE1_CFLAGS="${_BUILD_CFLAGS}"
@@ -39,11 +53,17 @@ _CONFIG_ARGS=(
   NM="$_build_alias-nm"
   RANLIB="$_build_alias-ranlib"
   STRIP="$_build_alias-strip"
-  CFLAGS="${_STAGE1_CFLAGS}" LDFLAGS="${_STAGE1_LDFLAGS}"
+  CFLAGS="${_STAGE1_CFLAGS}"
+  LDFLAGS="${_STAGE1_LDFLAGS}"
 )
 
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  _CONFIG_ARGS+=(CPP="$_build_alias-clang-cpp" LIPO="$_build_alias-lipo" NMEDIT="$_build_alias-nmedit" OTOOL="$_build_alias-otool")
+  _CONFIG_ARGS+=(
+    CPP="$_build_alias-clang-cpp"
+    LIPO="$_build_alias-lipo"
+    NMEDIT="$_build_alias-nmedit"
+    OTOOL="$_build_alias-otool"
+  )
 fi
 
 run_logged "stage2_configure" ./configure \
@@ -90,12 +110,12 @@ _STAGE2_CROSSOPT_ARGS=(
   ARCH="${_TARGET_ARCH}"
   AS="${_CROSS_AS}"
   ASPP="${_CC} -c"
+  CAMLOPT="${BUILD_PREFIX}/bin/ocamlopt"
   CC="${_CC}"
-  CROSS_CC="${_CC}"
+  CFLAGS="${_STAGE1_CFLAGS}"
   CROSS_AR="${_AR}"
+  CROSS_CC="${_CC}"
   CROSS_MKLIB="${_CROSS_MKLIB}"
-  CAMLOPT=ocamlopt
-  CFLAGS="${_CFLAGS}"
   SAK_CC="${CC_FOR_BUILD}"
   SAK_CFLAGS="${_BUILD_CFLAGS}"
   ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
@@ -106,5 +126,6 @@ else
   _STAGE2_CROSSOPT_ARGS+=(CPPFLAGS="-D_DEFAULT_SOURCE" SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)")
 fi
 
-run_logged "stage2_crossopt" make crossopt "${_STAGE2_CROSSOPT_ARGS[@]}" -j${CPU_COUNT}
+make crossopt "${_STAGE2_CROSSOPT_ARGS[@]}" -j${CPU_COUNT}
+#run_logged "stage2_crossopt" make crossopt "${_STAGE2_CROSSOPT_ARGS[@]}" -j${CPU_COUNT}
 run_logged "stage2_installcross" make installcross
