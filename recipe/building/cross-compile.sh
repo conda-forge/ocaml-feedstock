@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
+IFS=$'\n\t'
 
 # Unified cross-compilation script for OCaml feedstock
 # Supports: osx-arm64, linux-aarch64, linux-ppc64le
@@ -132,10 +133,119 @@ if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
 fi
 
 # ============================================================================
+# STAGE 1: Build native x86_64 compiler
+# ============================================================================
+echo ""
+echo "=== Stage 1: Building native x86_64 OCaml compiler ==="
+export OCAML_PREFIX=${SRC_DIR}/_native && mkdir -p ${SRC_DIR}/_native
+export OCAMLLIB=$OCAML_PREFIX/lib/ocaml
+
+# CRITICAL: Override PKG_CONFIG_PATH to find x86_64 zstd in BUILD_PREFIX
+# Without this, pkg-config might find target-arch zstd from $PREFIX causing linker errors
+export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${BUILD_PREFIX}/share/pkgconfig"
+export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+
+if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+else
+  export LD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+fi
+
+# Common configure args (used in all stages)
+CONFIG_ARGS=(--enable-shared --disable-static --mandir=${OCAML_PREFIX}/share/man)
+
+# Stage 1 uses BUILD toolchain
+if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  # macOS: use simple flags matching proven build-arm64.sh
+  _STAGE1_LDFLAGS="${_BUILD_LDFLAGS}"
+else
+  # Linux: add rpath for finding libraries at runtime
+  _STAGE1_LDFLAGS="${_BUILD_LDFLAGS} -Wl,-rpath,${OCAML_PREFIX}/lib -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${OCAML_PREFIX}/lib"
+fi
+
+# Stage 1 configure args - use only build-specific flags, not target CFLAGS
+_STAGE1_CFLAGS="${_BUILD_CFLAGS}"
+
+_CONFIG_ARGS=(
+  --build="$_build_alias" --host="$_build_alias"
+  AR="$_build_alias-ar" AS="$_build_alias-as" ASPP="${CC_FOR_BUILD} -c"
+  CC="${CC_FOR_BUILD}" RANLIB="$_build_alias-ranlib" STRIP="$_build_alias-strip"
+  CFLAGS="${_STAGE1_CFLAGS}" LDFLAGS="${_STAGE1_LDFLAGS}"
+)
+if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  _CONFIG_ARGS+=(CPP="$_build_alias-clang-cpp" LD="$_build_alias-ld" LIPO="$_build_alias-lipo" NM="$_build_alias-nm" NMEDIT="$_build_alias-nmedit" OTOOL="$_build_alias-otool")
+else
+  _CONFIG_ARGS+=(LD="$_build_alias-ld" NM="$_build_alias-nm")
+fi
+
+run_logged "stage1_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_build_alias"
+run_logged "stage1_world" make world.opt -j${CPU_COUNT}
+run_logged "stage1_install" make install
+
+cp runtime/build_config.h "${SRC_DIR}"
+run_logged "stage1_distclean" make distclean
+
+# ============================================================================
 # STAGE 2: Build cross-compiler (runs on x86_64, emits target code)
 # ============================================================================
-source "${RECIPE_DIR}/building/build-cross-compiler.sh"
-run_logged "distclean" make distclean
+echo ""
+echo "=== Stage 2: Building cross-compiler (x86_64 -> ${_host_alias}) ==="
+_PATH="${PATH}"
+export PATH="${SRC_DIR}/_native/bin:${_PATH}"
+export OCAMLLIB=${SRC_DIR}/_native/lib/ocaml
+export OCAML_PREFIX=${SRC_DIR}/_cross
+
+run_logged "stage2_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_host_alias" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
+
+# Patch utils/config.generated.ml for cross-compilation (hardcoded paths for cross-compiler)
+if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  export _TARGET_ASM="${_CC} -c"
+  export _MKDLL="${_CC} -shared -undefined dynamic_lookup -L."
+  export _MKEXE="${_CC} ${_LDFLAGS}"
+else
+  export _TARGET_ASM="${_AS}"
+  export _MKDLL="${_CC} -shared -L."
+  export _MKEXE="${_CC} -Wl,-E ${_LDFLAGS}"
+fi
+export _CC_TARGET="${_CC}"
+
+perl -i -pe 's/^let asm = .*/let asm = {|$ENV{_TARGET_ASM}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkdll = .*/let mkdll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkmaindll = .*/let mkmaindll = {|$ENV{_MKDLL}|}/' utils/config.generated.ml
+perl -i -pe 's/^let c_compiler = .*/let c_compiler = {|$ENV{_CC_TARGET}|}/' utils/config.generated.ml
+perl -i -pe 's/^let mkexe = .*/let mkexe = {|$ENV{_MKEXE}|}/' utils/config.generated.ml
+if [[ "${_NEEDS_DL}" == "1" ]]; then
+  perl -i -pe 's/^let native_c_libraries = \{\|(.*)\|\}/let native_c_libraries = {|$1 -ldl|}/' utils/config.generated.ml
+fi
+if [[ -n "${_MODEL:-}" ]]; then
+  perl -i -pe "s/^let model = .*/let model = {|${_MODEL}|}/" utils/config.generated.ml
+fi
+
+apply_cross_patches
+
+# Setup cross-ocamlmklib wrapper
+chmod +x "${RECIPE_DIR}"/building/cross-ocamlmklib.sh
+export CROSS_CC="${_CC}"
+export CROSS_AR="${_AR}"
+_CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
+
+# Build cross-compiler
+_STAGE2_CROSSOPT_ARGS=(
+  ARCH="${_TARGET_ARCH}" AS="${_CROSS_AS}" ASPP="${_CC} -c"
+  CC="${_CC}" CROSS_CC="${_CC}" CROSS_AR="${_AR}" CROSS_MKLIB="${_CROSS_MKLIB}"
+  CAMLOPT=ocamlopt CFLAGS="${_CFLAGS}"
+  SAK_CC="${CC_FOR_BUILD}" SAK_CFLAGS="${_BUILD_CFLAGS}"
+  ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+)
+if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
+  _STAGE2_CROSSOPT_ARGS+=(SAK_LDFLAGS="-fuse-ld=lld")
+else
+  _STAGE2_CROSSOPT_ARGS+=(CPPFLAGS="-D_DEFAULT_SOURCE" SAK_LINK="${CC_FOR_BUILD} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)")
+fi
+
+run_logged "stage2_crossopt" make crossopt "${_STAGE2_CROSSOPT_ARGS[@]}" -j${CPU_COUNT}
+run_logged "stage2_installcross" make installcross
+run_logged "stage2_distclean" make distclean
 
 # ============================================================================
 # STAGE 3: Cross-compile final binaries for target architecture

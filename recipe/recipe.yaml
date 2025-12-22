@@ -77,7 +77,7 @@ requirements:
     - ${{ m2 }}make
     - ${{ m2 }}sed
     - binutils
-    # - pkgconfig
+    - pkgconfig
     - if: not unix
       then:
         - ${{ m2 }}coreutils
@@ -85,7 +85,6 @@ requirements:
         - ${{ m2 }}which
     - if: aarch64 or ppc64le or arm64
       then:
-        - ocaml >=5.3.0
         - zstd
     - if: osx
       then:
