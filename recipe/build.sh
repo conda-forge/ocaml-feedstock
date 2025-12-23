@@ -2,6 +2,19 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# ==============================================================================
+# CRITICAL: Ensure we're using conda bash 5.2+, not system bash
+# ==============================================================================
+if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO[1]} -lt 2) ]]; then
+  echo "re-exec with conda bash..."
+  if [[ -x "${BUILD_PREFIX}/bin/bash" ]]; then
+    exec "${BUILD_PREFIX}/bin/bash" "$0" "$@"
+  else
+    echo "ERROR: Could not find conda bash at ${BUILD_PREFIX}/bin/bash"
+    exit 1
+  fi
+fi
+
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
 # Platform detection and OCAML_PREFIX setup
@@ -24,8 +37,14 @@ CONFIG_ARGS=(
 )
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-  # Cross-compilation: use unified 3-stage build script
-  source "${RECIPE_DIR}/building/cross-compile.sh"
+  if [[ -d "${BUILD_PREFIX}"/ocaml-cross-compilers ]]; then
+    echo "=== Cross-compiling with cross-compiler ==="
+    source "${RECIPE_DIR}/building/cross-compile.sh"
+  else
+    # Cross-compilation: use unified 3-stage build script
+    echo "=== Cross-compiling with unified 3-stage build script ==="
+    source "${RECIPE_DIR}/archives/cross-compile.sh"
+  fi
 else
   # Load unix no-op non-unix helpers
   source "${RECIPE_DIR}/building/non-unix-utilities.sh"
@@ -56,6 +75,7 @@ else
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
+  echo "=== Configuring native compiler ==="
   ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
   # No-op for unix
@@ -83,13 +103,16 @@ else
     fi
   fi
 
+  echo "=== Compiling native compiler ==="
   make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
+    echo "=== Building cross-compiler for ${target} ==="
     make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
     make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
   fi
 
+  echo "=== Installing native compiler ==="
   make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 fi
 
@@ -97,7 +120,7 @@ fi
 # Cross-compilers
 # ============================================================================
 
-source "${RECIPE_DIR}"/building/build-cross-compiler.sh || true
+(set +e && source "${RECIPE_DIR}"/building/build-cross-compiler.sh) || true
 
 # ============================================================================
 # Post-install fixes (applies to both native and cross-compiled builds)
@@ -129,7 +152,7 @@ for bin in "${OCAML_PREFIX}"/bin/*; do
   # Check for ocamlrun reference (need 350 bytes for long conda placeholder paths)
   if head -c 350 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      fix_ocamlrun_shebang "$bin" 2>/dev/null || true
+      fix_ocamlrun_shebang "$bin" "${SRC_DIR}"/_logs/shebang.log 2>&1 || { cat "${SRC_DIR}"/_logs/shebang.log; exit 1; }
     fi
     continue
   fi
@@ -144,5 +167,5 @@ done
 # Install activation scripts
 for CHANGE in "activate" "deactivate"; do
   mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
-  cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.${SH_EXT}"
+  cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.${SH_EXT}" 2>/dev/null
 done

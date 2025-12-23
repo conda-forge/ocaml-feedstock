@@ -117,9 +117,10 @@ CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
 # runtime_ASM_OBJECTS is hardcoded at configure time (Makefile.build_config),
 # must override to use correct $(ARCH).o for cross-compilation
 # LDFLAGS passed here is for the TARGET cross-linker (e.g., -fuse-ld=lld on macOS)
+# SAK_LINK uses $(SAK_LDFLAGS) NOT $(LDFLAGS) - SAK runs on BUILD machine, not TARGET
 RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFLAGS)' \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
-  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
   runtime_ASM_OBJECTS='runtime/$(ARCH).o'
 
 # BYTECODE_RUNTIME_VARS: for building bytecode runtime on BUILD machine (not cross-compiled)
@@ -130,7 +131,7 @@ RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFL
 SAK_LDFLAGS ?=
 BYTECODE_RUNTIME_VARS = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
-  'SAK_LINK=$(SAK_CC) $$(OC_LDFLAGS) $$(LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
+  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
 
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"

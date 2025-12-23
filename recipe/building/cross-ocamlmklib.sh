@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # cross-ocamlmklib - wrapper that uses CROSS_CC/CROSS_AR instead of hardcoded Config values
 #
 # ocamlmklib has Config.mkdll and Config.ar baked in from compile time (BUILD tools).
@@ -15,7 +15,21 @@
 #   CROSS_OCAMLMKLIB_NATIVE - Path to native ocamlmklib (optional, defaults to PATH search)
 #   CROSS_OCAMLMKLIB_DEBUG - Set to 1 for verbose output
 
-set -eu
+set -euo pipefail
+IFS=$'\n\t'
+
+# ==============================================================================
+# CRITICAL: Ensure we're using conda bash 5.2+, not system bash
+# ==============================================================================
+if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO[1]} -lt 2) ]]; then
+  echo "re-exec with conda bash..."
+  if [[ -x "${BUILD_PREFIX}/bin/bash" ]]; then
+    exec "${BUILD_PREFIX}/bin/bash" "$0" "$@"
+  else
+    echo "ERROR: Could not find conda bash at ${BUILD_PREFIX}/bin/bash"
+    exit 1
+  fi
+fi
 
 debug() {
   if [[ "${CROSS_OCAMLMKLIB_DEBUG:-}" == "1" ]]; then
@@ -168,11 +182,20 @@ if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
   native_mklib="${CROSS_OCAMLMKLIB_NATIVE:-ocamlmklib}"
 
   # If native_mklib is just "ocamlmklib", run it via ocamlrun to avoid stale shebang
+  # Use an array to avoid IFS issues (IFS=$'\n\t' at top removes space as separator)
+  native_mklib_cmd=()
   if [[ "$native_mklib" == "ocamlmklib" ]]; then
     native_mklib_path=$(command -v ocamlmklib 2>/dev/null || true)
-    if [[ -n "$native_mklib_path" ]]; then
-      native_mklib="ocamlrun $native_mklib_path"
+    ocamlrun_path=$(command -v ocamlrun 2>/dev/null || true)
+    if [[ -n "$native_mklib_path" ]] && [[ -n "$ocamlrun_path" ]]; then
+      # Use absolute paths to avoid PATH issues in sub-directories
+      native_mklib_cmd=("$ocamlrun_path" "$native_mklib_path")
+    elif [[ -n "$native_mklib_path" ]]; then
+      # Fallback: run ocamlmklib directly (may have stale shebang)
+      native_mklib_cmd=("$native_mklib_path")
     fi
+  else
+    native_mklib_cmd=("$native_mklib")
   fi
 
   # Build new args without C objects
@@ -191,9 +214,8 @@ if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
     ((i++)) || true
   done
 
-  debug "Delegating to native ocamlmklib: $native_mklib ${native_args[*]}"
-  # shellcheck disable=SC2086
-  exec $native_mklib "${native_args[@]}"
+  debug "Delegating to native ocamlmklib: ${native_mklib_cmd[*]} ${native_args[*]}"
+  exec "${native_mklib_cmd[@]}" "${native_args[@]}"
 else
   # C-only build - handle entirely ourselves
   debug "C-only build detected"
