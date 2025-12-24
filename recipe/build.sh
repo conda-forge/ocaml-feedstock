@@ -17,23 +17,21 @@ fi
 
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
-# Platform detection and OCAML_PREFIX setup
+# Platform detection and OCAML_INSTALL_PREFIX setup
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-  export OCAML_PREFIX="${PREFIX}"
+  export OCAML_INSTALL_PREFIX="${PREFIX}"
   SH_EXT="sh"
 else
-  export OCAML_PREFIX="${PREFIX}"/Library
+  export OCAML_INSTALL_PREFIX="${PREFIX}"/Library
   SH_EXT="bat"
 fi
-
-export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
 
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
-  --mandir="${OCAML_PREFIX}"/share/man
+  --mandir="${OCAML_INSTALL_PREFIX}"/share/man
   --with-target-bindir="${PREFIX}"/bin
-  -prefix "${OCAML_PREFIX}"
+  -prefix "${OCAML_INSTALL_PREFIX}"
 )
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
@@ -120,32 +118,32 @@ fi
 # Cross-compilers
 # ============================================================================
 
-(set +e && source "${RECIPE_DIR}"/building/build-cross-compiler.sh) || true
+source "${RECIPE_DIR}"/building/build-cross-compiler.sh
 
 # ============================================================================
 # Post-install fixes (applies to both native and cross-compiled builds)
 # ============================================================================
 
 # Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX
-if [[ -f "${OCAML_PREFIX}/lib/ocaml/Makefile.config" ]]; then
-  sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
-  sed -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_PREFIX}/lib/ocaml/Makefile.config"
+if [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" ]]; then
+  sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
+  sed -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
 fi
 
 # non-Unix: replace symlinks with copies
 if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
-  for bin in "${OCAML_PREFIX}"/bin/*; do
+  for bin in "${OCAML_INSTALL_PREFIX}"/bin/*; do
     if [[ -L "$bin" ]]; then
       target=$(readlink "$bin")
       rm "$bin"
-      cp "${OCAML_PREFIX}/bin/${target}" "$bin"
+      cp "${OCAML_INSTALL_PREFIX}/bin/${target}" "$bin"
     fi
   done
 fi
 
 # Fix bytecode wrapper shebangs (source function)
 source "${RECIPE_DIR}/building/fix-ocamlrun-shebang.sh"
-for bin in "${OCAML_PREFIX}"/bin/*; do
+for bin in "${OCAML_INSTALL_PREFIX}"/bin/* "${OCAML_INSTALL_PREFIX}"/ocaml-cross-compilers/*/bin/*; do
   [[ -f "$bin" ]] || continue
   [[ -L "$bin" ]] && continue
 
@@ -160,7 +158,7 @@ for bin in "${OCAML_PREFIX}"/bin/*; do
   # Pure shell scripts: fix exec statements
   if file "$bin" 2>/dev/null | grep -qE "shell script|POSIX shell|text"; then
     sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
-    sed -i "s#exec ${OCAML_PREFIX}/bin#exec \$(dirname \"\$0\")#" "$bin"
+    sed -i "s#exec ${OCAML_INSTALL_PREFIX}/bin#exec \$(dirname \"\$0\")#" "$bin"
   fi
 done
 

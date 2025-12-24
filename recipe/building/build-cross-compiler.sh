@@ -3,6 +3,9 @@
 # ============================================================================
 if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-64" ]]; then
 
+  # Set OCAMLLIB to installed native ocaml
+  export OCAMLLIB="${PREFIX}/lib/ocaml"
+
   # Define cross targets based on build platform
   declare -A CROSS_TARGETS
   if [[ "${target_platform}" == "linux-64" ]]; then
@@ -10,10 +13,12 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       ["aarch64-conda-linux-gnu"]="arm64:linux"
       ["powerpc64le-conda-linux-gnu"]="power:linux:ppc64le"
     )
+    _CC="${CC}"
   elif [[ "${target_platform}" == "osx-64" ]]; then
     CROSS_TARGETS=(
       ["arm64-apple-darwin20.0.0"]="arm64:macos"
     )
+    _CC="clang"
   fi
 
   for target in "${!CROSS_TARGETS[@]}"; do
@@ -24,23 +29,9 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     CROSS_PREFIX="${PREFIX}/ocaml-cross-compilers/${target}"
     mkdir -p "${CROSS_PREFIX}/bin" "${CROSS_PREFIX}/lib/ocaml"
 
-    # Get cross-toolchain
-    # macOS: clang cross-compilers may not have -cc symlink, only -clang
-    _CC="${BUILD_PREFIX}/bin/${target}-cc"
-    if [[ ! -x "${_CC}" ]]; then
-      _CC_FALLBACK="${BUILD_PREFIX}/bin/${target}-clang"
-      if [[ -x "${_CC_FALLBACK}" ]]; then
-        echo "     NOTE: ${target}-cc not found, using ${target}-clang"
-        _CC="${_CC_FALLBACK}"
-      fi
-    fi
-
-    if [[ "${_PLATFORM}" == "macos" ]]; then
-      # macOS: use clang's integrated assembler (no separate -as binary)
-      _AS="${_CC}"
-    else
-      _AS="${BUILD_PREFIX}/bin/${target}-as"
-    fi
+    _CC="${BUILD_PREFIX}/bin/${target}-${CC##*-}"
+    _AS="${BUILD_PREFIX}/bin/${target}-as"
+    [[ "${_PLATFORM}" == "macos" ]] && _AS="${_CC}"
 
     if [[ "${_PLATFORM}" == "macos" ]]; then
       # macOS: use LLVM tools consistently (GNU tools incompatible with ld64)
@@ -49,7 +40,37 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       _NM="${BUILD_PREFIX}/bin/llvm-nm"
       _STRIP="${BUILD_PREFIX}/bin/llvm-strip"
       _LD="${BUILD_PREFIX}/bin/ld.lld"
-      _CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem $BUILD_PREFIX/include"
+      _ARM64_SYSROOT=""
+      for _try_sysroot in /opt/conda-sdks/*"${ARM64_SDK}".sdk; do
+        [[ -z "${_try_sysroot}" ]] && continue  # Skip empty entries
+        if [[ -d "${_try_sysroot}/usr/include" ]] || [[ -d "${_try_sysroot}/System/Library" ]]; then
+          _ARM64_SYSROOT="${_try_sysroot}"
+          echo "     Found ARM64 SDK at: ${_ARM64_SYSROOT}"
+          break
+        fi
+      done
+      # If no SDK found, try to query the cross-compiler for its default sysroot
+      if [[ -z "${_ARM64_SYSROOT}" ]]; then
+        # Try to get default sysroot from the cross-compiler
+        _CLANG_DEFAULT_SYSROOT=$("${_CC}" --print-sysroot 2>/dev/null || true)
+        if [[ -n "${_CLANG_DEFAULT_SYSROOT}" ]] && [[ -d "${_CLANG_DEFAULT_SYSROOT}" ]]; then
+          _ARM64_SYSROOT="${_CLANG_DEFAULT_SYSROOT}"
+          echo "     Found ARM64 SDK via clang --print-sysroot: ${_ARM64_SYSROOT}"
+        fi
+      fi
+
+      if [[ -z "${_ARM64_SYSROOT}" ]]; then
+        echo "     WARNING: No ARM64 SDK found in any of the searched locations"
+        echo "     Searched: ${_SYSROOT_SEARCH[*]}"
+        echo "     BUILD_PREFIX: ${BUILD_PREFIX}"
+        echo "     CONDA_BUILD_SYSROOT: ${CONDA_BUILD_SYSROOT:-unset}"
+        ls -la "${BUILD_PREFIX}/${target}/" 2>/dev/null || echo "     No ${BUILD_PREFIX}/${target}/ directory"
+        ls -la /opt/*.sdk 2>/dev/null || echo "     No /opt/*.sdk directories"
+        echo "     Proceeding without explicit -isysroot (clang will use its default)"
+        _CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem $BUILD_PREFIX/include"
+      else
+        _CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem $BUILD_PREFIX/include -isysroot ${_ARM64_SYSROOT}"
+      fi
       _LDFLAGS="-fuse-ld=lld"
     else
       _AR="${BUILD_PREFIX}/bin/${target}-ar"
@@ -81,8 +102,11 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       ${_MODEL:+ac_cv_func_getentropy=no} > "${SRC_DIR}"/_logs/crossconfigure.log 2>&1 || { cat "${SRC_DIR}"/_logs/crossconfigure.log; exit 1; }
 
     # Patch config.generated.ml for cross output
+    # CRITICAL: Use basenames only (not full paths) so binaries are relocatable
     as=$(basename ${_AS})
     cc=$(basename ${_CC})
+    ar=$(basename ${_AR})
+    ranlib=$(basename ${_RANLIB})
     config_file="utils/config.generated.ml"
     if [[ "${_PLATFORM}" == "macos" ]]; then
       sed -i "s#^let asm = .*#let asm = {|${cc} -c|}#" "$config_file"
@@ -94,6 +118,8 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       sed -i "s#^let mkexe = .*#let mkexe = {|${cc} -Wl,-E|}#" "$config_file"
     fi
     sed -i "s#^let c_compiler = .*#let c_compiler = {|${cc}|}#" "$config_file"
+    sed -i "s#^let ar = .*#let ar = {|${ar}|}#" "$config_file"
+    sed -i "s#^let ranlib = .*#let ranlib = {|${ranlib}|}#" "$config_file"
     sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${CROSS_PREFIX}/lib/ocaml|}#" "$config_file"
     [[ -n "${_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${_MODEL}|}#" "$config_file"
 
@@ -146,10 +172,13 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     CROSS_LIBDIR="${CROSS_PREFIX}/lib/ocaml"
     mkdir -p "${CROSS_LIBDIR}" "${CROSS_PREFIX}/bin"
 
-    # Cross-compiler binary (runs on build, emits target code)
+    # Cross-compiler binaries (run on build, emit target code)
     cp ocamlopt.opt "${CROSS_PREFIX}/bin/ocamlopt.opt"
+    cp ocamlc.opt "${CROSS_PREFIX}/bin/ocamlc.opt"
+    cp tools/ocamldep.opt "${CROSS_PREFIX}/bin/ocamldep.opt"
+    cp tools/ocamlobjinfo.opt "${CROSS_PREFIX}/bin/ocamlobjinfo.opt"
 
-    # Create wrapper script that sets OCAMLLIB to cross-compiled libs
+    # Create wrapper script for ocamlopt that sets OCAMLLIB to cross-compiled libs
     # Uses self-contained path resolution (doesn't depend on OCAML_PREFIX being set)
     cat > "${PREFIX}/bin/${target}-ocamlopt" << 'WRAPPER'
 #!/bin/sh
@@ -160,23 +189,85 @@ WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlopt"
     chmod +x "${PREFIX}/bin/${target}-ocamlopt"
 
-    # Stdlib - need .cmx and .o files too for native compilation
-    cp stdlib/*.cmxa stdlib/*.a stdlib/*.cmi stdlib/*.cmx stdlib/*.o "${CROSS_LIBDIR}/" 2>/dev/null || true
+    # Create wrapper script for ocamlc (bytecode compiler) with same OCAMLLIB
+    cat > "${PREFIX}/bin/${target}-ocamlc" << 'WRAPPER'
+#!/bin/sh
+_prefix="$(cd "$(dirname "$0")/.." && pwd)"
+export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlc.opt" "$@"
+WRAPPER
+    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlc"
+    chmod +x "${PREFIX}/bin/${target}-ocamlc"
 
-    # Compiler libs
-    cp compilerlibs/*.cmxa compilerlibs/*.a compilerlibs/*.cmx "${CROSS_LIBDIR}/" 2>/dev/null || true
+    # Create wrapper script for ocamldep (dependency analyzer) with same OCAMLLIB
+    cat > "${PREFIX}/bin/${target}-ocamldep" << 'WRAPPER'
+#!/bin/sh
+_prefix="$(cd "$(dirname "$0")/.." && pwd)"
+export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamldep.opt" "$@"
+WRAPPER
+    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamldep"
+    chmod +x "${PREFIX}/bin/${target}-ocamldep"
+
+    # Create wrapper script for ocamlobjinfo (object file inspector) with same OCAMLLIB
+    cat > "${PREFIX}/bin/${target}-ocamlobjinfo" << 'WRAPPER'
+#!/bin/sh
+_prefix="$(cd "$(dirname "$0")/.." && pwd)"
+export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlobjinfo.opt" "$@"
+WRAPPER
+    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlobjinfo"
+    chmod +x "${PREFIX}/bin/${target}-ocamlobjinfo"
+
+    # Stdlib - need both bytecode (.cmo, .cma) and native (.cmx, .cmxa) files plus metadata
+    # CRITICAL: .cmo files needed by CAMLC=ocamlc in Makefile.cross (prevents "Cannot find file std_exit.cmo")
+    # Also need runtime-launch-info and other metadata files for ocamlc
+    echo "     copying stdlib files..."
+    cp stdlib/*.cma stdlib/*.cmxa stdlib/*.a stdlib/*.cmi stdlib/*.cmo stdlib/*.cmx stdlib/*.o "${CROSS_LIBDIR}/" || {
+      echo "     ERROR: Failed to copy stdlib files for ${target}"
+      ls -la stdlib/*.{cma,cmxa,a,cmi,cmo,cmx,o} 2>&1 | head -20
+      exit 1
+    }
+    # Copy metadata files (runtime-launch-info, target_runtime-launch-info, etc.)
+    if ls stdlib/*runtime*info 1>/dev/null 2>&1; then
+      cp stdlib/*runtime*info "${CROSS_LIBDIR}/"
+      echo "     copied runtime info files"
+    else
+      echo "     Warning: No runtime info files found - listing stdlib:"
+      ls -la stdlib/ | grep -E "runtime|launch|info" || echo "     (none found)"
+    fi
+
+    # Compiler libs - only need archive files (.cma, .cmxa, .a)
+    # Individual .cmo/.cmx files are packaged inside the archives
+    echo "     copying compilerlibs files..."
+    cp compilerlibs/*.cma compilerlibs/*.cmxa compilerlibs/*.a "${CROSS_LIBDIR}/" || {
+      echo "     ERROR: Failed to copy compilerlibs files for ${target}"
+      ls -la compilerlibs/*.{cma,cmxa,a} 2>&1 | head -20
+      exit 1
+    }
 
     # Runtime
-    cp runtime/*.a runtime/*.o "${CROSS_LIBDIR}/" 2>/dev/null || true
+    echo "     copying runtime files..."
+    cp runtime/*.a runtime/*.o "${CROSS_LIBDIR}/" || {
+      echo "     ERROR: Failed to copy runtime files for ${target}"
+      ls -la runtime/*.{a,o} 2>&1 | head -20
+      exit 1
+    }
 
-    # Otherlibs (unix, str, dynlink, etc.)
+    # Otherlibs (unix, str, dynlink, etc.) - copy archives and any standalone modules
+    # Some otherlibs have individual .cmo/.cmx files, others only have archives
+    echo "     copying otherlibs files..."
     for lib in otherlibs/*/; do
-      cp "${lib}"*.cmxa "${lib}"*.a "${lib}"*.cmi "${lib}"*.cmx "${lib}"*.o "${CROSS_LIBDIR}/" 2>/dev/null || true
+      # Copy what exists - use 2>/dev/null to ignore missing patterns
+      cp "${lib}"*.cma "${lib}"*.cmxa "${lib}"*.a "${lib}"*.cmi "${CROSS_LIBDIR}/" 2>/dev/null || true
+      cp "${lib}"*.cmo "${lib}"*.cmx "${lib}"*.o "${CROSS_LIBDIR}/" 2>/dev/null || true
     done
 
     # Stublibs
     mkdir -p "${CROSS_LIBDIR}/stublibs"
-    cp otherlibs/*/dll*.so "${CROSS_LIBDIR}/stublibs/" 2>/dev/null || true
+    cp otherlibs/*/dll*.so "${CROSS_LIBDIR}/stublibs/" 2>/dev/null || {
+      echo "     Warning: No stublib .so files to copy"
+    }
 
     # Create ld.conf for stublibs discovery
     # CRITICAL: Cross-compiler binary is x86-64 (runs on build machine)

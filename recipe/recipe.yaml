@@ -2,8 +2,12 @@ context:
   name: ocaml
   version: 5.3.0
   flexdll_version: 0.44
+  arm64_sdk: 11.0
   m2: ${{ "m2-" if not unix }}
-
+  library: ${{ "Library/" if not unix }}
+  sh: ${{ "sh" if unix else "bat" }}
+  so: ${{ "so" if unix else "dll" }}
+  
 package:
   name: ocaml
   version: ${{ version }}
@@ -22,15 +26,20 @@ build:
   script:
     env:
       SKIP_MAKE_TESTS: 1
+      ARM64_SDK: ${{ arm64_sdk }}
   dynamic_linking:
     missing_dso_allowlist:
+      - if: linux
+        then:
+          - ld-linux-aarch64.${{ so }}.1  # PPC64LE cross-compiler
+          - ld64.${{ so }}.2              # AARCH64 cross-compiler
       - if: osx
         then:
           - /usr/lib/libSystem.B.dylib
       - if: not unix
         then:
-          - C:\\Windows\\system32\\SHLWAPI.dll
-          - C:\\Windows\\system32\\VERSION.dll
+          - C:/Windows/system32/SHLWAPI.dll
+          - C:/Windows/system32/VERSION.dll
   prefix_detection:
     force_file_type:
       text:
@@ -38,6 +47,9 @@ build:
         - lib/ocaml/ld.conf
         - lib/ocaml/Makefile.config
         - lib/ocaml/runtime-launch-info
+        - ocaml-cross-compilers/*/lib/ocaml/ld.conf
+        - ocaml-cross-compilers/*/lib/ocaml/Makefile.config
+        - ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
     ignore:
       # Only ignore bytecode files (binary format, relocation corrupts them)
       - lib/ocaml/**/*.cmo
@@ -62,14 +74,14 @@ build:
       - bin/ocamlopt.byte
       - bin/ocamloptp
       - bin/ocamlprof
-      - if: linux and x86_64
+      - if: (linux or osx) and x86_64
         then:
-          - ocaml-cross-compilers/*-conda-linux-gnu/lib/ocaml/**/*.cmo
-          - ocaml-cross-compilers/*-conda-linux-gnu/lib/ocaml/**/*.cma
-          - ocaml-cross-compilers/*-conda-linux-gnu/lib/ocaml/**/*.cmi
-          - ocaml-cross-compilers/*-conda-linux-gnu/lib/ocaml/**/*.cmx
-          - ocaml-cross-compilers/*-conda-linux-gnu/lib/ocaml/**/*.cmt
-          - ocaml-cross-compilers/*-conda-linux-gnu/lib/ocaml/**/*.cmti
+          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmo
+          - ocaml-cross-compilers/*/lib/ocaml/**/*.cma
+          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmi
+          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmx
+          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmt
+          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmti
 
 requirements:
   run_exports:
@@ -97,6 +109,7 @@ requirements:
     - if: osx and x86_64
       then:
         - ${{ c_compiler }}_impl_osx-arm64 ${{ c_compiler_version }}.*
+        - ${{ c_stdlib }}_osx-arm64 =${{ arm64_sdk }}
     - if: not unix
       then:
         - ${{ m2 }}coreutils
@@ -104,7 +117,7 @@ requirements:
         - ${{ m2 }}which
     - if: aarch64 or ppc64le or arm64
       then:
-        - ocaml >=5.3
+        # - ocaml >=5.3
         - zstd
     - if: osx
       then:
@@ -151,10 +164,19 @@ tests:
             - ocamldoc.opt
         - if: linux and x86_64
           then:
+            - aarch64-conda-linux-gnu-ocamlc
+            - aarch64-conda-linux-gnu-ocamldep
+            - aarch64-conda-linux-gnu-ocamlobjinfo
             - aarch64-conda-linux-gnu-ocamlopt
+            - powerpc64le-conda-linux-gnu-ocamlc
+            - powerpc64le-conda-linux-gnu-ocamldep
+            - powerpc64le-conda-linux-gnu-ocamlobjinfo
             - powerpc64le-conda-linux-gnu-ocamlopt
         - if: osx and x86_64
           then:
+            - arm64-apple-darwin20.0.0-ocamlc
+            - arm64-apple-darwin20.0.0-ocamldep
+            - arm64-apple-darwin20.0.0-ocamlobjinfo
             - arm64-apple-darwin20.0.0-ocamlopt
         - if: unix
           then:
@@ -163,29 +185,80 @@ tests:
             - flexlink
             - flexlink.byte
             - flexlink.opt
+      lib:
       files:
-        - etc/conda/activate.d/ocaml_activate.${{ "sh" if unix else "bat" }}
-        - etc/conda/deactivate.d/ocaml_deactivate.${{ "sh" if unix else "bat" }}
-        - ${{ "Library/" if not unix }}lib/ocaml/**
-        - ${{ "Library/" if not unix }}share/doc/ocaml/*
+        - etc/conda/activate.d/ocaml_activate.${{ sh }}
+        - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
+        - ${{ library }}lib/ocaml/ld.conf
+        - ${{ library }}lib/ocaml/libasmrun.a
+        - ${{ library }}lib/ocaml/Makefile.config
+        - ${{ library }}lib/ocaml/runtime-launch-info
+        - ${{ library }}lib/ocaml/*.a
+        - ${{ library }}lib/ocaml/*.cma
+        - ${{ library }}lib/ocaml/*.cmi
+        - ${{ library }}lib/ocaml/*.cmo
+        - ${{ library }}lib/ocaml/*.cmt
+        - ${{ library }}lib/ocaml/*.cmti
+        - ${{ library }}lib/ocaml/*.cmx
+        - ${{ library }}lib/ocaml/*.cmxa
+        - ${{ library }}lib/ocaml/*.ml
+        - ${{ library }}lib/ocaml/*.mli
+        - ${{ library }}lib/ocaml/*.o
+        - ${{ library }}lib/ocaml/caml/*.h
+        - ${{ library }}lib/ocaml/compiler-libs/*
+        - ${{ library }}lib/ocaml/dynlink/*
+        - ${{ library }}lib/ocaml/profiling/*
+        - ${{ library }}lib/ocaml/str/*
+        - ${{ library }}lib/ocaml/threads/*
+        - ${{ library }}lib/ocaml/unix/*
+        - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
+        - ${{ library }}share/doc/ocaml/*
         - if: (build_platform == target_platform) and unix
-          then: share/man/man{1,3}/*
+          then:
+            - ${{ library }}lib/ocaml/ocamldoc/*
+            - share/man/man{1,3}/*
         - if: linux and x86_64
           then:
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlc.opt
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamldep.opt
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlobjinfo.opt
             - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlopt.opt
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/stdlib.cmxa
             - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/libasmrun.a
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/stublibs/*
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/runtime-launch-info
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.a
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cma
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmi
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmo
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmx
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmxa
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.o
+            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/stublibs/dll*.${{ so }}
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlc.opt
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamldep.opt
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlobjinfo.opt
             - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlopt.opt
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/stdlib.cmxa
             - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/libasmrun.a
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/stublibs/*
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/runtime-launch-info
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cma
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmi
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmo
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmx
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmxa
+            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/stublibs/dll*.${{ so }}
         - if: osx and x86_64
           then:
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlc.opt
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamldep.opt
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlobjinfo.opt
             - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlopt.opt
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/stdlib.cmxa
             - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/libasmrun.a
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/stublibs/*
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/runtime-launch-info
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cma
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmi
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmo
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmx
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmxa
+            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/stublibs/dll*.${{ so }}
 
   - script:
       # === DIAGNOSTIC: Env., Resource files ===
@@ -237,14 +310,14 @@ tests:
             ocamlc -version | grep ${{ version }}
             ocamldep -version | grep ${{ version }}
             ocamllex -version | grep ${{ version }}
-            ocamlobjinfo -help | grep FILES
-            ocamlobjinfo.opt -help | grep FILES
-            ocamlrun -version | grep ${{ version }} || { ocamlrun -version; }
-            ocamlyacc -version | grep ${{ version }} || { ocamlyacc -version; }
+            ocamlobjinfo -help | grep -q FILES
+            ocamlobjinfo.opt -help | grep -q FILES
+            ocamlrun -version | grep ${{ version }}
+            ocamlyacc -version | grep ${{ version }}
 
             # Bytecode sensitive to conda PREFIX detection
             ocaml -version | grep ${{ version }}
-            ocamlcmt -help | grep FILE
+            ocamlcmt -help | grep -q FILE
             ocamlcp -version | grep ${{ version }}
             ocamlmklib -version | grep ${{ version }}
             ocamlmktop -version | grep ${{ version }}
@@ -260,11 +333,20 @@ tests:
             ocamldebug -version | grep ${{ version }}
         - if: linux and x86_64
           then: |
-            aarch64-conda-linux-gnu-ocamlopt -version | grep ${{ version }} || true
-            powerpc64le-conda-linux-gnu-ocamlopt -version | grep ${{ version }} || true
+            aarch64-conda-linux-gnu-ocamlc -version | grep ${{ version }}
+            aarch64-conda-linux-gnu-ocamldep -version | grep ${{ version }}
+            aarch64-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
+            aarch64-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
+            powerpc64le-conda-linux-gnu-ocamlc -version | grep ${{ version }}
+            powerpc64le-conda-linux-gnu-ocamldep -version | grep ${{ version }}
+            powerpc64le-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
+            powerpc64le-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
         - if: osx and x86_64
           then: |
-            arm64-conda-linux-gnu-ocamlopt -version | grep ${{ version }} || true
+            arm64-apple-darwin20.0.0-ocamlc -version | grep ${{ version }}
+            arm64-apple-darwin20.0.0-ocamldep -version | grep ${{ version }}
+            arm64-apple-darwin20.0.0-ocamlobjinfo -help | grep -q FILES
+            arm64-apple-darwin20.0.0-ocamlopt -version | grep ${{ version }}
     requirements:
       run:
         - ${{ m2 }}grep

@@ -39,6 +39,11 @@ HOST_ZSTD_LIBS=ZSTD_LIBS=$(ZSTD_LIBS)
 # ocamlopt.
 VPATH := + $(VPATH)
 
+# CRITICAL: Export OCAMLLIB so bytecode compiler (ocamlc) sees cross-compiler's stdlib
+# This prevents "inconsistent assumptions" errors between .cmi files from ocamlc
+# and .cmx files from ocamlopt (which uses the cross-compiler)
+export OCAMLLIB
+
 # SAK_CC and SAK_LINK should be set to build-machine compiler when cross-compiling
 # SAK is a build tool that must run on the BUILD machine, not the TARGET
 # Default to CC if SAK_CC is not defined (native build case)
@@ -175,7 +180,7 @@ endif
 	$(MAKE) -C stdlib allopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
 	# otherlibrariesopt also needs cross-compiler for aarch64 .cmx/.o files
 	$(MAKE) otherlibrariesopt ocamltoolsopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	$(MAKE) tools-allopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	$(MAKE) ocamltoolsopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	# Copy stublibs to where the cross-compiler expects them
 	# The compiler has Config.standard_library baked in (pointing to PREFIX/lib/ocaml)
 	# and looks for stublibs relative to that path. We must copy before CROSSCOMPILERLIBS.
@@ -205,14 +210,24 @@ crosscompiledopt:
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
+	# Clean dynlink native files before any native compilation to prevent "inconsistent assumptions"
+	rm -f otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o
+	rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o
 	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
 	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
 	# Build stdlib native directly using CAMLOPT (cross-compiler passed on command line)
 	# CAMLOPT should be the cross-compiler from _cross/bin that produces target code
 	$(MAKE) -C stdlib allopt CAMLOPT=$(CAMLOPT) OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
-	# otherlibrariesopt also needs cross-compiler for target .cmx/.o files
-	$(MAKE) otherlibrariesopt ocamltoolsopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	$(MAKE) tools-allopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	# Clean dynlink again before otherlibrariesopt (ocamlopt.opt build may have compiled with wrong CAMLOPT)
+	@echo "=== Cleaning dynlink files before otherlibrariesopt ==="
+	rm -fv otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o 2>/dev/null || true
+	rm -fv otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o 2>/dev/null || true
+	@ls -la otherlibs/dynlink/*.cmx 2>/dev/null || echo "No .cmx in otherlibs/dynlink/"
+	@ls -la otherlibs/dynlink/native/*.cmx 2>/dev/null || echo "No .cmx in otherlibs/dynlink/native/"
+	# otherlibrariesopt - skip ocamltoolsopt here (triggers parallel tools-allopt with wrong CAMLOPT)
+	$(MAKE) otherlibrariesopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	$(MAKE) ocamltoolsopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	$(MAKE) ocamltoolsopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	# Copy stublibs to where the cross-compiler expects them (same as crossopt)
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
@@ -252,6 +267,23 @@ otherlibraries: ocamltools dynlink-all
 otherlibrariesopt: dynlink-allopt
 	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES)
 
+# Cross-compilation variant: calls dynlink-allopt with proper compiler variables
+# Use this instead of otherlibrariesopt when cross-compiling to avoid
+# "inconsistent assumptions" errors (dynlink compiled with wrong compiler)
+# Must pass ALL compiler variables: OCAMLOPT, CAMLOPT, BEST_OCAMLOPT
+.PHONY: otherlibrariesopt-cross
+otherlibrariesopt-cross:
+	rm -f otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o
+	rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o
+	@echo "=== DEBUG: Removing old dynlink files from cross-compiler stdlib ==="
+	rm -f $(OCAMLLIB)/dynlink*.cmi $(OCAMLLIB)/dynlink*.cmx $(OCAMLLIB)/dynlink*.cmo $(OCAMLLIB)/dynlink*.cma $(OCAMLLIB)/dynlink*.cmxa 2>/dev/null || true
+	@echo "=== DEBUG: OCAMLLIB (make var) = $(OCAMLLIB)"
+	@echo "=== DEBUG: OCAMLLIB (env) = $$OCAMLLIB"
+	@echo "=== DEBUG: ocamlc stdlib = $$(ocamlc -config-var standard_library)"
+	@echo "=== DEBUG: ocamlopt stdlib = $$($(CAMLOPT) -config-var standard_library)"
+	export OCAMLLIB="$(OCAMLLIB)"; echo "=== DEBUG: After export, OCAMLLIB = $$OCAMLLIB"; $(MAKE) dynlink-allopt OCAMLOPT=$(CAMLOPT) CAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) OCAMLLIB=$(OCAMLLIB) OC_NATIVE_COMPFLAGS="-verbose" $(CROSS_OVERRIDES)
+	export OCAMLLIB="$(OCAMLLIB)"; $(MAKE) -C otherlibs allopt OCAMLLIB=$(OCAMLLIB) $(CROSS_OTHERLIBS_OVERRIDES)
+
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
 	rm -f $(FLEXDLL_SOURCE_DIR)/flexlink.exe
@@ -274,7 +306,8 @@ installcross:
 	  $(addprefix toplevel/, \
 	    $(foreach ext,cmi cmt cmti cmx, native/nat__dummy__.$(ext)) \
 	      all__dummy__.cmx topstart.o native/tophooks.cmi)
-	$(LN) `command -v ocamllex` lex/ocamllex.opt$(EXE)
-	$(LN) `command -v ocamlyacc` yacc/ocamlyacc.opt$(EXE)
+	# Only create symlinks if binaries don't exist (Stage 3 builds real binaries)
+	test -f lex/ocamllex.opt$(EXE) || $(LN) `command -v ocamllex` lex/ocamllex.opt$(EXE)
+	test -f yacc/ocamlyacc.opt$(EXE) || $(LN) `command -v ocamlyacc` yacc/ocamlyacc.opt$(EXE)
 	# Real installation
 	$(MAKE) install $(INSTALL_OVERRIDES)

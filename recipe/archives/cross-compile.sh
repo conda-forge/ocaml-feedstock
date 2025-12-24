@@ -85,7 +85,7 @@ CONFIG_ARGS=(--enable-shared --disable-static)
 # ============================================================================
 _build_alias="$build_alias"
 _host_alias="$host_alias"
-_OCAML_PREFIX="${OCAML_PREFIX}"
+_OCAML_PREFIX="${OCAML_INSTALL_PREFIX}"
 
 # TARGET cross-compiler (for building target code)
 # macOS clang cross-compilers may not have -cc symlink, only -clang
@@ -376,8 +376,8 @@ else
   )
 fi
 
-run_logged "stage3_crosscompiledruntime" make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" -j${CPU_COUNT}
-run_logged "stage3_installcross" make installcross
+make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" -j${CPU_COUNT}
+make installcross
 
 # ============================================================================
 # Post-install fixes
@@ -401,8 +401,8 @@ if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
 
   for lib in "${OCAML_PREFIX}/lib/ocaml/"*.so "${OCAML_PREFIX}/lib/ocaml/stublibs/"*.so; do
     [[ -f "$lib" ]] || continue
-    install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib" 2>/dev/null || true
-    install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib" 2>/dev/null || true
+    install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib"
+    install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib"
   done
 fi
 
@@ -415,7 +415,7 @@ for bin in "${OCAML_PREFIX}"/bin/*; do
   # Check for ocamlrun reference (need 350 bytes for long conda placeholder paths)
   if head -c 350 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      fix_ocamlrun_shebang "$bin" 2>/dev/null || true
+      fix_ocamlrun_shebang "$bin" 2>/dev/null
     fi
     continue
   fi

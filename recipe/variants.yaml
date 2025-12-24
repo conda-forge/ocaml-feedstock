@@ -4,6 +4,9 @@ c_stdlib:
       - m2w64-sysroot
 
 c_stdlib_version:
+  - if: osx and x86_64
+    then:
+      - 11.0
   - if: not unix
     then:
       - 12
