@@ -284,19 +284,34 @@ tests:
         then:
           - if: aarch64
             then:
-              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "AArch64" || { echo "Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "AArch64" || { echo "ocamlc.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlopt.opt | grep -q "AArch64" || { echo "ocamlopt.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamllex.opt | grep -q "AArch64" || { echo "ocamllex.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamldep.opt | grep -q "AArch64" || { echo "ocamldep.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlobjinfo.opt | grep -q "AArch64" || { echo "ocamlobjinfo.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "AArch64" || { echo "ocamlrun: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/lib/ocaml/libasmrun_shared.so | grep -q "AArch64" || { echo "libasmrun_shared.so: Bad Arch"; exit 1; }
           - if: arm64
             then:
-              - otool -hv ${PREFIX}/bin/ocamlc.opt # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/bin/ocamlrun # | grep -iq "ARM64" || { echo "Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlc.opt | grep -iq "ARM64" || { echo "ocamlc.opt: Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlopt.opt | grep -iq "ARM64" || { echo "ocamlopt.opt: Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamllex.opt | grep -iq "ARM64" || { echo "ocamllex.opt: Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamldep.opt | grep -iq "ARM64" || { echo "ocamldep.opt: Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlobjinfo.opt | grep -iq "ARM64" || { echo "ocamlobjinfo.opt: Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/bin/ocamlrun | grep -iq "ARM64" || { echo "ocamlrun: Bad Arch"; exit 1; }
+              - otool -hv ${PREFIX}/lib/ocaml/libasmrun_shared.dylib | grep -iq "ARM64" || { echo "libasmrun_shared: Bad Arch"; exit 1; }
           - if: ppc64le
             then:
-              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "Bad Arch"; exit 1; }
-          - echo "Cross-compiled binary arch passed"
+              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "ocamlc.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlopt.opt | grep -q "PowerPC64" || { echo "ocamlopt.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamllex.opt | grep -q "PowerPC64" || { echo "ocamllex.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamldep.opt | grep -q "PowerPC64" || { echo "ocamldep.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlobjinfo.opt | grep -q "PowerPC64" || { echo "ocamlobjinfo.opt: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "ocamlrun: Bad Arch"; exit 1; }
+              - readelf -h ${PREFIX}/lib/ocaml/libasmrun_shared.so | grep -q "PowerPC64" || { echo "libasmrun_shared.so: Bad Arch"; exit 1; }
+          - echo "All cross-compiled binaries: CORRECT architecture ✓"
         else:
-          echo "All good"
+          echo "Native build (no cross-compilation check needed)"
 
   - script:
       env:
@@ -317,11 +332,11 @@ tests:
 
             # Bytecode sensitive to conda PREFIX detection
             ocaml -version | grep ${{ version }}
-            ocamlcmt -help | grep -q FILE
+            ocamlcmt -help | grep -q FILES
             ocamlcp -version | grep ${{ version }}
             ocamlmklib -version | grep ${{ version }}
             ocamlmktop -version | grep ${{ version }}
-            ocamlobjinfo.byte -help
+            ocamlobjinfo.byte -help | grep -q FILES
             ocamloptp -version | grep ${{ version }}
             ocamlprof -version | grep ${{ version }}
 

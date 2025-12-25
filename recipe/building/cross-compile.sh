@@ -186,6 +186,7 @@ if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
   done
 
   # Fix install names for shared libraries
+  # 1. Set correct install_name for runtime libraries
   if [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/libasmrun_shared.so" ]]; then
     install_name_tool -id "@rpath/libasmrun_shared.so" "${OCAML_INSTALL_PREFIX}/lib/ocaml/libasmrun_shared.so"
   fi
@@ -193,10 +194,22 @@ if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
     install_name_tool -id "@rpath/libcamlrun_shared.so" "${OCAML_INSTALL_PREFIX}/lib/ocaml/libcamlrun_shared.so"
   fi
 
+  # 2. Fix references in ALL libraries (runtime libs + stublibs)
   for lib in "${OCAML_INSTALL_PREFIX}/lib/ocaml/"*.so "${OCAML_INSTALL_PREFIX}/lib/ocaml/stublibs/"*.so; do
     [[ -f "$lib" ]] || continue
-    install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib"
-    install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib"
+
+    # Fix build-time paths to @rpath
+    install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib" 2>/dev/null || true
+    install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib" 2>/dev/null || true
+
+    # Note: Self-references (library linking to itself) are handled via recipe.yaml allowlist
+
+    # Fix relative paths in stublibs (./dllname.so -> @loader_path/dllname.so)
+    if [[ "$lib" == *"/stublibs/"* ]]; then
+      for dll in dllthreads.so dllunixbyt.so dllunixnat.so dllcamlstrbyt.so dllcamlstrnat.so dllcamlruntime_eventsbyt.so dllcamlruntime_eventsnat.so; do
+        install_name_tool -change "./$dll" "@loader_path/$dll" "$lib" 2>/dev/null || true
+      done
+    fi
   done
 fi
 
