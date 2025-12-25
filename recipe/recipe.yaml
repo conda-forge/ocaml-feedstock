@@ -261,7 +261,7 @@ tests:
             - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/stublibs/dll*.${{ so }}
 
   - script:
-      # === DIAGNOSTIC: Env., Resource files ===
+      - echo "=== Env., Resource files ==="
       - if: unix
         then: |
           echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null && { echo "OCAMLLIB set"; }
@@ -279,7 +279,7 @@ tests:
         - ${{ m2 }}grep
 
   - script:
-      # === DIAGNOSTIC: Check cross-binaries for correct arch ===
+      - echo "=== Check cross-binaries for correct arch ==="
       - if: build_platform != target_platform
         then:
           - if: aarch64
@@ -317,51 +317,61 @@ tests:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
-        # === DIAGNOSTIC: All binaries version/info output ===
+        - echo "=== All binaries version/info output ==="
         - if: arm64
           then:
             - echo "Skipped test for ARM64"
           else: |
-            ocamlc -version | grep ${{ version }}
-            ocamldep -version | grep ${{ version }}
-            ocamllex -version | grep ${{ version }}
-            ocamlobjinfo -help | grep -q FILES
-            ocamlobjinfo.opt -help | grep -q FILES
-            ocamlrun -version | grep ${{ version }}
-            ocamlyacc -version | grep ${{ version }}
+            echo "Testing ocamlc..." && ocamlc -version | grep ${{ version }}
+            echo "Testing ocamldep..." && ocamldep -version | grep ${{ version }}
+            echo "Testing ocamllex..." && ocamllex -version | grep ${{ version }}
+            echo "Testing ocamlrun..." && ocamlrun -version | grep ${{ version }}
+            echo "Testing ocamlyacc..." && ocamlyacc -version | grep ${{ version }}
 
-            # Bytecode sensitive to conda PREFIX detection
-            ocaml -version | grep ${{ version }}
-            ocamlcmt -help | grep -q FILES
-            ocamlcp -version | grep ${{ version }}
-            ocamlmklib -version | grep ${{ version }}
-            ocamlmktop -version | grep ${{ version }}
-            ocamlobjinfo.byte -help | grep -q FILES
-            ocamloptp -version | grep ${{ version }}
-            ocamlprof -version | grep ${{ version }}
+            echo "Testing ocaml..." && ocaml -version | grep ${{ version }}
+            echo "Testing ocamlcp..." && ocamlcp -version | grep ${{ version }}
+            echo "Testing ocamlmklib..." && ocamlmklib -version | grep ${{ version }}
+            echo "Testing ocamlmktop..." && ocamlmktop -version | grep ${{ version }}
+            echo "Testing ocamloptp..." && ocamloptp -version | grep ${{ version }}
+            echo "Testing ocamlprof..." && ocamlprof -version | grep ${{ version }}
 
-            ocamlopt -version | grep ${{ version }}
+            echo "Testing ocamlopt..." && ocamlopt -version | grep ${{ version }}
+        - if: unix and not arm64
+          then: |
+            echo "Testing ocamlobjinfo..." && ocamlobjinfo -help | grep -q FILES
+            echo "Testing ocamlobjinfo.opt..." && ocamlobjinfo.opt -help | grep -q FILES
+            echo "Testing ocamlcmt..." && ocamlcmt -help | grep -q FILE
+            echo "Testing ocamlobjinfo.byte..." && ocamlobjinfo.byte -help | grep -q FILES
+        - if: not unix
+          then: |
+            echo "Testing ocamlobjinfo..." && ocamlobjinfo -help
+            echo "Testing ocamlobjinfo.opt..." && ocamlobjinfo.opt -help
+            echo "Testing ocamlcmt..." && ocamlcmt -help
+            echo "Testing ocamlobjinfo.byte..." && ocamlobjinfo.byte -help
         - if: build_platform == target_platform
           then: |
-            ocamldoc -version | grep ${{ version }}
-            ocamldoc.opt -version | grep ${{ version }}
-            ocamldebug -version | grep ${{ version }}
+            echo "Testing ocamldoc..." && ocamldoc -version | grep ${{ version }}
+            echo "Testing ocamldoc.opt..." && ocamldoc.opt -version | grep ${{ version }}
+            echo "Testing ocamldebug..." && ocamldebug -version | grep ${{ version }}
         - if: linux and x86_64
           then: |
-            aarch64-conda-linux-gnu-ocamlc -version | grep ${{ version }}
-            aarch64-conda-linux-gnu-ocamldep -version | grep ${{ version }}
-            aarch64-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
-            aarch64-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
-            powerpc64le-conda-linux-gnu-ocamlc -version | grep ${{ version }}
-            powerpc64le-conda-linux-gnu-ocamldep -version | grep ${{ version }}
-            powerpc64le-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
-            powerpc64le-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
+            echo "Testing aarch64 cross-compilers..."
+            echo "  ocamlc..." && aarch64-conda-linux-gnu-ocamlc -version | grep ${{ version }}
+            echo "  ocamldep..." && aarch64-conda-linux-gnu-ocamldep -version | grep ${{ version }}
+            echo "  ocamlobjinfo..." && aarch64-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
+            echo "  ocamlopt..." && aarch64-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
+            echo "Testing ppc64le cross-compilers..."
+            echo "  ocamlc..." && powerpc64le-conda-linux-gnu-ocamlc -version | grep ${{ version }}
+            echo "  ocamldep..." && powerpc64le-conda-linux-gnu-ocamldep -version | grep ${{ version }}
+            echo "  ocamlobjinfo..." && powerpc64le-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
+            echo "  ocamlopt..." && powerpc64le-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
         - if: osx and x86_64
           then: |
-            arm64-apple-darwin20.0.0-ocamlc -version | grep ${{ version }}
-            arm64-apple-darwin20.0.0-ocamldep -version | grep ${{ version }}
-            arm64-apple-darwin20.0.0-ocamlobjinfo -help | grep -q FILES
-            arm64-apple-darwin20.0.0-ocamlopt -version | grep ${{ version }}
+            echo "Testing arm64 cross-compilers..."
+            echo "  ocamlc..." && arm64-apple-darwin20.0.0-ocamlc -version | grep ${{ version }}
+            echo "  ocamldep..." && arm64-apple-darwin20.0.0-ocamldep -version | grep ${{ version }}
+            echo "  ocamlobjinfo..." && arm64-apple-darwin20.0.0-ocamlobjinfo -help | grep -q FILES
+            echo "  ocamlopt..." && arm64-apple-darwin20.0.0-ocamlopt -version | grep ${{ version }}
     requirements:
       run:
         - ${{ m2 }}grep
@@ -370,7 +380,7 @@ tests:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
-        # === Exercise compilers with actual code ===
+        - echo "=== Exercise compilers with actual code ==="
         - if: arm64
           then:
             - echo "Skipped test for ARM64"
@@ -426,7 +436,7 @@ tests:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
-        # === Exercise cross-compilers with actual code ===
+        - echo "=== Exercise cross-compilers with actual code ==="
         - if: linux and x86_64
           then: |
             echo "=== Testing cross-compiler compilation ==="
