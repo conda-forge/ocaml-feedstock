@@ -115,9 +115,11 @@ requirements:
         - ${{ m2 }}coreutils
         - ${{ m2 }}diffutils
         - ${{ m2 }}which
+    # Note: For cross-compilation, we use 3-stage bootstrap (no external OCaml needed)
+    # The bootstrap builds OCaml 5.4.0 natively in Stage 1, then uses it for cross-compilation
+    # Using "ocaml >=5.3" here would install 5.3.x which doesn't have APIs used by 5.4.0 source
     - if: aarch64 or ppc64le or arm64
       then:
-        - ocaml >=5.3
         - zstd
     - if: osx
       then:
