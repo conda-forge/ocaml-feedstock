@@ -20,3 +20,34 @@ c_compiler_version:
   - if: not unix
     then:
       - 14
+
+zip_keys:
+  - - cross_build
+    - cross_target
+    - cross_linker
+    - triplet_target
+
+cross_build:
+  - linux-64
+  - linux-64
+  - linux-64
+  - osx-64
+
+cross_target:
+  - linux-aarch64
+  - linux-ppc64le
+  - linux-s390x
+  - osx-arm64
+
+cross_linker:
+  - ld-linux-aarch64.so.1
+  - ld64.so.2
+  - "-"
+  - "-"
+
+triplet_target:
+  - aarch64-conda-linux-gnu
+  - powerpc64le-conda-linux-gnu
+  - s390x-conda-linux-gnu-gcc
+  - arm64-apple-darwin20.0.0
+

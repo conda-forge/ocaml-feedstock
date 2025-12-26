@@ -3,8 +3,10 @@
 # ============================================================================
 if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-64" ]]; then
 
-  # Set OCAMLLIB to installed native ocaml
-  export OCAMLLIB="${PREFIX}/lib/ocaml"
+  # Use native ocaml from Output 1 (installed to BUILD_PREFIX via pin_subpackage)
+  export PATH="${BUILD_PREFIX}/bin:${PATH}"
+  export OCAMLLIB="${BUILD_PREFIX}/lib/ocaml"
+  mkdir -p "${SRC_DIR}"/_logs
 
   # Define cross targets based on build platform
   declare -A CROSS_TARGETS
@@ -21,7 +23,17 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     _CC="clang"
   fi
 
-  for target in "${!CROSS_TARGETS[@]}"; do
+  # If CROSS_HOST_ALIAS is set (multi-output mode), build only that target
+  # Otherwise build all targets (backward compatibility)
+  if [[ -n "${CROSS_HOST_ALIAS:-}" ]]; then
+    echo "=== Multi-output mode: Building only ${CROSS_HOST_ALIAS} cross-compiler ==="
+    TARGETS_TO_BUILD=("${CROSS_HOST_ALIAS}")
+  else
+    echo "=== Single-output mode: Building all cross-compilers ==="
+    TARGETS_TO_BUILD=("${!CROSS_TARGETS[@]}")
+  fi
+
+  for target in "${TARGETS_TO_BUILD[@]}"; do
     IFS=':' read -r _ARCH _PLATFORM _MODEL <<< "${CROSS_TARGETS[$target]}"
 
     echo "=== Building cross-compiler for ${target} ==="

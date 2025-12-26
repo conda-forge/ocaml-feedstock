@@ -34,92 +34,74 @@ CONFIG_ARGS=(
   -prefix "${OCAML_INSTALL_PREFIX}"
 )
 
-if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-  # Try optimized Stage 3-only path first
-  echo "=== Attempting cross-compilation with cross-compiler (Stage 3 only) ==="
-  if source "${RECIPE_DIR}/building/cross-compile.sh"; then
-    echo "=== Cross-compilation successful with Stage 3 only ==="
-  else
-    echo "=== Stage 3 failed, falling back to full 3-stage bootstrap ==="
-    echo "=== Cross-compiling with unified 3-stage build script ==="
-    source "${RECIPE_DIR}/archives/cross-compile.sh"
-  fi
-else
-  # Load unix no-op non-unix helpers
-  source "${RECIPE_DIR}/building/non-unix-utilities.sh"
+# Load unix no-op non-unix helpers
+source "${RECIPE_DIR}/building/non-unix-utilities.sh"
 
-  # No-op for unix
-  unix_noop_build_toolchain
+# No-op for unix
+unix_noop_build_toolchain
 
-  # Simplify compiler paths to basenames (hardcoded in binaries)
-  export CC=$(basename "${CC}")
-  export ASPP="$CC -c"
-  export AS=$(basename "${AS:-as}")
-  export AR=$(basename "${AR:-ar}")
-  export RANLIB=$(basename "${RANLIB:-ranlib}")
+# Simplify compiler paths to basenames (hardcoded in binaries)
+export CC=$(basename "${CC}")
+export ASPP="$CC -c"
+export AS=$(basename "${AS:-as}")
+export AR=$(basename "${AR:-ar}")
+export RANLIB=$(basename "${RANLIB:-ranlib}")
 
-  # Platform-specific linker flags
-  if [[ "${target_platform}" == "osx-"* ]]; then
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  elif [[ "${target_platform}" == "linux-"* ]]; then
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-    export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
-  fi
-
-  export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-
-  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
-    CONFIG_ARGS+=(--enable-ocamltest)
-  fi
-
-  echo "=== Configuring native compiler ==="
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
-
-  # No-op for unix
-  unix_noop_update_toolchain
-
-  # Patch config.generated.ml with compiler paths for build
-  config_file="utils/config.generated.ml"
-  if [[ -f "$config_file" ]]; then
-    if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      if [[ "${target_platform}" == "osx-"* ]]; then
-        _BUILD_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-        _BUILD_MKDLL="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
-      else
-        # Linux: -Wl,-E exports symbols for ocamlnat (native toplevel)
-        _BUILD_MKEXE="${CC} -Wl,-E"
-        _BUILD_MKDLL="${CC} -shared"
-      fi
-
-      # These must be basename variables as they get embedded in binaries
-      sed -i "s/^let asm = .*/let asm = {|${AS}|}/" "$config_file"
-      sed -i "s/^let c_compiler = .*/let c_compiler = {|${CC}|}/" "$config_file"
-      sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "$config_file"
-      sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "$config_file"
-      sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "$config_file"
-    fi
-  fi
-
-  echo "=== Compiling native compiler ==="
-  make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
-
-  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
-    echo "=== Building cross-compiler for ${target} ==="
-    make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
-    make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
-  fi
-
-  echo "=== Installing native compiler ==="
-  make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
+# Platform-specific linker flags
+if [[ "${target_platform}" == "osx-"* ]]; then
+  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+elif [[ "${target_platform}" == "linux-"* ]]; then
+  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
 fi
 
-# ============================================================================
-# Cross-compilers
-# ============================================================================
+export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
-source "${RECIPE_DIR}"/building/build-cross-compiler.sh
+if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
+  CONFIG_ARGS+=(--enable-ocamltest)
+fi
+
+echo "=== Configuring native compiler ==="
+./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+
+# No-op for unix
+unix_noop_update_toolchain
+
+# Patch config.generated.ml with compiler paths for build
+config_file="utils/config.generated.ml"
+if [[ -f "$config_file" ]]; then
+  if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+    if [[ "${target_platform}" == "osx-"* ]]; then
+      _BUILD_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+      _BUILD_MKDLL="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
+    else
+      # Linux: -Wl,-E exports symbols for ocamlnat (native toplevel)
+      _BUILD_MKEXE="${CC} -Wl,-E"
+      _BUILD_MKDLL="${CC} -shared"
+    fi
+
+    # These must be basename variables as they get embedded in binaries
+    sed -i "s/^let asm = .*/let asm = {|${AS}|}/" "$config_file"
+    sed -i "s/^let c_compiler = .*/let c_compiler = {|${CC}|}/" "$config_file"
+    sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "$config_file"
+    sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "$config_file"
+    sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "$config_file"
+  fi
+fi
+
+echo "=== Compiling native compiler ==="
+make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+
+if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
+  echo "=== Building tests for ${target_platform} ==="
+  make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
+  make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
+fi
+
+echo "=== Installing native compiler ==="
+make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
 
 # ============================================================================
 # Post-install fixes (applies to both native and cross-compiled builds)

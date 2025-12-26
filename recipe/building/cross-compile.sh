@@ -7,9 +7,11 @@ source "${RECIPE_DIR}/building/common-functions.sh"
 # ============================================================================
 # Verify cross-compilers are available
 # ============================================================================
-if [[ ! -d "${BUILD_PREFIX}/ocaml-cross-compilers" ]]; then
-  echo "ERROR: Cross-compilers not found in ${BUILD_PREFIX}/ocaml-cross-compilers"
-  echo "This is expected on first build of a new OCaml version."
+# Multi-output mode: check for specific host_alias directory (separate package per target)
+if [[ ! -d "${BUILD_PREFIX}/ocaml-cross-compilers/${host_alias}" ]]; then
+  echo "ERROR: Cross-compiler not found in ${BUILD_PREFIX}/ocaml-cross-compilers/${host_alias}"
+  echo "Expected package: ocaml-cross-compiler_${target_platform}"
+  echo "This should have been installed via pin_subpackage in recipe requirements."
   echo "Will fall back to full 3-stage bootstrap."
   exit 1
 fi
