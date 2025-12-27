@@ -11,7 +11,7 @@ if [[ ! -d "${BUILD_PREFIX}/ocaml-cross-compilers" ]]; then
   echo "ERROR: Cross-compilers not found in ${BUILD_PREFIX}/ocaml-cross-compilers"
   echo "This is expected on first build of a new OCaml version."
   echo "Will fall back to full 3-stage bootstrap."
-  exit 1
+  return 1
 fi
 
 # ============================================================================

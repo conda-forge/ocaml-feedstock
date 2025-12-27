@@ -42,7 +42,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   else
     echo "=== Stage 3 failed, falling back to full 3-stage bootstrap ==="
     echo "=== Cross-compiling with unified 3-stage build script ==="
-    source "${RECIPE_DIR}/archives/cross-compile.sh"
+    source "${RECIPE_DIR}/building/3-stage-cross-compile.sh"
   fi
 else
   # Load unix no-op non-unix helpers
