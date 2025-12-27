@@ -99,6 +99,9 @@ else
       sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "$config_file"
       sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "$config_file"
       sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "$config_file"
+    
+      # Remove build locations that are backed into binaries - Generates 'Invalid argument' during opam
+      sed -i 's#-L[^ ]*##g' utils/config.generated.ml
     fi
   fi
 
