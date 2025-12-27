@@ -376,8 +376,8 @@ else
   )
 fi
 
-make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" -j${CPU_COUNT}
-make installcross
+run_logged "stage3_crosscompiledruntime" make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" -j${CPU_COUNT}
+run_logged "stage3_installcross" make installcross
 
 # ============================================================================
 # Post-install fixes

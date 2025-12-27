@@ -185,16 +185,11 @@ tests:
             - flexlink
             - flexlink.byte
             - flexlink.opt
-      lib:
-        - ocaml/libasmrun.a
-        - ocaml/*.a
-        - if: (linux or osx) and x86_64
-          then:
-            - ocaml-cross-compilers/*/lib/ocaml/libasmrun.a
-            - ocaml-cross-compilers/*/lib/ocaml/*.a
       files:
         - etc/conda/activate.d/ocaml_activate.${{ sh }}
         - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
+        - ${{ library }}lib/ocaml/libasmrun.a
+        - ${{ library }}lib/ocaml/*.a
         - ${{ library }}lib/ocaml/ld.conf
         - ${{ library }}lib/ocaml/Makefile.config
         - ${{ library }}lib/ocaml/runtime-launch-info
@@ -214,6 +209,8 @@ tests:
             - share/man/man{1,3}/*
         - if: linux and x86_64
           then:
+            - lib/ocaml-cross-compilers/*/lib/ocaml/libasmrun.a
+            - lib/ocaml-cross-compilers/*/lib/ocaml/*.a
             - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlc.opt
             - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamldep.opt
             - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlobjinfo.opt
