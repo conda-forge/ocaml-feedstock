@@ -26,6 +26,61 @@ else
   SH_EXT="bat"
 fi
 
+# ==============================================================================
+# CROSS-COMPILATION ROUTING
+# ==============================================================================
+# When build_platform != target_platform, we need cross-compilation.
+# Two strategies available:
+#   1. Stage 3 only: Use pre-built cross-compiler (fast, ~10 min)
+#   2. 3-stage bootstrap: Build everything from scratch (slow, ~40 min)
+#
+# conda-forge CI runs all platforms in parallel, so cross-compiler from
+# another platform won't be available on first build. We check the channel
+# and fall back to 3-stage bootstrap if not found.
+# ==============================================================================
+if [[ "${build_platform:-0}" != "0" ]] && [[ "${build_platform:-}" != "${target_platform}" ]]; then
+  echo "=== Cross-compilation detected: ${build_platform:-} -> ${target_platform} ==="
+
+  _CROSS_PKG="ocaml-cross-compiler_${target_platform}"
+  _CROSS_VERSION="${PKG_VERSION}"
+  _CROSS_COMPILER_DIR="${BUILD_PREFIX}/ocaml-cross-compilers/${host_alias:-}"
+  _USE_STAGE3=0
+
+  # Check if cross-compiler is available on conda-forge channel
+  echo "Checking for ${_CROSS_PKG}==${_CROSS_VERSION} on conda-forge..."
+  if mamba search -c conda-forge "${_CROSS_PKG}==${_CROSS_VERSION}" --json 2>/dev/null | grep -q '"version"'; then
+    echo "Found ${_CROSS_PKG} on conda-forge, attempting install..."
+    if mamba install -p "${BUILD_PREFIX}" -c conda-forge "${_CROSS_PKG}==${_CROSS_VERSION}" --yes --quiet 2>/dev/null; then
+      if [[ -d "${_CROSS_COMPILER_DIR}" ]] && [[ -x "${BUILD_PREFIX}/bin/${host_alias:-}-ocamlopt" ]]; then
+        echo "Cross-compiler installed successfully"
+        _USE_STAGE3=1
+      fi
+    fi
+  fi
+
+  if [[ "${_USE_STAGE3}" == "1" ]]; then
+    echo "Using Stage 3 only (fast path, ~10 min)"
+    source "${RECIPE_DIR}/building/cross-compile.sh"
+  else
+    echo "Cross-compiler not available on channel"
+    echo "Using 3-stage bootstrap (self-sufficient path, ~40 min)"
+    source "${RECIPE_DIR}/building/3-stage-cross-compile.sh"
+  fi
+
+  # Cross-compilation scripts handle everything including post-install
+  # Install activation scripts and exit
+  for CHANGE in "activate" "deactivate"; do
+    mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
+    cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.${SH_EXT}" 2>/dev/null || true
+  done
+  exit 0
+fi
+
+# ==============================================================================
+# NATIVE BUILD (build_platform == target_platform)
+# ==============================================================================
+echo "=== Native build for ${target_platform} ==="
+
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
@@ -54,7 +109,7 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
 elif [[ "${target_platform}" == "linux-"* ]]; then
   export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
+  export LDFLAGS="${LDFLAGS:-}"
 fi
 
 export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
@@ -64,14 +119,14 @@ if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
 fi
 
 echo "=== Configuring native compiler ==="
-./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
 # No-op for unix
 unix_noop_update_toolchain
 
 # Patch config.generated.ml with compiler paths for build
 config_file="utils/config.generated.ml"
-if [[ -f "$config_file" ]]; then
+if [[ -f "${config_file}" ]]; then
   if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
     if [[ "${target_platform}" == "osx-"* ]]; then
       _BUILD_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
@@ -83,12 +138,22 @@ if [[ -f "$config_file" ]]; then
     fi
 
     # These must be basename variables as they get embedded in binaries
-    sed -i "s/^let asm = .*/let asm = {|${AS}|}/" "$config_file"
-    sed -i "s/^let c_compiler = .*/let c_compiler = {|${CC}|}/" "$config_file"
-    sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "$config_file"
-    sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "$config_file"
-    sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "$config_file"
+    sed -i "s/^let asm = .*/let asm = {|${AS}|}/" "${config_file}"
+    sed -i "s/^let c_compiler = .*/let c_compiler = {|${CC}|}/" "${config_file}"
+    sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "${config_file}"
+    sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "${config_file}"
+    sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "${config_file}"
+    
+    # Remove build locations that are backed into binaries - Generates 'Invalid argument' during opam
+    sed -i 's#-L[^ ]*##g' "${config_file}"
   fi
+fi
+
+# Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX
+config_file="Makefile.config"
+if [[ -f "${config_file}" ]]; then
+  sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
+  sed -i "s#-L[^ ]*##g" "${config_file}"
 fi
 
 echo "=== Compiling native compiler ==="
@@ -108,9 +173,9 @@ make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/i
 # ============================================================================
 
 # Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX
-if [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" ]]; then
-  sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
-  sed -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
+config_file="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
+if [[ -f "${config_file}" ]]; then
+  sed -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${config_file}"
 fi
 
 # non-Unix: replace symlinks with copies

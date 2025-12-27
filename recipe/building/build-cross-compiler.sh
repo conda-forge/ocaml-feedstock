@@ -1,3 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+
+# ==============================================================================
+# CRITICAL: Ensure we're using conda bash 5.2+, not system bash
+# ==============================================================================
+if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO[1]} -lt 2) ]]; then
+  echo "re-exec with conda bash..."
+  if [[ -x "${BUILD_PREFIX}/bin/bash" ]]; then
+    exec "${BUILD_PREFIX}/bin/bash" "$0" "$@"
+  else
+    echo "ERROR: Could not find conda bash at ${BUILD_PREFIX}/bin/bash"
+    exit 1
+  fi
+fi
+
 # ============================================================================
 # CROSS-COMPILERS (only on linux-64 and osx-64)
 # ============================================================================
@@ -38,7 +55,7 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
 
     echo "=== Building cross-compiler for ${target} ==="
 
-    CROSS_PREFIX="${PREFIX}/ocaml-cross-compilers/${target}"
+    CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
     mkdir -p "${CROSS_PREFIX}/bin" "${CROSS_PREFIX}/lib/ocaml"
 
     _CC="${BUILD_PREFIX}/bin/${target}-${CC##*-}"
@@ -53,7 +70,7 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       _STRIP="${BUILD_PREFIX}/bin/llvm-strip"
       _LD="${BUILD_PREFIX}/bin/ld.lld"
       _ARM64_SYSROOT=""
-      for _try_sysroot in /opt/conda-sdks/*"${ARM64_SDK}".sdk; do
+      for _try_sysroot in /opt/conda-sdks/*.sdk; do
         [[ -z "${_try_sysroot}" ]] && continue  # Skip empty entries
         if [[ -d "${_try_sysroot}/usr/include" ]] || [[ -d "${_try_sysroot}/System/Library" ]]; then
           _ARM64_SYSROOT="${_try_sysroot}"
@@ -83,7 +100,9 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       else
         _CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem $BUILD_PREFIX/include -isysroot ${_ARM64_SYSROOT}"
       fi
-      _LDFLAGS="-fuse-ld=lld"
+      _LDFLAGS="-fuse-ld=lld -L${BUILD_PREFIX}/lib"
+      export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+      export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
     else
       _AR="${BUILD_PREFIX}/bin/${target}-ar"
       _RANLIB="${BUILD_PREFIX}/bin/${target}-ranlib"
@@ -195,8 +214,8 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     cat > "${PREFIX}/bin/${target}-ocamlopt" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlopt.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlopt.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlopt"
     chmod +x "${PREFIX}/bin/${target}-ocamlopt"
@@ -205,8 +224,8 @@ WRAPPER
     cat > "${PREFIX}/bin/${target}-ocamlc" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlc.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlc.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlc"
     chmod +x "${PREFIX}/bin/${target}-ocamlc"
@@ -215,8 +234,8 @@ WRAPPER
     cat > "${PREFIX}/bin/${target}-ocamldep" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamldep.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamldep.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamldep"
     chmod +x "${PREFIX}/bin/${target}-ocamldep"
@@ -225,8 +244,8 @@ WRAPPER
     cat > "${PREFIX}/bin/${target}-ocamlobjinfo" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlobjinfo.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlobjinfo.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlobjinfo"
     chmod +x "${PREFIX}/bin/${target}-ocamlobjinfo"
