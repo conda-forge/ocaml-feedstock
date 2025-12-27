@@ -26,7 +26,7 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
 
     echo "=== Building cross-compiler for ${target} ==="
 
-    CROSS_PREFIX="${PREFIX}/ocaml-cross-compilers/${target}"
+    CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
     mkdir -p "${CROSS_PREFIX}/bin" "${CROSS_PREFIX}/lib/ocaml"
 
     _CC="${BUILD_PREFIX}/bin/${target}-${CC##*-}"
@@ -183,8 +183,8 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     cat > "${PREFIX}/bin/${target}-ocamlopt" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlopt.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlopt.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlopt"
     chmod +x "${PREFIX}/bin/${target}-ocamlopt"
@@ -193,8 +193,8 @@ WRAPPER
     cat > "${PREFIX}/bin/${target}-ocamlc" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlc.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlc.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlc"
     chmod +x "${PREFIX}/bin/${target}-ocamlc"
@@ -203,8 +203,8 @@ WRAPPER
     cat > "${PREFIX}/bin/${target}-ocamldep" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamldep.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamldep.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamldep"
     chmod +x "${PREFIX}/bin/${target}-ocamldep"
@@ -213,8 +213,8 @@ WRAPPER
     cat > "${PREFIX}/bin/${target}-ocamlobjinfo" << 'WRAPPER'
 #!/bin/sh
 _prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlobjinfo.opt" "$@"
+export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
+exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlobjinfo.opt" "$@"
 WRAPPER
     sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlobjinfo"
     chmod +x "${PREFIX}/bin/${target}-ocamlobjinfo"

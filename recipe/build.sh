@@ -144,7 +144,7 @@ fi
 
 # Fix bytecode wrapper shebangs (source function)
 source "${RECIPE_DIR}/building/fix-ocamlrun-shebang.sh"
-for bin in "${OCAML_INSTALL_PREFIX}"/bin/* "${OCAML_INSTALL_PREFIX}"/ocaml-cross-compilers/*/bin/*; do
+for bin in "${OCAML_INSTALL_PREFIX}"/bin/* "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/bin/*; do
   [[ -f "$bin" ]] || continue
   [[ -L "$bin" ]] && continue
 

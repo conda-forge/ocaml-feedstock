@@ -7,7 +7,7 @@ source "${RECIPE_DIR}/building/common-functions.sh"
 # ============================================================================
 # Verify cross-compilers are available
 # ============================================================================
-if [[ ! -d "${BUILD_PREFIX}/ocaml-cross-compilers" ]]; then
+if [[ ! -d "${BUILD_PREFIX}/lib/ocaml-cross-compilers" ]]; then
   echo "ERROR: Cross-compilers not found in ${BUILD_PREFIX}/ocaml-cross-compilers"
   echo "This is expected on first build of a new OCaml version."
   echo "Will fall back to full 3-stage bootstrap."
@@ -145,7 +145,7 @@ else
   _STAGE3_CROSSCOMPILEDOPT_ARGS+=(CPPFLAGS="-D_DEFAULT_SOURCE")
 fi
 
-run_logged "stage3_crosscompiledopt" make crosscompiledopt "${_STAGE3_CROSSCOMPILEDOPT_ARGS[@]}" OCAMLLIB="${OCAMLLIB}" -j${CPU_COUNT}
+run_logged "stage3_crosscompiledopt" make crosscompiledopt "${_STAGE3_CROSSCOMPILEDOPT_ARGS[@]}" OCAMLLIB="${OCAMLLIB}" -j${CPU_COUNT} || return 1
 
 # Fix build_config.h paths for target
 sed -i "s#${BUILD_PREFIX}/lib/ocaml#${PREFIX}/lib/ocaml#g"  runtime/build_config.h
@@ -171,7 +171,7 @@ else
   )
 fi
 
-run_logged "stage3_crosscompiledruntime" make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" OCAMLLIB="${OCAMLLIB}" -j${CPU_COUNT}
+run_logged "stage3_crosscompiledruntime" make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" OCAMLLIB="${OCAMLLIB}" -j${CPU_COUNT} || return 1
 
 # Replace stripdebug with a no-op for cross-compilation
 # (stripdebug tries to EXECUTE the target binary to strip it, which won't run on build machine)
@@ -181,7 +181,7 @@ cp "${RECIPE_DIR}/building/stripdebug-noop.ml" tools/stripdebug.ml
 ocamlc -o tools/stripdebug tools/stripdebug.ml
 rm -f tools/stripdebug.ml tools/stripdebug.cmi tools/stripdebug.cmo
 
-run_logged "stage3_installcross" make installcross
+run_logged "stage3_installcross" make installcross || return 1
 
 # ============================================================================
 # Post-install fixes
