@@ -268,14 +268,16 @@ tests:
         - testing/test-env-paths.${{ sh }}
     requirements:
       run:
-        - ${{ m2 }}grep
         - binutils_impl_${{ target_platform }}
+        - if: not arm64
+          then:
+            - ${{ m2 }}grep
 
   # Test 2: Cross-compiled binary architecture verification
   - script:
       - if: build_platform != target_platform
         then:
-          - cd testing && ${{ dot }}test-cross-arch.${{ sh }}
+          - cd testing && ${{ dot }}test-cross-arch.${{ sh }} ${{ target_platform }}
         else:
           - echo "Native build - skipping cross-arch check"
     files:
@@ -344,7 +346,7 @@ tests:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: (linux and x86_64) or (osx and x86_64)
-          then: cd testing && ${{ dot }}testing/test-cross-compilers.${{ sh }} ${{ version }}
+          then: cd testing && ${{ dot }}test-cross-compilers.${{ sh }} ${{ version }} ${{ build_platform }} ${{ target_platform }}
           else: echo "Cross-compilers only tested on linux-64 and osx-64"
     files:
       recipe:
