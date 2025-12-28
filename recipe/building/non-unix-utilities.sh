@@ -74,16 +74,16 @@ unix_noop_update_toolchain() {
 
     config_file="utils/config.generated.ml"
     if [[ -f "$config_file" ]]; then
-      # Use basenames - these get baked into the binary
-      _AS_BASENAME=$(basename "${AS}")
-      _CC_BASENAME=$(basename "${CC}")
-      sed -i "s/^let asm = .*/let asm = {|${_AS_BASENAME}|}/" "$config_file"
-      sed -i "s/^let c_compiler = .*/let c_compiler = {|${_CC_BASENAME}|}/" "$config_file"
+      # Use CONDA_OCAML_* environment variables for tools
+      # These are set in activate.bat with defaults
+      # Users can override: set CONDA_OCAML_CC=clang && ocamlopt ...
+      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
+      sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
 
       # Windows linker/dll settings
-      sed -i "s/^let mkexe = .*/let mkexe = {|${_CC_BASENAME}|}/" "$config_file"
-      sed -i "s/^let mkdll = .*/let mkdll = {|${_CC_BASENAME} -shared|}/" "$config_file"
-      sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_CC_BASENAME} -shared|}/" "$config_file"
+      sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
+      sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_CC -shared|}/' "$config_file"
+      sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_CC -shared|}/' "$config_file"
     fi
   fi
   

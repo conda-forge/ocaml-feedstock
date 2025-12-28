@@ -19,24 +19,26 @@ patch_config_generated() {
 
   echo "Patching ${config_file} for ${platform_type} platform..."
 
-  # Common patches (both platforms)
+  # Use CONDA_OCAML_* environment variables for tools
+  # These are set in activate.sh with defaults (as, cc, ar)
+  # Users can override: CONDA_OCAML_CC=clang ocamlopt ...
   sed -i \
-    -e 's/^let asm = .*/let asm = {|\$AS|}/' \
-    -e 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' \
-    -e 's/^let mkexe = .*/let mkexe = {|\$CC|}/' \
+    -e 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' \
+    -e 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' \
+    -e 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' \
     "$config_file"
 
   # Platform-specific patches
   if [[ "${platform_type}" == "macos" ]]; then
     sed -i \
-      -e 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' \
-      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared -undefined dynamic_lookup|}/' \
+      -e 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_CC -shared -undefined dynamic_lookup|}/' \
+      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_CC -shared -undefined dynamic_lookup|}/' \
       "$config_file"
   else
     # Linux
     sed -i \
-      -e 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' \
-      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' \
+      -e 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_CC -shared|}/' \
+      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_CC -shared|}/' \
       -e 's/^let native_c_libraries = {|\(.*\)|}/let native_c_libraries = {|\1 -ldl|}/' \
       "$config_file"
   fi
@@ -46,9 +48,9 @@ patch_config_generated() {
     sed -i "s/^let model = .*/let model = {|${model}|}/" "$config_file"
   fi
 
-  # Linux-only: Patch ar to use $AR environment variable (relocatable)
+  # Linux-only: Patch ar
   if [[ "${platform_type}" == "linux" ]]; then
-    sed -i 's/^let ar = .*/let ar = {|\$AR|}/' "$config_file"
+    sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
   fi
 
   echo "Patching ${config_file} complete."

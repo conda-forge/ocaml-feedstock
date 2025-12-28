@@ -268,7 +268,7 @@ tests:
         - testing/test-env-paths.${{ sh }}
     requirements:
       run:
-        - binutils_impl_${{ target_platform }}
+        - binutils
         - if: not arm64
           then:
             - ${{ m2 }}grep
@@ -285,7 +285,7 @@ tests:
         - testing/test-cross-arch.${{ sh }}
     requirements:
       run:
-        - binutils_impl_${{ target_platform }}
+        - binutils
 
   # Test 3: Tool version checks (all platforms)
   - script:
