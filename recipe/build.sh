@@ -77,7 +77,13 @@ else
   # No-op for unix
   unix_noop_update_toolchain
 
-  # Patch config.generated.ml to use CONDA_OCAML_* env vars (set in activate.sh)
+  # Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
+  export CONDA_OCAML_AS="${AS}"
+  export CONDA_OCAML_CC="${CC}"
+  export CONDA_OCAML_AR="${AR:-ar}"
+  export CONDA_OCAML_MKDLL="${CC} -shared"
+
+  # Patch config.generated.ml to use CONDA_OCAML_* env vars (set in activate.sh at runtime)
   config_file="utils/config.generated.ml"
   if [[ -f "$config_file" ]]; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then

@@ -296,6 +296,12 @@ fi
 
 PKG_CONFIG=false run_logged "stage3_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
 
+# Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
+export CONDA_OCAML_AS="${_AS}"
+export CONDA_OCAML_CC="${_CC}"
+export CONDA_OCAML_AR="${_AR}"
+export CONDA_OCAML_MKDLL="${_CC} -shared"
+
 # Patch config.generated.ml for RUNTIME paths (uses CONDA_OCAML_* env vars set in activate.sh)
 config_file="utils/config.generated.ml"
 if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then

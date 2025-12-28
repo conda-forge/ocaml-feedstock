@@ -72,6 +72,12 @@ unix_noop_update_toolchain() {
       fi
     fi
     
+    # Define CONDA_OCAML_* variables during build (Windows uses these via %VAR% syntax)
+    export CONDA_OCAML_AS="${AS:-as}"
+    export CONDA_OCAML_CC="${CC:-gcc}"
+    export CONDA_OCAML_AR="${AR:-ar}"
+    export CONDA_OCAML_MKDLL="${CC:-gcc} -shared"
+
     config_file="utils/config.generated.ml"
     if [[ -f "$config_file" ]]; then
       # Windows: Use %VAR% syntax (not $VAR)

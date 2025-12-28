@@ -115,6 +115,12 @@ PKG_CONFIG=false run_logged "stage3_configure" ./configure -prefix="${PREFIX}" "
 # Apply Makefile.cross patches
 apply_cross_patches
 
+# Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
+export CONDA_OCAML_AS="${_AS}"
+export CONDA_OCAML_CC="${_CC}"
+export CONDA_OCAML_AR="${_AR}"
+export CONDA_OCAML_MKDLL="${_CC} -shared"
+
 # Patch config.generated.ml and Makefile.config for cross-compilation
 source "${RECIPE_DIR}/building/patch-config-generated.sh"
 patch_config_generated "utils/config.generated.ml" "${_PLATFORM_TYPE}" "${_MODEL:-}"
