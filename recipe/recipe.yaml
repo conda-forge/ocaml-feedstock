@@ -370,6 +370,26 @@ tests:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
 
+  # Test 8: CONDA_OCAML_* toolchain variable tests
+  - script:
+      env:
+        OCAMLRUNPARAM: "s=4M,o=1000"
+      content:
+        - if: build_platform == target_platform
+          then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
+          else: echo "Toolchain var tests only on native builds"
+    files:
+      recipe:
+        - testing/test-toolchain-vars.${{ sh }}
+    requirements:
+      run:
+        - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - ${{ m2 }}grep
+        - if: osx
+          then:
+            - lld >=${{ c_compiler_version }}
+            - llvm-tools >=${{ c_compiler_version }}
+
 about:
   homepage: https://ocaml.org/
   license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception

@@ -296,10 +296,10 @@ fi
 
 PKG_CONFIG=false run_logged "stage3_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
 
-# Patch config.generated.ml for RUNTIME paths (uses $CC/$AS env vars for relocatable binaries)
+# Patch config.generated.ml for RUNTIME paths (uses CONDA_OCAML_* env vars set in activate.sh)
 config_file="utils/config.generated.ml"
 if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
-  sed -i 's/^let ar = .*/let ar = {|\$AR|}/' "$config_file"
+  sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
 fi
 
 apply_cross_patches
@@ -307,17 +307,17 @@ if [[ "${_NEEDS_DL}" == "1" ]]; then
   sed -i 's/^\(NATIVECCLIBS=.*\)$/\1 -ldl/' Makefile.config
 fi
 
-sed -i 's/^let asm = .*/let asm = {|\$AS|}/' "$config_file"
-sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CC|}/' "$config_file"
+sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
+sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
 
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
-  sed -i 's/^let mkdll = .*/let mkdll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
-  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared -undefined dynamic_lookup|}/' "$config_file"
-  sed -i 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
+  sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
+  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
+  sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
 else
-  sed -i 's/^let mkdll = .*/let mkdll = {|\$CC -shared|}/' "$config_file"
-  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CC -shared|}/' "$config_file"
-  sed -i 's/^let mkexe = .*/let mkexe = {|\$CC|}/' "$config_file"
+  sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+  sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
   sed -i 's/^let native_c_libraries = {|\(.*\)|}/let native_c_libraries = {|\1 -ldl|}/' "$config_file"
 fi
 if [[ -n "${_MODEL:-}" ]]; then

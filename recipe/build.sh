@@ -77,27 +77,25 @@ else
   # No-op for unix
   unix_noop_update_toolchain
 
-  # Patch config.generated.ml with compiler paths for build
+  # Patch config.generated.ml to use CONDA_OCAML_* env vars (set in activate.sh)
   config_file="utils/config.generated.ml"
   if [[ -f "$config_file" ]]; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
+      sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
+      sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
+
       if [[ "${target_platform}" == "osx-"* ]]; then
-        _BUILD_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-        _BUILD_MKDLL="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
+        sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
+        sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
       else
-        # Linux: -Wl,-E exports symbols for ocamlnat (native toplevel)
-        _BUILD_MKEXE="${CC} -Wl,-E"
-        _BUILD_MKDLL="${CC} -shared"
+        # Linux
+        sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+        sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+        sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
       fi
 
-      # These must be basename variables as they get embedded in binaries
-      sed -i "s/^let asm = .*/let asm = {|${AS}|}/" "$config_file"
-      sed -i "s/^let c_compiler = .*/let c_compiler = {|${CC}|}/" "$config_file"
-      sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "$config_file"
-      sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "$config_file"
-      sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "$config_file"
-    
-      # Remove build locations that are backed into binaries - Generates 'Invalid argument' during opam
+      # Remove build locations that are baked into binaries - Generates 'Invalid argument' during opam
       sed -i 's#-L[^ ]*##g' utils/config.generated.ml
     fi
   fi

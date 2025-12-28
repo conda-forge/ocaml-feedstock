@@ -8,4 +8,20 @@
 )
 @set "OCAMLLIB=%OCAML_PREFIX%\lib\ocaml"
 
-set "PATH=%OCAMLLIB%\stublibs;%PATH%"
+@set "PATH=%OCAMLLIB%\stublibs;%PATH%"
+
+@REM OCaml toolchain configuration
+@REM These are used by ocamlopt for assembling and linking native code
+@REM Users can override: set CONDA_OCAML_CC=cl && set CONDA_OCAML_MKDLL=cl /LD && ocamlopt ...
+
+@REM Use CONDA_OCAML_* if set, else use system AS/CC/AR, else use defaults
+@if not defined CONDA_OCAML_AS (
+    @if defined AS (@set "CONDA_OCAML_AS=%AS%") else (@set "CONDA_OCAML_AS=as")
+)
+@if not defined CONDA_OCAML_CC (
+    @if defined CC (@set "CONDA_OCAML_CC=%CC%") else (@set "CONDA_OCAML_CC=gcc")
+)
+@if not defined CONDA_OCAML_AR (
+    @if defined AR (@set "CONDA_OCAML_AR=%AR%") else (@set "CONDA_OCAML_AR=ar")
+)
+@if not defined CONDA_OCAML_MKDLL @set "CONDA_OCAML_MKDLL=%CONDA_OCAML_CC% -shared"
