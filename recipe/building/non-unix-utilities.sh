@@ -49,6 +49,12 @@ unix_noop_update_toolchain() {
         fi
       fi
 
+      # Fix flexdll build: NATDYNLINK=false avoids "-link" flag quoting issue
+      # Without this, flexlink.exe build fails with "cannot find -link: No such file"
+      if ! grep -qE "^NATDYNLINK" Makefile.config; then
+        echo "NATDYNLINK=false" >> Makefile.config
+      fi
+
       # Build flexdll support object for NATIVECCLIBS
       if [[ -d "flexdll" ]]; then
         make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o 2>/dev/null || true
@@ -65,8 +71,16 @@ unix_noop_update_toolchain() {
     
     config_file="utils/config.generated.ml"
     if [[ -f "$config_file" ]]; then
-      sed -i 's/^let asm = .*/let asm = {|%AS%|}/' "$config_file"
-      sed -i 's/^let c_compiler = .*/let c_compiler = {|%CC%|}/' "$config_file"
+      # Use basenames - these get baked into the binary
+      _AS_BASENAME=$(basename "${AS}")
+      _CC_BASENAME=$(basename "${CC}")
+      sed -i "s/^let asm = .*/let asm = {|${_AS_BASENAME}|}/" "$config_file"
+      sed -i "s/^let c_compiler = .*/let c_compiler = {|${_CC_BASENAME}|}/" "$config_file"
+
+      # Windows linker/dll settings
+      sed -i "s/^let mkexe = .*/let mkexe = {|${_CC_BASENAME}|}/" "$config_file"
+      sed -i "s/^let mkdll = .*/let mkdll = {|${_CC_BASENAME} -shared|}/" "$config_file"
+      sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_CC_BASENAME} -shared|}/" "$config_file"
     fi
   fi
   
