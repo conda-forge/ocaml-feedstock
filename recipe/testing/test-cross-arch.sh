@@ -6,10 +6,11 @@ set -euo pipefail
 
 echo "=== Cross-Compiled Binary Architecture Tests ==="
 
-# Detect target architecture from environment
-TARGET_PLATFORM="${target_platform:-}"
+# Get target platform from positional argument (passed by recipe.yaml)
+TARGET_PLATFORM="${1:-}"
 if [[ -z "$TARGET_PLATFORM" ]]; then
-  echo "ERROR: target_platform not set"
+  echo "ERROR: target_platform not passed to script"
+  echo "Usage: $0 <target_platform>"
   exit 1
 fi
 

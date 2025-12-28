@@ -61,8 +61,17 @@ unix_noop_update_toolchain() {
           fi
         fi
       fi
+
+      # Fix flexdll build: NATDYNLINK=false avoids "-link" flag quoting issue
+      # The -cclib "-link version_res.o" gets parsed as -l "ink" by mingw ld
+      # Must OVERRIDE whatever configure set, not just add if missing
+      if grep -qE "^NATDYNLINK" Makefile.config; then
+        sed -i 's/^NATDYNLINK=.*/NATDYNLINK=false/' Makefile.config
+      else
+        echo "NATDYNLINK=false" >> Makefile.config
+      fi
     fi
-    
+
     config_file="utils/config.generated.ml"
     if [[ -f "$config_file" ]]; then
       # Use basenames - these get baked into the binary
