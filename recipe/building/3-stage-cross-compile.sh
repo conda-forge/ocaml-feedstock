@@ -187,7 +187,8 @@ else
   _CONFIG_ARGS+=(LD="$_build_alias-ld" NM="${_BUILD_NM}")
 fi
 
-run_logged "stage1_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_build_alias"
+# PKG_CONFIG=false forces simple "-lzstd" instead of "-L/long/path -lzstd"
+PKG_CONFIG=false run_logged "stage1_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_build_alias"
 run_logged "stage1_world" make world.opt -j${CPU_COUNT}
 run_logged "stage1_install" make install
 
@@ -204,7 +205,7 @@ export PATH="${SRC_DIR}/_native/bin:${_PATH}"
 export OCAMLLIB=${SRC_DIR}/_native/lib/ocaml
 export OCAML_PREFIX=${SRC_DIR}/_cross
 
-run_logged "stage2_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_host_alias" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
+PKG_CONFIG=false run_logged "stage2_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" --target="$_host_alias" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
 
 # Patch utils/config.generated.ml for cross-compilation (hardcoded paths for cross-compiler)
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
@@ -293,7 +294,7 @@ if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
   _CONFIG_ARGS+=(AS="${_AS}")
 fi
 
-run_logged "stage3_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
+PKG_CONFIG=false run_logged "stage3_configure" ./configure -prefix="${OCAML_PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
 
 # Patch config.generated.ml for RUNTIME paths (uses $CC/$AS env vars for relocatable binaries)
 config_file="utils/config.generated.ml"

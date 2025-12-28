@@ -98,7 +98,6 @@ requirements:
     - ${{ m2 }}make
     - ${{ m2 }}sed
     - binutils
-    - pkgconfig
     - if: linux and x86_64
       then:
         - ${{ c_compiler }}_impl_linux-aarch64 ${{ c_compiler_version }}.*

@@ -58,22 +58,20 @@ else
   export RANLIB=$(basename "${RANLIB:-ranlib}")
 
   # Platform-specific linker flags
+  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   if [[ "${target_platform}" == "osx-"* ]]; then
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
     export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  elif [[ "${target_platform}" == "linux-"* ]]; then
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
-
-  export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     CONFIG_ARGS+=(--enable-ocamltest)
   fi
 
   echo "=== Configuring native compiler ==="
-  ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+  # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
+  # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
+  PKG_CONFIG=false ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
   # No-op for unix
   unix_noop_update_toolchain

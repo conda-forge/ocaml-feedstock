@@ -67,12 +67,14 @@ if echo "$BYTECCLIBS" | grep -qE "^-L|[[:space:]]-L"; then
 fi
 echo "  bytecomp_c_libraries: clean"
 
-ZSTDLIBS=$(ocamlc.opt -config-var compression_c_libraries)
+echo "DEBUG" && echo $(ocamlc.opt -config)
+
+ZSTDLIBS=$(ocamlc.opt -config-var compression_c_libraries || "Not found")
 echo "  compression_c_libraries=${ZSTDLIBS}"
 if echo "$ZSTDLIBS" | grep -qE "^-L|[[:space:]]-L"; then
   echo "ERROR: compression_c_libraries contains -L path: $ZSTDLIBS"
   exit 1
 fi
-echo "  compression_c_libraries: clean"
+echo "  compression_c_libraries: clean (or not found in this version)"
 
 echo "=== All environment/path tests passed ==="

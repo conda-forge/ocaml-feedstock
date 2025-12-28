@@ -99,7 +99,8 @@ fi
 
 # CRITICAL: Configure with PREFIX (target install location), not OCAML_PREFIX (BUILD_PREFIX)
 # We want to install cross-compiled binaries to PREFIX, not overwrite BUILD_PREFIX native tools
-run_logged "stage3_configure" ./configure -prefix="${PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
+# PKG_CONFIG=false forces simple "-lzstd" instead of "-L/long/path -lzstd"
+PKG_CONFIG=false run_logged "stage3_configure" ./configure -prefix="${PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
 
 # Apply Makefile.cross patches
 apply_cross_patches

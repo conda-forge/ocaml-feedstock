@@ -92,7 +92,8 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     # NOTE: Do NOT pass CC here - configure needs BUILD compiler to build the cross-compiler binary
     # The TARGET compiler (_CC) is patched into config.generated.ml later
     echo "     configure"
-    ./configure -prefix="${CROSS_PREFIX}" \
+    # PKG_CONFIG=false forces simple "-lzstd" instead of "-L/long/path -lzstd"
+    PKG_CONFIG=false ./configure -prefix="${CROSS_PREFIX}" \
       --target="${target}" \
       "${CONFIG_ARGS[@]}" \
       AR="${_AR}" \
