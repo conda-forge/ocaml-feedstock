@@ -269,7 +269,7 @@ tests:
     requirements:
       run:
         - ${{ m2 }}grep
-        - binutils
+        - binutils_impl_${{ target_platform }}
 
   # Test 2: Cross-compiled binary architecture verification
   - script:
@@ -283,7 +283,7 @@ tests:
         - testing/test-cross-arch.${{ sh }}
     requirements:
       run:
-        - binutils
+        - binutils_impl_${{ target_platform }}
 
   # Test 3: Tool version checks (all platforms)
   - script:
