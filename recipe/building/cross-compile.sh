@@ -77,7 +77,7 @@ export PATH="${BUILD_PREFIX}/bin:${PATH}"
 # as the cross-compiler to prevent "inconsistent assumptions" errors.
 # The cross-compiler package now includes both bytecode (.cmo) and native (.cmx) files.
 # This matches the approach in archives/cross-compile.sh:277
-export OCAMLLIB="${BUILD_PREFIX}/ocaml-cross-compilers/${_host_alias}/lib/ocaml"
+export OCAMLLIB="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${_host_alias}/lib/ocaml"
 echo "DEBUG: OCAMLLIB=${OCAMLLIB}"
 ls -la "${OCAMLLIB}/"*.cmo 2>/dev/null | head -5 || echo "WARNING: No .cmo files in OCAMLLIB"
 

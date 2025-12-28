@@ -35,13 +35,13 @@ CONFIG_ARGS=(
 )
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-  if [[ -d "${BUILD_PREFIX}"/ocaml-cross-compilers ]]; then
+  if [[ -d "${BUILD_PREFIX}"/lib/ocaml-cross-compilers ]]; then
     echo "=== Cross-compiling with cross-compiler ==="
     source "${RECIPE_DIR}/building/cross-compile.sh"
   else
     # Cross-compilation: use unified 3-stage build script
     echo "=== Cross-compiling with unified 3-stage build script ==="
-    source "${RECIPE_DIR}/archives/cross-compile.sh"
+    source "${RECIPE_DIR}/building/3-stage-cross-compile.sh"
   fi
 else
   # Load unix no-op non-unix helpers
@@ -64,7 +64,6 @@ else
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   elif [[ "${target_platform}" == "linux-"* ]]; then
     export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-    export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib"
   fi
 
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
@@ -74,7 +73,7 @@ else
   fi
 
   echo "=== Configuring native compiler ==="
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+  ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
   # No-op for unix
   unix_noop_update_toolchain
@@ -98,7 +97,17 @@ else
       sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "$config_file"
       sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "$config_file"
       sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "$config_file"
+
+      # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
+      sed -i 's|-L[^ ]*||g' "$config_file"
     fi
+  fi
+
+  # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
+  config_file="Makefile.config"
+  if [[ -f "${config_file}" ]]; then
+    sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
+    sed -i 's|-L[^ ]*||g' "${config_file}"
   fi
 
   echo "=== Compiling native compiler ==="
@@ -126,7 +135,6 @@ source "${RECIPE_DIR}"/building/build-cross-compiler.sh
 
 # Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX
 if [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" ]]; then
-  sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   sed -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
 fi
 
@@ -143,7 +151,7 @@ fi
 
 # Fix bytecode wrapper shebangs (source function)
 source "${RECIPE_DIR}/building/fix-ocamlrun-shebang.sh"
-for bin in "${OCAML_INSTALL_PREFIX}"/bin/* "${OCAML_INSTALL_PREFIX}"/ocaml-cross-compilers/*/bin/*; do
+for bin in "${OCAML_INSTALL_PREFIX}"/bin/* "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/bin/*; do
   [[ -f "$bin" ]] || continue
   [[ -L "$bin" ]] && continue
 
