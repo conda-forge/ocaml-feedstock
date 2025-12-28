@@ -10,3 +10,4 @@ export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
 export CONDA_OCAML_AS="${CONDA_OCAML_AS:-${AS:-as}}"
 export CONDA_OCAML_CC="${CONDA_OCAML_CC:-${CC:-cc}}"
 export CONDA_OCAML_AR="${CONDA_OCAML_AR:-${AR:-ar}}"
+export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-${CONDA_OCAML_CC} -shared}"

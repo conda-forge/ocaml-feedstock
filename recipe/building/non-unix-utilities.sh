@@ -74,16 +74,16 @@ unix_noop_update_toolchain() {
 
     config_file="utils/config.generated.ml"
     if [[ -f "$config_file" ]]; then
-      # Use CONDA_OCAML_* environment variables for tools
+      # Use CONDA_OCAML_* environment variables for tools (Windows %VAR% syntax)
       # These are set in activate.bat with defaults
-      # Users can override: set CONDA_OCAML_CC=clang && ocamlopt ...
-      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
-      sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
+      # Users can override: set CONDA_OCAML_CC=cl && set CONDA_OCAML_MKDLL=cl /LD && ocamlopt ...
+      sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
+      sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
 
       # Windows linker/dll settings
-      sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
-      sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_CC -shared|}/' "$config_file"
-      sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_CC -shared|}/' "$config_file"
+      sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_CC%|}/' "$config_file"
+      sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+      sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
     fi
   fi
   

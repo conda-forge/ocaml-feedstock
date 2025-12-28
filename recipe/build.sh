@@ -76,32 +76,37 @@ else
   # No-op for unix
   unix_noop_update_toolchain
 
-  # Patch config.generated.ml with compiler paths for build
+  # Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
+  export CONDA_OCAML_AS="${AS}"
+  export CONDA_OCAML_CC="${CC}"
+  export CONDA_OCAML_AR="${AR:-ar}"
+  export CONDA_OCAML_MKDLL="${CC} -shared"
+
+  # Patch config.generated.ml to use CONDA_OCAML_* env vars (expanded at runtime)
   config_file="utils/config.generated.ml"
   if [[ -f "$config_file" ]]; then
     if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      if [[ "${target_platform}" == "osx-"* ]]; then
-        _BUILD_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-        _BUILD_MKDLL="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -shared -undefined dynamic_lookup"
-      else
-        # Linux: -Wl,-E exports symbols for ocamlnat (native toplevel)
-        _BUILD_MKEXE="${CC} -Wl,-E"
-        _BUILD_MKDLL="${CC} -shared"
-      fi
+      # Use environment variable references - users can customize via CONDA_OCAML_*
+      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
+      sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
+      sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
 
-      # These must be basename variables as they get embedded in binaries
-      sed -i "s/^let asm = .*/let asm = {|${AS}|}/" "$config_file"
-      sed -i "s/^let c_compiler = .*/let c_compiler = {|${CC}|}/" "$config_file"
-      sed -i "s/^let mkexe = .*/let mkexe = {|${_BUILD_MKEXE}|}/" "$config_file"
-      sed -i "s/^let mkdll = .*/let mkdll = {|${_BUILD_MKDLL}|}/" "$config_file"
-      sed -i "s/^let mkmaindll = .*/let mkmaindll = {|${_BUILD_MKDLL}|}/" "$config_file"
+      if [[ "${target_platform}" == "osx-"* ]]; then
+        sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
+        sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
+      else
+        # Linux
+        sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+        sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+        sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
+      fi
 
       # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
       sed -i 's|-L[^ ]*||g' "$config_file"
     fi
   fi
 
-  # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
+  # Remove -L paths from Makefile.config (embedded in ocamlc binary)
   config_file="Makefile.config"
   if [[ -f "${config_file}" ]]; then
     sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
@@ -112,7 +117,7 @@ else
   make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
-    echo "=== Building cross-compiler for ${target} ==="
+    echo "=== Running tests ==="
     make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
     make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
   fi

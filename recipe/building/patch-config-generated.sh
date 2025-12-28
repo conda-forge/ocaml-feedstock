@@ -31,14 +31,14 @@ patch_config_generated() {
   # Platform-specific patches
   if [[ "${platform_type}" == "macos" ]]; then
     sed -i \
-      -e 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_CC -shared -undefined dynamic_lookup|}/' \
-      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_CC -shared -undefined dynamic_lookup|}/' \
+      -e 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' \
+      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' \
       "$config_file"
   else
     # Linux
     sed -i \
-      -e 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_CC -shared|}/' \
-      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_CC -shared|}/' \
+      -e 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' \
+      -e 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' \
       -e 's/^let native_c_libraries = {|\(.*\)|}/let native_c_libraries = {|\1 -ldl|}/' \
       "$config_file"
   fi

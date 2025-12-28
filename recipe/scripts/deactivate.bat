@@ -16,3 +16,4 @@
 @set "CONDA_OCAML_AS="
 @set "CONDA_OCAML_CC="
 @set "CONDA_OCAML_AR="
+@set "CONDA_OCAML_MKDLL="
