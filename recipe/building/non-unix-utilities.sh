@@ -99,18 +99,18 @@ STUB_EOF
             if [[ -f "flexdll/Makefile" ]]; then
               echo "Patching flexdll/Makefile for FlexDLL self-linking..."
               # The flexlink.exe target has: $(RES_PREFIX) $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
-              # We need to add -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console before $(OBJS)
+              # We need to add -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -mconsole before $(OBJS)
               # Pattern: match the -o flexlink.exe line and insert before $(OBJS)
               # Note: $(RES_PREFIX) may or may not be present; line starts with TAB
-              sed -i 's/\$(LINKFLAGS)\(.*\)\$(OBJS)/$(LINKFLAGS) -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console\1$(OBJS)/' flexdll/Makefile
+              sed -i 's/\$(LINKFLAGS)\(.*\)\$(OBJS)/$(LINKFLAGS) -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -mconsole\1$(OBJS)/' flexdll/Makefile
               if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
                 echo "Successfully patched flexdll/Makefile"
                 grep 'flexlink.exe' flexdll/Makefile | head -3
               else
                 echo "WARNING: Primary patch did not apply, trying LINKFLAGS method..."
                 # Alternative: Append to LINKFLAGS definition (both variants)
-                sed -i 's/^LINKFLAGS = -cclib "\$(RES)"$/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
-                sed -i 's/^LINKFLAGS = -cclib "-link \$(RES)"$/LINKFLAGS = -cclib "-link $(RES)" -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                sed -i 's/^LINKFLAGS = -cclib "\$(RES)"$/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -mconsole/' flexdll/Makefile
+                sed -i 's/^LINKFLAGS = -cclib "-link \$(RES)"$/LINKFLAGS = -cclib "-link $(RES)" -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -mconsole/' flexdll/Makefile
                 if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
                   echo "LINKFLAGS patch succeeded"
                 else

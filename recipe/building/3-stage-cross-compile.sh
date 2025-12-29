@@ -103,6 +103,9 @@ _CFLAGS="${CFLAGS:-}"
 _LDFLAGS="${LDFLAGS:-}"
 if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
   _AS="${AS}"
+else
+  # macOS: use clang as assembler (integrated assembler)
+  _AS="${_CC}"
 fi
 
 # Platform-specific LDFLAGS for target
