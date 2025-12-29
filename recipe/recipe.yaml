@@ -316,12 +316,10 @@ tests:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
 
-  # Test 6: OCaml 5.x stdlib modules (Domains, Unix, Str, threads)
+  # Test 6: OCaml 5.x stdlib modules (Domains, Unix, Str, dynlink)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
-        # Skip native threads test on cross-compiled (QEMU can't run threaded native code)
-        SKIP_NATIVE_THREADS: ${{ "1" if build_platform != target_platform else "0" }}
       content:
         - if: arm64
           then: echo "Skipping stdlib module tests on ARM64 (QEMU limitation)"
@@ -342,7 +340,34 @@ tests:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
 
-  # Test 7: Cross-compiler tests (linux-64 and osx-64 only)
+  # Test 7: Threads module (separate for cross-compilation visibility)
+  # Native test skipped on cross-compiled: QEMU can't run threaded native code
+  - script:
+      env:
+        OCAMLRUNPARAM: "s=4M,o=1000"
+        build_platform: ${{ build_platform }}
+        target_platform: ${{ target_platform }}
+      content:
+        - if: arm64
+          then: echo "Skipping threads test on ARM64 (QEMU limitation)"
+          else:
+            - if: unix
+              then: cd testing && ${{ dot }}test-threads.${{ sh }} ${{ version }}
+              else: echo "Threads test Unix only for now"
+    files:
+      recipe:
+        - testing/test-threads.${{ sh }}
+    requirements:
+      run:
+        - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - binutils_impl_${{ target_platform }}
+        - ${{ m2 }}grep
+        - if: osx
+          then:
+            - lld >=${{ c_compiler_version }}
+            - llvm-tools >=${{ c_compiler_version }}
+
+  # Test 8: Cross-compiler tests (linux-64 and osx-64 only)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"

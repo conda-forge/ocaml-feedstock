@@ -63,8 +63,9 @@ else
   if [[ "${target_platform}" == "osx-"* ]]; then
     # macOS: MUST use LLVM ar/ranlib - GNU ar format is incompatible with ld64
     # ld64 requires Darwin ar format, not GNU ar format
-    export AR="llvm-ar"
-    export RANLIB="llvm-ranlib"
+    # Use full path to ensure we don't pick up binutils ar from PATH
+    export AR="${BUILD_PREFIX}/bin/llvm-ar"
+    export RANLIB="${BUILD_PREFIX}/bin/llvm-ranlib"
     export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   else
@@ -119,7 +120,12 @@ else
   fi
 
   echo "=== Compiling native compiler ==="
-  make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+  # Pass AR explicitly on macOS to ensure llvm-ar is used (ld64 requires Darwin archive format)
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    make world.opt AR="${AR}" -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+  else
+    make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+  fi
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     echo "=== Building cross-compiler for ${target} ==="

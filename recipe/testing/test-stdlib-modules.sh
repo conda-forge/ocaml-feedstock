@@ -95,40 +95,9 @@ else
 fi
 rm -f test_str test_str.ml test_str.cmi test_str.cmo test_str.cmx test_str.o
 
-# 4. Test threads module
-echo "=== Testing threads module ==="
-cat > test_threads.ml << 'EOF'
-let () =
-  let t = Thread.create (fun () ->
-    print_endline "Hello from thread"
-  ) () in
-  Thread.join t;
-  print_endline "Threads module test passed"
-EOF
+# NOTE: Threads test moved to separate recipe entry for visibility
 
-echo -n "  bytecode: "
-# threads.cma depends on unix.cma on Linux
-if ocamlc -I +unix unix.cma -I +threads threads.cma -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
-  echo "OK"
-else
-  echo "FAILED"
-  exit 1
-fi
-
-echo -n "  native: "
-# threads.cmxa depends on unix.cmxa on Linux
-# SKIP_NATIVE_THREADS=1 skips this test (QEMU can't reliably run threaded native code)
-if [[ "${SKIP_NATIVE_THREADS:-}" == "1" ]]; then
-  echo "SKIPPED (QEMU limitation)"
-elif ocamlopt -I +unix unix.cmxa -I +threads threads.cmxa -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
-  echo "OK"
-else
-  echo "FAILED"
-  exit 1
-fi
-rm -f test_threads test_threads.ml test_threads.cmi test_threads.cmo test_threads.cmx test_threads.o
-
-# 5. Test dynlink module (native)
+# 4. Test dynlink module (native)
 echo "=== Testing dynlink module ==="
 echo -n "  dynlink available: "
 if ocamlobjinfo "${PREFIX}/lib/ocaml/dynlink/dynlink.cmxa" >/dev/null 2>&1; then
