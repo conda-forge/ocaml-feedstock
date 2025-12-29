@@ -211,7 +211,9 @@ endif
 	# OPTCOMPILER= disables native compiler file dependency (for .cmx files)
 	$(MAKE) -C stdlib allopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
 	# otherlibrariesopt also needs cross-compiler for aarch64 .cmx/.o files
-	$(MAKE) otherlibrariesopt ocamltoolsopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	# Use otherlibrariesopt-cross which sets OCAMLLIB to find cross-compiled stdlib
+	# Without OCAMLLIB, .cmxs linking fails with "symbol(s) not found for architecture arm64"
+	$(MAKE) otherlibrariesopt-cross ocamltoolsopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" OCAMLLIB="$(abspath $(ROOTDIR))/stdlib" $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	# ocamltoolsopt.opt builds NATIVE tools (ocamllex.opt etc.) - need NATIVE overrides
 	CONDA_OCAML_AS=$(NATIVE_AS) CONDA_OCAML_CC=$(NATIVE_CC) \
 	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS)
