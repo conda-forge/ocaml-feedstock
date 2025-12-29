@@ -58,6 +58,16 @@ unix_noop_update_toolchain() {
         echo "NATDYNLINK=false" >> Makefile.config
       fi
 
+      # CRITICAL: Set console subsystem for all native executables
+      # Without this, flexlink.exe fails with "undefined reference to WinMain"
+      # because MinGW's crt defaults to GUI subsystem entry point (WinMainCRTStartup)
+      echo "Adding -Wl,-subsystem,console to MKEXEFLAGS..."
+      if grep -q "^MKEXEFLAGS" Makefile.config; then
+        sed -i 's/^MKEXEFLAGS=.*/MKEXEFLAGS=-Wl,-subsystem,console/' Makefile.config
+      else
+        echo "MKEXEFLAGS=-Wl,-subsystem,console" >> Makefile.config
+      fi
+
       # Build flexdll support object for NATIVECCLIBS
       if [[ -d "flexdll" ]]; then
         echo "Building flexdll_mingw64.o..."
@@ -161,7 +171,12 @@ STUB_EOF
 
       # Windows linker/dll settings
       # CONDA_OCAML_MKDLL allows different flags: gcc -shared, cl /LD, clang-cl /LD
-      sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_CC%|}/' "$config_file"
+      # CRITICAL: mkexe MUST include -Wl,-subsystem,console during BUILD
+      # Without this, flexlink.exe fails with "undefined reference to WinMain"
+      # because MinGW crt defaults to GUI entry point (WinMainCRTStartup)
+      # For BUILD: use actual CC value with subsystem flag
+      # For RUNTIME: env var will be expanded by activate.bat
+      sed -i "s/^let mkexe = .*/let mkexe = {|${CC:-gcc} -Wl,-subsystem,console|}/" "$config_file"
       sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
       sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
       sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
