@@ -49,28 +49,10 @@ unix_noop_update_toolchain() {
         fi
       fi
 
-      # Fix flexdll build: NATDYNLINK=false avoids "-link" flag quoting issue
-      # The -cclib "-link version_res.o" gets parsed as -l "ink" by mingw ld
-      # Must OVERRIDE whatever configure set, not just add if missing
-      if grep -qE "^NATDYNLINK" Makefile.config; then
-        sed -i 's/^NATDYNLINK=.*/NATDYNLINK=false/' Makefile.config
-      else
-        echo "NATDYNLINK=false" >> Makefile.config
-      fi
-
-      # CRITICAL: Set console subsystem for all native executables
-      # Without this, flexlink.exe fails with "undefined reference to WinMain"
-      # MinGW uses different startup code based on subsystem:
-      #   crtexewin.o (GUI) expects WinMain(), crtexe.o (console) expects main()
-      # -mconsole selects console startup code AND sets PE subsystem
-      echo "Adding -mconsole to MKEXEFLAGS..."
-      if grep -q "^MKEXEFLAGS" Makefile.config; then
-        sed -i 's/^MKEXEFLAGS=.*/MKEXEFLAGS=-mconsole/' Makefile.config
-      else
-        echo "MKEXEFLAGS=-mconsole" >> Makefile.config
-      fi
-
       # Build flexdll support object for NATIVECCLIBS
+      # NOTE: We do NOT set NATDYNLINK=false - that breaks flexlink.exe build
+      # by switching to -nostdlib mode which causes WinMain errors.
+      # Let OCaml use its default NATDYNLINK setting from configure.
       if [[ -d "flexdll" ]]; then
         echo "Building flexdll_mingw64.o..."
         if make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o; then
@@ -84,71 +66,6 @@ unix_noop_update_toolchain() {
               echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
             fi
             grep "^NATIVECCLIBS" Makefile.config || true
-
-            # CRITICAL: Create stub for static_symtable
-            # flexdll_mingw64.o references static_symtable (extern symtbl static_symtable)
-            # which is normally defined in the OCaml runtime. But with -nostdlib, no runtime.
-            # We provide an empty symbol table stub to satisfy the linker.
-            echo "Creating static_symtable stub..."
-            cat > flexdll/static_symtable_stub.c << 'STUB_EOF'
-/* Stub for static_symtable - empty symbol table for flexlink.exe */
-/* flexdll.c declares: extern symtbl static_symtable; */
-/* symtbl = struct { UINT_PTR size; dynsymbol entries[]; } */
-/* dynsymbol = struct { void *addr; char *name; } */
-#ifdef _WIN64
-typedef unsigned long long UINT_PTR;
-#else
-typedef unsigned int UINT_PTR;
-#endif
-typedef struct { void *addr; char *name; } dynsymbol;
-typedef struct { UINT_PTR size; dynsymbol entries[]; } symtbl;
-/* Empty symbol table - size=0, no entries */
-symtbl static_symtable = { 0 };
-STUB_EOF
-            # Compile the stub
-            ${CC:-gcc} -c -o flexdll/static_symtable_stub.o flexdll/static_symtable_stub.c
-            if [[ -f "flexdll/static_symtable_stub.o" ]]; then
-              echo "Successfully built static_symtable_stub.o"
-              SYMTABLE_STUB="${SRC_DIR}/flexdll/static_symtable_stub.o"
-            else
-              echo "WARNING: Failed to build static_symtable_stub.o"
-              SYMTABLE_STUB=""
-            fi
-
-            # CRITICAL: Patch OCaml's Makefile to include flexdll_mingw64.o when building flexlink.exe
-            # OCaml's Makefile invokes flexdll with -nostdlib which bypasses NATIVECCLIBS.
-            # We add -cclib flags to the OCAMLOPT definition so they get passed to flexlink build.
-            # The FlexDLL symbols (flexdll_wdlopen, flexdll_dlsym, etc.) are in runtime/win32.c
-            # and must be resolved from flexdll_mingw64.o
-            # We also need static_symtable_stub.o to provide the static_symtable symbol
-            if [[ -f "Makefile" ]]; then
-              echo "Patching OCaml Makefile for FlexDLL self-linking..."
-
-              # Patch: Add -cclib flags to the OCAMLOPT invocation for flexlink.exe
-              # Original: OCAMLOPT='$(FLEXLINK_OCAMLOPT) -nostdlib -I ../stdlib' flexlink.exe
-              # Patched:  OCAMLOPT='$(FLEXLINK_OCAMLOPT) -nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib ../flexdll/static_symtable_stub.o -cclib -mconsole' flexlink.exe
-              # -mconsole selects console startup code (crtexe.o with main()) instead of GUI (crtexewin.o with WinMain())
-              sed -i "s|-nostdlib -I \.\./stdlib' flexlink\.exe|-nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib ../flexdll/static_symtable_stub.o -cclib -mconsole' flexlink.exe|" Makefile
-
-              if grep -q 'flexdll_mingw64.o' Makefile; then
-                echo "Successfully patched OCaml Makefile for flexlink.exe"
-                grep 'flexlink.exe' Makefile | head -5 || true
-              else
-                echo "WARNING: OCaml Makefile patch did not apply"
-                echo "Falling back to flexdll/Makefile patch..."
-
-                # Fallback: Patch flexdll/Makefile LINKFLAGS directly
-                if [[ -f "flexdll/Makefile" ]]; then
-                  sed -i '/^LINKFLAGS *=/s/$/ -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -mconsole/' flexdll/Makefile
-                  if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
-                    echo "Successfully patched flexdll/Makefile LINKFLAGS"
-                  else
-                    echo "ERROR: All flexdll patch methods failed"
-                    exit 1
-                  fi
-                fi
-              fi
-            fi
           else
             echo "WARNING: flexdll_mingw64.o not found after build"
           fi
@@ -163,6 +80,7 @@ STUB_EOF
     export CONDA_OCAML_CC="${CC:-gcc}"
     export CONDA_OCAML_AR="${AR:-ar}"
     export CONDA_OCAML_RANLIB="${RANLIB:-ranlib}"
+    export CONDA_OCAML_MKEXE="${CC:-gcc}"
     export CONDA_OCAML_MKDLL="${CC:-gcc} -shared"
 
     config_file="utils/config.generated.ml"
@@ -173,12 +91,9 @@ STUB_EOF
       sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
 
       # Windows linker/dll settings
-      # CONDA_OCAML_MKDLL allows different flags: gcc -shared, cl /LD, clang-cl /LD
-      # CRITICAL: mkexe MUST include -mconsole during BUILD
-      # Without this, flexlink.exe fails with "undefined reference to WinMain"
-      # MinGW uses crtexewin.o (GUI, WinMain) vs crtexe.o (console, main)
-      # -mconsole selects console startup code AND sets PE subsystem
-      sed -i "s/^let mkexe = .*/let mkexe = {|${CC:-gcc} -mconsole|}/" "$config_file"
+      # CONDA_OCAML_MKEXE: executable linker (gcc or clang)
+      # CONDA_OCAML_MKDLL: shared library linker (gcc -shared, cl /LD, etc.)
+      sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
       sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
       sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
       sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
