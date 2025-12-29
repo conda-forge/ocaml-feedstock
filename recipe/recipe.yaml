@@ -260,7 +260,7 @@ tests:
             - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmxa
             - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/stublibs/dll*.${{ so }}
 
-  # Test 1: Environment and resource file path validation
+  # Environment and resource file path validation
   - script:
       - cd testing && ${{ dot }}test-env-paths.${{ sh }}
     files:
@@ -273,7 +273,22 @@ tests:
           then:
             - ${{ m2 }}grep
 
-  # Test 2: Cross-compiled binary architecture verification
+  # OCAML config
+  - script:
+      - if: unix and not arm64
+        then:
+          - cd testing && ./test-config.sh
+    files:
+      recipe:
+        - testing/test-config.sh
+    requirements:
+      run:
+        - binutils_impl_${{ target_platform }}
+        - if: not arm64
+          then:
+            - ${{ m2 }}grep
+
+  # Cross-compiled binary architecture verification
   - script:
       - if: build_platform != target_platform
         then:
@@ -287,7 +302,7 @@ tests:
       run:
         - binutils
 
-  # Test 3: Tool version checks (all platforms)
+  # Tool version checks (all platforms)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
@@ -303,7 +318,7 @@ tests:
       run:
         - ${{ m2 }}grep
 
-  # Test 4: Native-only tools (ocamldoc, ocamldebug)
+  # Native-only tools (ocamldoc, ocamldebug)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
@@ -318,7 +333,7 @@ tests:
       run:
         - ${{ m2 }}grep
 
-  # Test 5: Compilation tests (bytecode, native, multi-file)
+  # Compilation tests (bytecode, native, multi-file)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
@@ -340,7 +355,7 @@ tests:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
 
-  # Test 6: Cross-compiler tests (linux-64 and osx-64 only)
+  # Cross-compiler tests (linux-64 and osx-64 only)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
@@ -370,7 +385,7 @@ tests:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
 
-  # Test 7: CONDA_OCAML_* toolchain variable tests
+  # CONDA_OCAML_* toolchain variable tests
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
