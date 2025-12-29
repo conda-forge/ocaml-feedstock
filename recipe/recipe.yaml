@@ -253,6 +253,8 @@ tests:
       - if: unix and not arm64
         then:
           - cd testing && ./test-config.sh
+        else:
+          - echo ""
     files:
       recipe:
         - testing/test-config.sh
