@@ -170,8 +170,12 @@ endif
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
+	# CRITICAL: Build native compilers using CAMLOPT (Stage 1 from PATH, x86_64)
+	# NOT $(OCAMLOPT) which is the local cross-compiler with aarch64 AS baked in
+	# Without OCAMLOPT override, tools/profiling.cmx gets compiled with cross-AS
+	# which causes "unknown mnemonic movq" error (aarch64-as can't assemble x86_64)
 	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
-	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
+	  $(CROSS_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(HOST_ZSTD_LIBS)" $(OLDS)
 	# Build stdlib native directly using the FRESHLY BUILT cross-compiler
 	# CRITICAL: Use absolute path to cross-compiler - ROOTDIR is relative (.) and breaks with -C
 	# The cross-compiler produces aarch64 code, native produces x86_64
@@ -213,8 +217,10 @@ crosscompiledopt:
 	# Clean dynlink native files before any native compilation to prevent "inconsistent assumptions"
 	rm -f otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o
 	rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o
+	# CRITICAL: Build native compilers using CAMLOPT (native from PATH)
+	# NOT $(OCAMLOPT) which has cross-AS baked in (causes "unknown mnemonic" errors)
 	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
-	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
+	  $(CROSS_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(HOST_ZSTD_LIBS)" $(OLDS)
 	# Build stdlib native directly using CAMLOPT (cross-compiler passed on command line)
 	# CAMLOPT should be the cross-compiler from _cross/bin that produces target code
 	$(MAKE) -C stdlib allopt CAMLOPT=$(CAMLOPT) OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)

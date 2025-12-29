@@ -72,6 +72,27 @@ unix_noop_update_toolchain() {
               echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
             fi
             grep "^NATIVECCLIBS" Makefile.config || true
+
+            # CRITICAL: Patch flexdll/Makefile to include flexdll_mingw64.o when linking flexlink.exe
+            # The -nostdlib flag bypasses NATIVECCLIBS, so we must explicitly add
+            # flexdll_mingw64.o to satisfy FlexDLL symbol references in libasmrun.a
+            # (runtime/win32.c calls flexdll_wdlopen, flexdll_dlsym, etc.)
+            if [[ -f "flexdll/Makefile" ]]; then
+              echo "Patching flexdll/Makefile for FlexDLL self-linking..."
+              # The flexlink.exe target uses: $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
+              # We add -cclib flexdll_mingw64.o and -cclib -Wl,-subsystem,console
+              # Use perl for more reliable pattern matching across whitespace
+              perl -i -pe 's/(\$\(OCAMLOPT\)\s+-o\s+flexlink\.exe\s+\$\(LINKFLAGS\))(\s+\$\(OBJS\))/$1 -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console$2/' flexdll/Makefile
+              if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
+                echo "Successfully patched flexdll/Makefile"
+              else
+                echo "WARNING: flexdll/Makefile patch did not apply"
+                echo "Trying alternative patch method..."
+                # Alternative: patch the LINKFLAGS definition in flexdll Makefile
+                # LINKFLAGS = -cclib "$(RES)" -> LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console
+                sed -i 's/LINKFLAGS = -cclib "\$(RES)"/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+              fi
+            fi
           else
             echo "WARNING: flexdll_mingw64.o not found after build"
           fi
