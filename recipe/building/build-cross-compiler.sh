@@ -108,6 +108,8 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     cc=$(basename ${_CC})
     ar=$(basename ${_AR})
     ranlib=$(basename ${_RANLIB})
+    echo "     patching config.generated.ml:"
+    echo "       asm=${as}, cc=${cc}, ar=${ar}, ranlib=${ranlib}"
     config_file="utils/config.generated.ml"
     if [[ "${_PLATFORM}" == "macos" ]]; then
       sed -i "s#^let asm = .*#let asm = {|${cc} -c|}#" "$config_file"
@@ -123,6 +125,9 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     sed -i "s#^let ranlib = .*#let ranlib = {|${ranlib}|}#" "$config_file"
     sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${CROSS_PREFIX}/lib/ocaml|}#" "$config_file"
     [[ -n "${_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${_MODEL}|}#" "$config_file"
+    # Debug: verify the patching worked
+    echo "     config.generated.ml after patching:"
+    grep -E "^let (asm|c_compiler|ar|ranlib) " "$config_file" | head -5
 
     # Apply cross patches
     echo "     patch Makefile.cross"
@@ -135,6 +140,24 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     # CRITICAL: LIBDIR must be explicitly set to prevent MAKEFLAGS inheritance
     # from parent (native) build which has LIBDIR=${PREFIX}/lib/ocaml
     echo "     crossopt"
+
+    # CRITICAL: Set CONDA_OCAML_* variables for cross-compilation
+    # The native ocamlopt.opt has $CONDA_OCAML_AS etc. embedded in config.generated.ml
+    # These must point to cross-tools when building cross-compiled stdlib
+    export CONDA_OCAML_AS="${_AS}"
+    export CONDA_OCAML_CC="${_CC}"
+    export CONDA_OCAML_AR="${_AR}"
+    export CONDA_OCAML_RANLIB="${_RANLIB}"
+    export CONDA_OCAML_MKDLL="${_CC} -shared"
+
+    # CRITICAL: Ensure cross-tools are findable in PATH
+    # The cross-compiler has basenames like "aarch64-conda-linux-gnu-as" embedded
+    # These must be resolvable via PATH during crossopt stdlib build
+    export PATH="${BUILD_PREFIX}/bin:${PATH}"
+    hash -r  # Clear bash command cache
+    echo "     PATH includes: ${BUILD_PREFIX}/bin"
+    echo "     Cross-assembler: $(which ${target}-as 2>/dev/null || echo 'NOT FOUND')"
+    echo "     Native assembler: $(which as 2>/dev/null || echo 'NOT FOUND')"
 
     # Common crossopt args
     _CROSSOPT_ARGS=(

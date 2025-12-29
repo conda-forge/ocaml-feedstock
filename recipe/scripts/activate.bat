@@ -12,16 +12,20 @@
 
 @REM OCaml toolchain configuration
 @REM These are used by ocamlopt for assembling and linking native code
+@REM @CC@, @AS@, etc. are replaced at build time with actual tools used
 @REM Users can override: set CONDA_OCAML_CC=cl && set CONDA_OCAML_MKDLL=cl /LD && ocamlopt ...
 
-@REM Use CONDA_OCAML_* if set, else use system AS/CC/AR, else use defaults
+@REM Use CONDA_OCAML_* if set, else use system AS/CC/AR, else use build-time defaults
 @if not defined CONDA_OCAML_AS (
-    @if defined AS (@set "CONDA_OCAML_AS=%AS%") else (@set "CONDA_OCAML_AS=as")
+    @if defined AS (@set "CONDA_OCAML_AS=%AS%") else (@set "CONDA_OCAML_AS=@AS@")
 )
 @if not defined CONDA_OCAML_CC (
-    @if defined CC (@set "CONDA_OCAML_CC=%CC%") else (@set "CONDA_OCAML_CC=gcc")
+    @if defined CC (@set "CONDA_OCAML_CC=%CC%") else (@set "CONDA_OCAML_CC=@CC@")
 )
 @if not defined CONDA_OCAML_AR (
-    @if defined AR (@set "CONDA_OCAML_AR=%AR%") else (@set "CONDA_OCAML_AR=ar")
+    @if defined AR (@set "CONDA_OCAML_AR=%AR%") else (@set "CONDA_OCAML_AR=@AR@")
+)
+@if not defined CONDA_OCAML_RANLIB (
+    @if defined RANLIB (@set "CONDA_OCAML_RANLIB=%RANLIB%") else (@set "CONDA_OCAML_RANLIB=@RANLIB@")
 )
 @if not defined CONDA_OCAML_MKDLL @set "CONDA_OCAML_MKDLL=%CONDA_OCAML_CC% -shared"

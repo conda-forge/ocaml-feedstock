@@ -308,6 +308,7 @@ tests:
     requirements:
       run:
         - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - binutils_impl_${{ target_platform }}
         - ${{ m2 }}file
         - ${{ m2 }}grep
         - if: osx
@@ -332,6 +333,7 @@ tests:
     requirements:
       run:
         - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - binutils_impl_${{ target_platform }}
         - ${{ m2 }}grep
         - if: osx
           then:
@@ -384,6 +386,7 @@ tests:
     requirements:
       run:
         - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - binutils_impl_${{ target_platform }}
         - ${{ m2 }}grep
         - if: osx
           then:
