@@ -70,18 +70,28 @@ unix_noop_update_toolchain() {
             # (runtime/win32.c calls flexdll_wdlopen, flexdll_dlsym, etc.)
             if [[ -f "flexdll/Makefile" ]]; then
               echo "Patching flexdll/Makefile for FlexDLL self-linking..."
-              # The flexlink.exe target uses: $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
-              # We add -cclib flexdll_mingw64.o and -cclib -Wl,-subsystem,console
-              # Use perl for more reliable pattern matching across whitespace
-              perl -i -pe 's/(\$\(OCAMLOPT\)\s+-o\s+flexlink\.exe\s+\$\(LINKFLAGS\))(\s+\$\(OBJS\))/$1 -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console$2/' flexdll/Makefile
+              # The flexlink.exe target has: $(RES_PREFIX) $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
+              # We need to add -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console before $(OBJS)
+              # Pattern: match the -o flexlink.exe line and insert before $(OBJS)
+              # Note: $(RES_PREFIX) may or may not be present; line starts with TAB
+              sed -i 's/\$(LINKFLAGS)\(.*\)\$(OBJS)/$(LINKFLAGS) -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console\1$(OBJS)/' flexdll/Makefile
               if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
                 echo "Successfully patched flexdll/Makefile"
+                grep 'flexlink.exe' flexdll/Makefile | head -3
               else
-                echo "WARNING: flexdll/Makefile patch did not apply"
-                echo "Trying alternative patch method..."
-                # Alternative: patch the LINKFLAGS definition in flexdll Makefile
-                # LINKFLAGS = -cclib "$(RES)" -> LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console
-                sed -i 's/LINKFLAGS = -cclib "\$(RES)"/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                echo "WARNING: Primary patch did not apply, trying LINKFLAGS method..."
+                # Alternative: Append to LINKFLAGS definition (both variants)
+                sed -i 's/^LINKFLAGS = -cclib "\$(RES)"$/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                sed -i 's/^LINKFLAGS = -cclib "-link \$(RES)"$/LINKFLAGS = -cclib "-link $(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
+                  echo "LINKFLAGS patch succeeded"
+                else
+                  echo "ERROR: All patch methods failed!"
+                  echo "Flexlink.exe line:"
+                  grep -n 'flexlink.exe' flexdll/Makefile || echo "No flexlink.exe found"
+                  echo "LINKFLAGS lines:"
+                  grep -n 'LINKFLAGS' flexdll/Makefile || echo "No LINKFLAGS found"
+                fi
               fi
             fi
           else
