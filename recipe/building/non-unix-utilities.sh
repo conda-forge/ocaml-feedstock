@@ -60,12 +60,14 @@ unix_noop_update_toolchain() {
 
       # CRITICAL: Set console subsystem for all native executables
       # Without this, flexlink.exe fails with "undefined reference to WinMain"
-      # because MinGW's crt defaults to GUI subsystem entry point (WinMainCRTStartup)
-      echo "Adding -Wl,-subsystem,console to MKEXEFLAGS..."
+      # MinGW uses different startup code based on subsystem:
+      #   crtexewin.o (GUI) expects WinMain(), crtexe.o (console) expects main()
+      # -mconsole selects console startup code AND sets PE subsystem
+      echo "Adding -mconsole to MKEXEFLAGS..."
       if grep -q "^MKEXEFLAGS" Makefile.config; then
-        sed -i 's/^MKEXEFLAGS=.*/MKEXEFLAGS=-Wl,-subsystem,console/' Makefile.config
+        sed -i 's/^MKEXEFLAGS=.*/MKEXEFLAGS=-mconsole/' Makefile.config
       else
-        echo "MKEXEFLAGS=-Wl,-subsystem,console" >> Makefile.config
+        echo "MKEXEFLAGS=-mconsole" >> Makefile.config
       fi
 
       # Build flexdll support object for NATIVECCLIBS
@@ -124,8 +126,9 @@ STUB_EOF
 
               # Patch: Add -cclib flags to the OCAMLOPT invocation for flexlink.exe
               # Original: OCAMLOPT='$(FLEXLINK_OCAMLOPT) -nostdlib -I ../stdlib' flexlink.exe
-              # Patched:  OCAMLOPT='$(FLEXLINK_OCAMLOPT) -nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib ../flexdll/static_symtable_stub.o -cclib -Wl,-subsystem,console' flexlink.exe
-              sed -i "s|-nostdlib -I \.\./stdlib' flexlink\.exe|-nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib ../flexdll/static_symtable_stub.o -cclib -Wl,-subsystem,console' flexlink.exe|" Makefile
+              # Patched:  OCAMLOPT='$(FLEXLINK_OCAMLOPT) -nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib ../flexdll/static_symtable_stub.o -cclib -mconsole' flexlink.exe
+              # -mconsole selects console startup code (crtexe.o with main()) instead of GUI (crtexewin.o with WinMain())
+              sed -i "s|-nostdlib -I \.\./stdlib' flexlink\.exe|-nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib ../flexdll/static_symtable_stub.o -cclib -mconsole' flexlink.exe|" Makefile
 
               if grep -q 'flexdll_mingw64.o' Makefile; then
                 echo "Successfully patched OCaml Makefile for flexlink.exe"
@@ -136,7 +139,7 @@ STUB_EOF
 
                 # Fallback: Patch flexdll/Makefile LINKFLAGS directly
                 if [[ -f "flexdll/Makefile" ]]; then
-                  sed -i '/^LINKFLAGS *=/s/$/ -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                  sed -i '/^LINKFLAGS *=/s/$/ -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -mconsole/' flexdll/Makefile
                   if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
                     echo "Successfully patched flexdll/Makefile LINKFLAGS"
                   else
@@ -171,12 +174,11 @@ STUB_EOF
 
       # Windows linker/dll settings
       # CONDA_OCAML_MKDLL allows different flags: gcc -shared, cl /LD, clang-cl /LD
-      # CRITICAL: mkexe MUST include -Wl,-subsystem,console during BUILD
+      # CRITICAL: mkexe MUST include -mconsole during BUILD
       # Without this, flexlink.exe fails with "undefined reference to WinMain"
-      # because MinGW crt defaults to GUI entry point (WinMainCRTStartup)
-      # For BUILD: use actual CC value with subsystem flag
-      # For RUNTIME: env var will be expanded by activate.bat
-      sed -i "s/^let mkexe = .*/let mkexe = {|${CC:-gcc} -Wl,-subsystem,console|}/" "$config_file"
+      # MinGW uses crtexewin.o (GUI, WinMain) vs crtexe.o (console, main)
+      # -mconsole selects console startup code AND sets PE subsystem
+      sed -i "s/^let mkexe = .*/let mkexe = {|${CC:-gcc} -mconsole|}/" "$config_file"
       sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
       sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
       sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
