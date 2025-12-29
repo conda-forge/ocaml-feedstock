@@ -190,7 +190,9 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
 
     # Platform-specific args
     if [[ "${_PLATFORM}" == "macos" ]]; then
+      # macOS: SAK tools must use LLVM (GNU ar format incompatible with ld64)
       _CROSSOPT_ARGS+=(SAK_LDFLAGS="-fuse-ld=lld")
+      _CROSSOPT_ARGS+=(SAK_AR="${BUILD_PREFIX}/bin/llvm-ar")
     fi
 
     make crossopt "${_CROSSOPT_ARGS[@]}" -j${CPU_COUNT} > "${SRC_DIR}"/_logs/crossopt.log 2>&1 || { cat "${SRC_DIR}"/_logs/crossopt.log; exit 1; }

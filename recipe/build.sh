@@ -54,16 +54,21 @@ else
   export CC=$(basename "${CC}")
   export ASPP="$CC -c"
   export AS=$(basename "${AS:-as}")
-  export AR=$(basename "${AR:-ar}")
-  export RANLIB=$(basename "${RANLIB:-ranlib}")
 
-  # Platform-specific linker flags (Unix only - Windows uses different mechanism)
+  # Platform-specific linker flags and tools
   if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
     export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
   if [[ "${target_platform}" == "osx-"* ]]; then
+    # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
+    # Use full path to ensure we don't pick up binutils ar from PATH
+    export AR="${BUILD_PREFIX}/bin/llvm-ar"
+    export RANLIB="${BUILD_PREFIX}/bin/llvm-ranlib"
     export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  else
+    export AR=$(basename "${AR:-ar}")
+    export RANLIB=$(basename "${RANLIB:-ranlib}")
   fi
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
