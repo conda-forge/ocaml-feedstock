@@ -102,25 +102,22 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       STRIP="${_STRIP}" \
       ${_MODEL:+ac_cv_func_getentropy=no} > "${SRC_DIR}"/_logs/crossconfigure.log 2>&1 || { cat "${SRC_DIR}"/_logs/crossconfigure.log; exit 1; }
 
-    # Patch config.generated.ml for cross output
-    # CRITICAL: Use basenames only (not full paths) so binaries are relocatable
-    as=$(basename ${_AS})
-    cc=$(basename ${_CC})
-    ar=$(basename ${_AR})
-    ranlib=$(basename ${_RANLIB})
+    # Patch config.generated.ml to use CONDA_OCAML_* environment variables
+    # This allows wrapper scripts to set defaults while users can override
+    # Using same env var names as native compiler - wrappers set them appropriately
     config_file="utils/config.generated.ml"
     if [[ "${_PLATFORM}" == "macos" ]]; then
-      sed -i "s#^let asm = .*#let asm = {|${cc} -c|}#" "$config_file"
-      sed -i "s#^let mkdll = .*#let mkdll = {|${cc} -shared -undefined dynamic_lookup|}#" "$config_file"
-      sed -i "s#^let mkexe = .*#let mkexe = {|${cc}|}#" "$config_file"
+      sed -i 's#^let asm = .*#let asm = {|$CONDA_OCAML_CC -c|}#' "$config_file"
+      sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL|}#' "$config_file"
+      sed -i 's#^let mkexe = .*#let mkexe = {|$CONDA_OCAML_CC|}#' "$config_file"
     else
-      sed -i "s#^let asm = .*#let asm = {|${as}|}#" "$config_file"
-      sed -i "s#^let mkdll = .*#let mkdll = {|${cc} -shared|}#" "$config_file"
-      sed -i "s#^let mkexe = .*#let mkexe = {|${cc} -Wl,-E|}#" "$config_file"
+      sed -i 's#^let asm = .*#let asm = {|$CONDA_OCAML_AS|}#' "$config_file"
+      sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL|}#' "$config_file"
+      sed -i 's#^let mkexe = .*#let mkexe = {|$CONDA_OCAML_CC -Wl,-E|}#' "$config_file"
     fi
-    sed -i "s#^let c_compiler = .*#let c_compiler = {|${cc}|}#" "$config_file"
-    sed -i "s#^let ar = .*#let ar = {|${ar}|}#" "$config_file"
-    sed -i "s#^let ranlib = .*#let ranlib = {|${ranlib}|}#" "$config_file"
+    sed -i 's#^let c_compiler = .*#let c_compiler = {|$CONDA_OCAML_CC|}#' "$config_file"
+    sed -i 's#^let ar = .*#let ar = {|$CONDA_OCAML_AR|}#' "$config_file"
+    sed -i 's#^let ranlib = .*#let ranlib = {|$CONDA_OCAML_RANLIB|}#' "$config_file"
     sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${CROSS_PREFIX}/lib/ocaml|}#" "$config_file"
     [[ -n "${_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${_MODEL}|}#" "$config_file"
 
@@ -179,45 +176,81 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     cp tools/ocamldep.opt "${CROSS_PREFIX}/bin/ocamldep.opt"
     cp tools/ocamlobjinfo.opt "${CROSS_PREFIX}/bin/ocamlobjinfo.opt"
 
-    # Create wrapper script for ocamlopt that sets OCAMLLIB to cross-compiled libs
-    # Uses self-contained path resolution (doesn't depend on OCAML_PREFIX being set)
-    cat > "${PREFIX}/bin/${target}-ocamlopt" << 'WRAPPER'
+    # Derive short target ID for env var names (e.g., AARCH64, PPC64LE, ARM64)
+    case "${target}" in
+      aarch64-conda-linux-gnu) _TARGET_ID="AARCH64" ;;
+      powerpc64le-conda-linux-gnu) _TARGET_ID="PPC64LE" ;;
+      arm64-apple-darwin*) _TARGET_ID="ARM64" ;;
+      *) _TARGET_ID=$(echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]') ;;
+    esac
+
+    # Get default tool basenames for this target
+    _DEFAULT_CC=$(basename ${_CC})
+    _DEFAULT_AS=$(basename ${_AS})
+    _DEFAULT_AR=$(basename ${_AR})
+    _DEFAULT_RANLIB=$(basename ${_RANLIB})
+    if [[ "${_PLATFORM}" == "macos" ]]; then
+      _DEFAULT_MKDLL="${_DEFAULT_CC} -shared -undefined dynamic_lookup"
+    else
+      _DEFAULT_MKDLL="${_DEFAULT_CC} -shared"
+    fi
+
+    # Create wrapper script for ocamlopt that sets CONDA_OCAML_* env vars
+    # Users can override via CONDA_OCAML_<TARGET>_CC etc. before calling
+    cat > "${PREFIX}/bin/${target}-ocamlopt" << WRAPPER
 #!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlopt.opt" "$@"
+_prefix="\$(cd "\$(dirname "\$0")/.." && pwd)"
+export OCAMLLIB="\${_prefix}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+# Set CONDA_OCAML_* for cross-compilation (user can override via CONDA_OCAML_${_TARGET_ID}_*)
+export CONDA_OCAML_CC="\${CONDA_OCAML_${_TARGET_ID}_CC:-${_DEFAULT_CC}}"
+export CONDA_OCAML_AS="\${CONDA_OCAML_${_TARGET_ID}_AS:-${_DEFAULT_AS}}"
+export CONDA_OCAML_AR="\${CONDA_OCAML_${_TARGET_ID}_AR:-${_DEFAULT_AR}}"
+export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${_TARGET_ID}_RANLIB:-${_DEFAULT_RANLIB}}"
+export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${_TARGET_ID}_MKDLL:-${_DEFAULT_MKDLL}}"
+exec "\${_prefix}/lib/ocaml-cross-compilers/${target}/bin/ocamlopt.opt" "\$@"
 WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlopt"
     chmod +x "${PREFIX}/bin/${target}-ocamlopt"
 
-    # Create wrapper script for ocamlc (bytecode compiler) with same OCAMLLIB
-    cat > "${PREFIX}/bin/${target}-ocamlc" << 'WRAPPER'
+    # Create wrapper script for ocamlc (bytecode compiler) with same env vars
+    cat > "${PREFIX}/bin/${target}-ocamlc" << WRAPPER
 #!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlc.opt" "$@"
+_prefix="\$(cd "\$(dirname "\$0")/.." && pwd)"
+export OCAMLLIB="\${_prefix}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+export CONDA_OCAML_CC="\${CONDA_OCAML_${_TARGET_ID}_CC:-${_DEFAULT_CC}}"
+export CONDA_OCAML_AS="\${CONDA_OCAML_${_TARGET_ID}_AS:-${_DEFAULT_AS}}"
+export CONDA_OCAML_AR="\${CONDA_OCAML_${_TARGET_ID}_AR:-${_DEFAULT_AR}}"
+export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${_TARGET_ID}_RANLIB:-${_DEFAULT_RANLIB}}"
+export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${_TARGET_ID}_MKDLL:-${_DEFAULT_MKDLL}}"
+exec "\${_prefix}/lib/ocaml-cross-compilers/${target}/bin/ocamlc.opt" "\$@"
 WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlc"
     chmod +x "${PREFIX}/bin/${target}-ocamlc"
 
-    # Create wrapper script for ocamldep (dependency analyzer) with same OCAMLLIB
-    cat > "${PREFIX}/bin/${target}-ocamldep" << 'WRAPPER'
+    # Create wrapper script for ocamldep (dependency analyzer) with same env vars
+    cat > "${PREFIX}/bin/${target}-ocamldep" << WRAPPER
 #!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamldep.opt" "$@"
+_prefix="\$(cd "\$(dirname "\$0")/.." && pwd)"
+export OCAMLLIB="\${_prefix}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+export CONDA_OCAML_CC="\${CONDA_OCAML_${_TARGET_ID}_CC:-${_DEFAULT_CC}}"
+export CONDA_OCAML_AS="\${CONDA_OCAML_${_TARGET_ID}_AS:-${_DEFAULT_AS}}"
+export CONDA_OCAML_AR="\${CONDA_OCAML_${_TARGET_ID}_AR:-${_DEFAULT_AR}}"
+export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${_TARGET_ID}_RANLIB:-${_DEFAULT_RANLIB}}"
+export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${_TARGET_ID}_MKDLL:-${_DEFAULT_MKDLL}}"
+exec "\${_prefix}/lib/ocaml-cross-compilers/${target}/bin/ocamldep.opt" "\$@"
 WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamldep"
     chmod +x "${PREFIX}/bin/${target}-ocamldep"
 
-    # Create wrapper script for ocamlobjinfo (object file inspector) with same OCAMLLIB
-    cat > "${PREFIX}/bin/${target}-ocamlobjinfo" << 'WRAPPER'
+    # Create wrapper script for ocamlobjinfo (object file inspector) with same env vars
+    cat > "${PREFIX}/bin/${target}-ocamlobjinfo" << WRAPPER
 #!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/lib/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/lib/ocaml-cross-compilers/__TARGET__/bin/ocamlobjinfo.opt" "$@"
+_prefix="\$(cd "\$(dirname "\$0")/.." && pwd)"
+export OCAMLLIB="\${_prefix}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+export CONDA_OCAML_CC="\${CONDA_OCAML_${_TARGET_ID}_CC:-${_DEFAULT_CC}}"
+export CONDA_OCAML_AS="\${CONDA_OCAML_${_TARGET_ID}_AS:-${_DEFAULT_AS}}"
+export CONDA_OCAML_AR="\${CONDA_OCAML_${_TARGET_ID}_AR:-${_DEFAULT_AR}}"
+export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${_TARGET_ID}_RANLIB:-${_DEFAULT_RANLIB}}"
+export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${_TARGET_ID}_MKDLL:-${_DEFAULT_MKDLL}}"
+exec "\${_prefix}/lib/ocaml-cross-compilers/${target}/bin/ocamlobjinfo.opt" "\$@"
 WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlobjinfo"
     chmod +x "${PREFIX}/bin/${target}-ocamlobjinfo"
 
     # Stdlib - need both bytecode (.cmo, .cma) and native (.cmx, .cmxa) files plus metadata

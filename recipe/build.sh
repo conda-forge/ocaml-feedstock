@@ -57,8 +57,10 @@ else
   export AR=$(basename "${AR:-ar}")
   export RANLIB=$(basename "${RANLIB:-ranlib}")
 
-  # Platform-specific linker flags
-  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+  # Platform-specific linker flags (Unix only - Windows uses different mechanism)
+  if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+  fi
   if [[ "${target_platform}" == "osx-"* ]]; then
     export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
@@ -80,6 +82,7 @@ else
   export CONDA_OCAML_AS="${AS}"
   export CONDA_OCAML_CC="${CC}"
   export CONDA_OCAML_AR="${AR:-ar}"
+  export CONDA_OCAML_RANLIB="${RANLIB:-ranlib}"
   export CONDA_OCAML_MKDLL="${CC} -shared"
 
   # Patch config.generated.ml to use CONDA_OCAML_* env vars (expanded at runtime)
@@ -94,11 +97,14 @@ else
       if [[ "${target_platform}" == "osx-"* ]]; then
         sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
         sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
+        sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
+        sed -i 's/^let ranlib = .*/let ranlib = {|\$CONDA_OCAML_RANLIB|}/' "$config_file"
       else
         # Linux
         sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
         sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
         sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
+        sed -i 's/^let ranlib = .*/let ranlib = {|\$CONDA_OCAML_RANLIB|}/' "$config_file"
       fi
 
       # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
@@ -173,8 +179,20 @@ for bin in "${OCAML_INSTALL_PREFIX}"/bin/* "${OCAML_INSTALL_PREFIX}"/lib/ocaml-c
   fi
 done
 
-# Install activation scripts
+# Install activation scripts with build-time tool substitution
+# Use basenames so scripts work regardless of install location
+_BUILD_CC=$(basename "${CC:-cc}")
+_BUILD_AS=$(basename "${AS:-as}")
+_BUILD_AR=$(basename "${AR:-ar}")
+_BUILD_RANLIB=$(basename "${RANLIB:-ranlib}")
+
 for CHANGE in "activate" "deactivate"; do
   mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
-  cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.${SH_EXT}" 2>/dev/null
+  _SCRIPT="${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.${SH_EXT}"
+  cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${_SCRIPT}" 2>/dev/null || continue
+  # Replace @XX@ placeholders with actual build-time tools
+  sed -i "s|@CC@|${_BUILD_CC}|g" "${_SCRIPT}"
+  sed -i "s|@AS@|${_BUILD_AS}|g" "${_SCRIPT}"
+  sed -i "s|@AR@|${_BUILD_AR}|g" "${_SCRIPT}"
+  sed -i "s|@RANLIB@|${_BUILD_RANLIB}|g" "${_SCRIPT}"
 done

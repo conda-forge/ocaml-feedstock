@@ -51,14 +51,23 @@ unix_noop_update_toolchain() {
 
       # Build flexdll support object for NATIVECCLIBS
       if [[ -d "flexdll" ]]; then
-        make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o 2>/dev/null || true
-        if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
-          FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
-          if grep -q "^NATIVECCLIBS" Makefile.config; then
-            sed -i "s|^(NATIVECCLIBS=.*)|\$1 ${FLEXDLL_OBJ}|" Makefile.config
+        echo "Building flexdll_mingw64.o..."
+        if make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o; then
+          if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
+            FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
+            echo "Adding ${FLEXDLL_OBJ} to NATIVECCLIBS"
+            if grep -q "^NATIVECCLIBS" Makefile.config; then
+              # Use extended regex with proper backreference
+              sed -i -E "s|^(NATIVECCLIBS=.*)|\1 ${FLEXDLL_OBJ}|" Makefile.config
+            else
+              echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
+            fi
+            grep "^NATIVECCLIBS" Makefile.config || true
           else
-            echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
+            echo "WARNING: flexdll_mingw64.o not found after build"
           fi
+        else
+          echo "WARNING: Failed to build flexdll_mingw64.o"
         fi
       fi
 

@@ -16,16 +16,6 @@ echo "=== Cross-Compiler Tests (expecting ${VERSION}) ==="
 BUILD_PLATFORM="${build_platform:-}"
 TARGET_PLATFORM="${target_platform:-}"
 
-if [[ -z "$BUILD_PLATFORM" ]]; then
-  # Try to detect from uname
-  case "$(uname -s)-$(uname -m)" in
-    Linux-x86_64) BUILD_PLATFORM="linux-64" ;;
-    Darwin-x86_64) BUILD_PLATFORM="osx-64" ;;
-    Darwin-arm64) BUILD_PLATFORM="osx-arm64" ;;
-    *) echo "Cannot detect build platform"; exit 1 ;;
-  esac
-fi
-
 echo "Build platform: ${BUILD_PLATFORM}"
 echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
