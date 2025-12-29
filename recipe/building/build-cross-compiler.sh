@@ -6,6 +6,12 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
   # Set OCAMLLIB to installed native ocaml
   export OCAMLLIB="${PREFIX}/lib/ocaml"
 
+  # CRITICAL: Save native CONDA_OCAML_* values BEFORE the loop
+  # These are needed for building native tools (ocamlc.opt, ocamlopt.opt, profiling.cmx)
+  # that run on the BUILD machine. Must save before ANY loop iteration sets them to cross values.
+  _ORIGINAL_NATIVE_AS="${CONDA_OCAML_AS:-${BUILD_PREFIX}/bin/as}"
+  _ORIGINAL_NATIVE_CC="${CONDA_OCAML_CC:-${CC}}"
+
   # Define cross targets based on build platform
   declare -A CROSS_TARGETS
   if [[ "${target_platform}" == "linux-64" ]]; then
@@ -141,6 +147,12 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     # from parent (native) build which has LIBDIR=${PREFIX}/lib/ocaml
     echo "     crossopt"
 
+    # Use the pre-saved native values from BEFORE the loop
+    # These are needed for building native tools (ocamlc.opt, ocamlopt.opt, profiling.cmx)
+    # that run on the BUILD machine
+    _NATIVE_AS="${_ORIGINAL_NATIVE_AS}"
+    _NATIVE_CC="${_ORIGINAL_NATIVE_CC}"
+
     # CRITICAL: Set CONDA_OCAML_* variables for cross-compilation
     # The native ocamlopt.opt has $CONDA_OCAML_AS etc. embedded in config.generated.ml
     # These must point to cross-tools when building cross-compiled stdlib
@@ -180,6 +192,8 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       SAK_CFLAGS="${CFLAGS}"
       STRIP="${_STRIP}"
       ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+      NATIVE_AS="${_NATIVE_AS}"
+      NATIVE_CC="${_NATIVE_CC}"
     )
 
     # Platform-specific args

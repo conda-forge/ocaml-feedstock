@@ -73,24 +73,36 @@ unix_noop_update_toolchain() {
             fi
             grep "^NATIVECCLIBS" Makefile.config || true
 
-            # CRITICAL: Patch flexdll/Makefile to include flexdll_mingw64.o when linking flexlink.exe
-            # The -nostdlib flag bypasses NATIVECCLIBS, so we must explicitly add
-            # flexdll_mingw64.o to satisfy FlexDLL symbol references in libasmrun.a
-            # (runtime/win32.c calls flexdll_wdlopen, flexdll_dlsym, etc.)
-            if [[ -f "flexdll/Makefile" ]]; then
-              echo "Patching flexdll/Makefile for FlexDLL self-linking..."
-              # The flexlink.exe target uses: $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
-              # We add -cclib flexdll_mingw64.o and -cclib -Wl,-subsystem,console
-              # Use perl for more reliable pattern matching across whitespace
-              perl -i -pe 's/(\$\(OCAMLOPT\)\s+-o\s+flexlink\.exe\s+\$\(LINKFLAGS\))(\s+\$\(OBJS\))/$1 -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console$2/' flexdll/Makefile
-              if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
-                echo "Successfully patched flexdll/Makefile"
+            # CRITICAL: Patch OCaml's Makefile to include flexdll_mingw64.o when building flexlink.exe
+            # OCaml's Makefile invokes flexdll with -nostdlib which bypasses NATIVECCLIBS.
+            # We add -cclib flags to the OCAMLOPT definition so they get passed to flexlink build.
+            # The FlexDLL symbols (flexdll_wdlopen, flexdll_dlsym, etc.) are in runtime/win32.c
+            # and must be resolved from flexdll_mingw64.o
+            if [[ -f "Makefile" ]]; then
+              echo "Patching OCaml Makefile for FlexDLL self-linking..."
+
+              # Patch: Add -cclib flags to the OCAMLOPT invocation for flexlink.exe
+              # Original: OCAMLOPT='$(FLEXLINK_OCAMLOPT) -nostdlib -I ../stdlib' flexlink.exe
+              # Patched:  OCAMLOPT='$(FLEXLINK_OCAMLOPT) -nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib -Wl,-subsystem,console' flexlink.exe
+              sed -i "s|-nostdlib -I \.\./stdlib' flexlink\.exe|-nostdlib -I ../stdlib -cclib ../flexdll/flexdll_mingw64.o -cclib -Wl,-subsystem,console' flexlink.exe|" Makefile
+
+              if grep -q 'flexdll_mingw64.o' Makefile; then
+                echo "Successfully patched OCaml Makefile for flexlink.exe"
+                grep 'flexlink.exe' Makefile | head -5 || true
               else
-                echo "WARNING: flexdll/Makefile patch did not apply"
-                echo "Trying alternative patch method..."
-                # Alternative: patch the LINKFLAGS definition in flexdll Makefile
-                # LINKFLAGS = -cclib "$(RES)" -> LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console
-                sed -i 's/LINKFLAGS = -cclib "\$(RES)"/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                echo "WARNING: OCaml Makefile patch did not apply"
+                echo "Falling back to flexdll/Makefile patch..."
+
+                # Fallback: Patch flexdll/Makefile LINKFLAGS directly
+                if [[ -f "flexdll/Makefile" ]]; then
+                  sed -i '/^LINKFLAGS *=/s/$/ -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                  if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
+                    echo "Successfully patched flexdll/Makefile LINKFLAGS"
+                  else
+                    echo "ERROR: All flexdll patch methods failed"
+                    exit 1
+                  fi
+                fi
               fi
             fi
           else

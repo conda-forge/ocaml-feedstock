@@ -107,7 +107,8 @@ let () =
 EOF
 
 echo -n "  bytecode: "
-if ocamlc -I +threads threads.cma -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
+# threads.cma depends on unix.cma on Linux
+if ocamlc -I +unix unix.cma -I +threads threads.cma -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
   echo "OK"
 else
   echo "FAILED"
@@ -115,7 +116,8 @@ else
 fi
 
 echo -n "  native: "
-if ocamlopt -I +threads threads.cmxa -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
+# threads.cmxa depends on unix.cmxa on Linux
+if ocamlopt -I +unix unix.cmxa -I +threads threads.cmxa -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
   echo "OK"
 else
   echo "FAILED"
