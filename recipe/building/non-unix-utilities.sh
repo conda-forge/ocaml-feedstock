@@ -64,6 +64,34 @@ unix_noop_update_toolchain() {
             fi
             grep "^NATIVECCLIBS" Makefile.config || true
 
+            # CRITICAL: Create stub for static_symtable
+            # flexdll_mingw64.o references static_symtable (extern symtbl static_symtable)
+            # which is normally defined in the OCaml runtime. But with -nostdlib, no runtime.
+            # We provide an empty symbol table stub to satisfy the linker.
+            echo "Creating static_symtable stub..."
+            cat > flexdll/static_symtable_stub.c << 'STUB_EOF'
+/* Stub for static_symtable - empty symbol table for flexlink.exe */
+/* flexdll.c declares: extern symtbl static_symtable; */
+/* symtbl = struct { UINT_PTR size; dynsymbol entries[]; } */
+/* dynsymbol = struct { void *addr; char *name; } */
+#ifdef _WIN64
+typedef unsigned long long UINT_PTR;
+#else
+typedef unsigned int UINT_PTR;
+#endif
+typedef struct { void *addr; char *name; } dynsymbol;
+typedef struct { UINT_PTR size; dynsymbol entries[]; } symtbl;
+/* Empty symbol table - size=0, no entries */
+symtbl static_symtable = { 0 };
+STUB_EOF
+            # Compile the stub
+            ${CC:-gcc} -c -o flexdll/static_symtable_stub.o flexdll/static_symtable_stub.c
+            if [[ -f "flexdll/static_symtable_stub.o" ]]; then
+              echo "Successfully built static_symtable_stub.o"
+            else
+              echo "WARNING: Failed to build static_symtable_stub.o"
+            fi
+
             # CRITICAL: Patch flexdll/Makefile to include flexdll_mingw64.o when linking flexlink.exe
             # The -nostdlib flag bypasses NATIVECCLIBS, so we must explicitly add
             # flexdll_mingw64.o to satisfy FlexDLL symbol references in libasmrun.a
@@ -71,18 +99,18 @@ unix_noop_update_toolchain() {
             if [[ -f "flexdll/Makefile" ]]; then
               echo "Patching flexdll/Makefile for FlexDLL self-linking..."
               # The flexlink.exe target has: $(RES_PREFIX) $(OCAMLOPT) -o flexlink.exe $(LINKFLAGS) $(OBJS)
-              # We need to add -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console before $(OBJS)
+              # We need to add -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console before $(OBJS)
               # Pattern: match the -o flexlink.exe line and insert before $(OBJS)
               # Note: $(RES_PREFIX) may or may not be present; line starts with TAB
-              sed -i 's/\$(LINKFLAGS)\(.*\)\$(OBJS)/$(LINKFLAGS) -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console\1$(OBJS)/' flexdll/Makefile
+              sed -i 's/\$(LINKFLAGS)\(.*\)\$(OBJS)/$(LINKFLAGS) -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console\1$(OBJS)/' flexdll/Makefile
               if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
                 echo "Successfully patched flexdll/Makefile"
                 grep 'flexlink.exe' flexdll/Makefile | head -3
               else
                 echo "WARNING: Primary patch did not apply, trying LINKFLAGS method..."
                 # Alternative: Append to LINKFLAGS definition (both variants)
-                sed -i 's/^LINKFLAGS = -cclib "\$(RES)"$/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
-                sed -i 's/^LINKFLAGS = -cclib "-link \$(RES)"$/LINKFLAGS = -cclib "-link $(RES)" -cclib flexdll_mingw64.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                sed -i 's/^LINKFLAGS = -cclib "\$(RES)"$/LINKFLAGS = -cclib "$(RES)" -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
+                sed -i 's/^LINKFLAGS = -cclib "-link \$(RES)"$/LINKFLAGS = -cclib "-link $(RES)" -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,-subsystem,console/' flexdll/Makefile
                 if grep -q 'flexdll_mingw64.o' flexdll/Makefile; then
                   echo "LINKFLAGS patch succeeded"
                 else

@@ -6,6 +6,12 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
   # Set OCAMLLIB to installed native ocaml
   export OCAMLLIB="${PREFIX}/lib/ocaml"
 
+  # CRITICAL: Save native CONDA_OCAML_* values BEFORE the loop
+  # These are needed for building native tools (ocamlc.opt, ocamlopt.opt, profiling.cmx)
+  # that run on the BUILD machine. Must save before ANY loop iteration sets them to cross values.
+  _ORIGINAL_NATIVE_AS="${CONDA_OCAML_AS:-${BUILD_PREFIX}/bin/as}"
+  _ORIGINAL_NATIVE_CC="${CONDA_OCAML_CC:-${CC}}"
+
   # Define cross targets based on build platform
   declare -A CROSS_TARGETS
   if [[ "${target_platform}" == "linux-64" ]]; then
@@ -133,6 +139,30 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     # from parent (native) build which has LIBDIR=${PREFIX}/lib/ocaml
     echo "     crossopt"
 
+    # Use the pre-saved native values from BEFORE the loop
+    # These are needed for building native tools (ocamlc.opt, ocamlopt.opt, profiling.cmx)
+    # that run on the BUILD machine
+    _NATIVE_AS="${_ORIGINAL_NATIVE_AS}"
+    _NATIVE_CC="${_ORIGINAL_NATIVE_CC}"
+
+    # CRITICAL: Set CONDA_OCAML_* variables for cross-compilation
+    # The native ocamlopt.opt has $CONDA_OCAML_AS etc. embedded in config.generated.ml
+    # These must point to cross-tools when building cross-compiled stdlib
+    export CONDA_OCAML_AS="${_AS}"
+    export CONDA_OCAML_CC="${_CC}"
+    export CONDA_OCAML_AR="${_AR}"
+    export CONDA_OCAML_RANLIB="${_RANLIB}"
+    export CONDA_OCAML_MKDLL="${_CC} -shared"
+
+    # CRITICAL: Ensure cross-tools are findable in PATH
+    # The cross-compiler has basenames like "aarch64-conda-linux-gnu-as" embedded
+    # These must be resolvable via PATH during crossopt stdlib build
+    export PATH="${BUILD_PREFIX}/bin:${PATH}"
+    hash -r  # Clear bash command cache
+    echo "     PATH includes: ${BUILD_PREFIX}/bin"
+    echo "     Cross-assembler: $(which ${target}-as 2>/dev/null || echo 'NOT FOUND')"
+    echo "     Native assembler: $(which as 2>/dev/null || echo 'NOT FOUND')"
+
     # Common crossopt args
     _CROSSOPT_ARGS=(
       ARCH="${_ARCH}"
@@ -154,6 +184,8 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
       SAK_CFLAGS="${CFLAGS}"
       STRIP="${_STRIP}"
       ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+      NATIVE_AS="${_NATIVE_AS}"
+      NATIVE_CC="${_NATIVE_CC}"
     )
 
     # Platform-specific args
