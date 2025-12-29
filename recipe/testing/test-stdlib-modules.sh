@@ -117,7 +117,10 @@ fi
 
 echo -n "  native: "
 # threads.cmxa depends on unix.cmxa on Linux
-if ocamlopt -I +unix unix.cmxa -I +threads threads.cmxa -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
+# SKIP_NATIVE_THREADS=1 skips this test (QEMU can't reliably run threaded native code)
+if [[ "${SKIP_NATIVE_THREADS:-}" == "1" ]]; then
+  echo "SKIPPED (QEMU limitation)"
+elif ocamlopt -I +unix unix.cmxa -I +threads threads.cmxa -o test_threads test_threads.ml 2>/dev/null && ./test_threads | grep -q "Threads module test passed"; then
   echo "OK"
 else
   echo "FAILED"

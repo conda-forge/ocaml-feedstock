@@ -320,6 +320,8 @@ tests:
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
+        # Skip native threads test on cross-compiled (QEMU can't run threaded native code)
+        SKIP_NATIVE_THREADS: ${{ "1" if build_platform != target_platform else "0" }}
       content:
         - if: arm64
           then: echo "Skipping stdlib module tests on ARM64 (QEMU limitation)"
