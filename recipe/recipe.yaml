@@ -250,7 +250,7 @@ tests:
 
   # OCAML config
   - script:
-      - if unix and not arm64
+      - if: unix and not arm64
         then:
           - cd testing && ./test-config.sh
     files:
