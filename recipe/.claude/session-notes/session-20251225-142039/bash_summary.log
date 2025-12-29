@@ -1,0 +1,26 @@
+[2025-12-25 14:21:12] Check how ocamllex.opt is built: cd recipe && tar -xzf archives/ocaml-5.3.0.tar.gz ocaml-5.3.0/Makefile -O 2>/dev/null | grep -B 2 -A 2 "ocamllex\.opt"
+[2025-12-25 14:21:20] Check if archive exists: tar -tzf recipe/archives/ocaml-5.3.0.tar.gz | grep "Makefile$" | head -1
+[2025-12-25 14:21:20] Extract Makefile and check targets: tar -xzf recipe/archives/ocaml-5.3.0.tar.gz ocaml-5.3.0/Makefile -O 2>/dev/null | grep -E "^(tools-allopt\.opt:|ocamltoolsopt\.opt:|TOOLS_OPT_TARGETS)" | head -20
+[2025-12-25 14:21:27] Check recipe directory contents: ls -la recipe/archives/ 2>/dev/null || ls -la recipe/
+[2025-12-25 14:21:31] Check current location: pwd && ls -la | grep -E "(recipe|building)"
+[2025-12-25 14:21:37] List current directory: ls -la
+[2025-12-25 14:21:43] Check archives directory: ls -la archives/
+[2025-12-25 14:22:02] Find OCaml source archive: cd .. && find build_artifacts/src_cache -name "*.tar.gz" -o -name "*.tar.xz" | head -3
+[2025-12-25 14:23:38] Check for patch files: cd recipe && ls -la building/*.patch 2>/dev/null || echo "No .patch files in building/"
+[2025-12-25 14:23:44] Check for patches: ls -la building/*.patch 2>/dev/null || echo "No .patch files"
+[2025-12-25 14:23:45] Check apply_cross_patches in common functions: grep -A 10 "^apply_cross_patches" building/common-functions.sh
+[2025-12-25 14:23:59] Check if patch affects these targets: grep -E "tools-allopt|ocamltoolsopt" building/tmp_Makefile.patch
+[2025-12-25 14:26:09] Find recent log files in output: find output -name "*.log" -type f -mmin -360 | head -10
+[2025-12-25 14:26:09] List recent files in output directory: ls -lhrt output/ | tail -20
+[2025-12-25 14:26:09] Find work directories in output: find output -type d -name "work" 2>/dev/null | head -5
+[2025-12-25 14:26:15] Check feedstock output directory: cd .. && ls -lhrt output/ | tail -20
+[2025-12-25 14:26:15] Find built packages: cd .. && find output -name "*.tar.bz2" -o -name "*.conda" 2>/dev/null | tail -10
+[2025-12-25 14:32:40] Check upstream installcross target: grep -n "^installcross:" /home/memento/PycharmProjects/Conda-Feedstocks/ocaml-feedstock/build_artifacts/src_cache/ocaml-5_3_0_eb9eab2f/Makefile
+[2025-12-25 14:33:00] Check ocamllex.opt build rule: grep -n "ocamllex.opt.*:" /home/memento/PycharmProjects/Conda-Feedstocks/ocaml-feedstock/build_artifacts/src_cache/ocaml-5_3_0_eb9eab2f/Makefile | head -10
+[2025-12-25 14:33:00] Check what's in lex directory: ls -la output/bld/rattler-build_ocaml_1766693581/work/lex/ 2>/dev/null | head -15
+[2025-12-25 14:33:07] Find all ocamllex.opt with details: find output/bld/rattler-build_ocaml_1766693581/work -name "ocamllex.opt" -exec ls -lh {} \; 2>/dev/null
+[2025-12-25 14:33:17] Check where ocamllex.opt is defined: grep -E "lex/ocamllex\.opt|OCAMLLEX.*=" build_artifacts/src_cache/ocaml-5_3_0_eb9eab2f/Makefile | head -15
+[2025-12-25 14:33:17] Check for .opt files in lex and tools directories: ls -la output/bld/rattler-build_ocaml_1766693581/work/{lex,tools}/*.opt 2>/dev/null | head -20
+[2025-12-25 14:33:24] Check source cache structure: ls -la /home/memento/PycharmProjects/Conda-Feedstocks/ocaml-feedstock/build_artifacts/src_cache/
+[2025-12-25 14:33:24] Check ocamllex.opt build location: grep -E "lex/ocamllex\.opt|^ocamllex\.opt:" /home/memento/PycharmProjects/Conda-Feedstocks/ocaml-feedstock/build_artifacts/src_cache/ocaml-5_3_0_eb9eab2f/Makefile 2>/dev/null | head -15
+[2025-12-25 14:33:30] Search for ocamllex.opt in upstream Makefile: cd /home/memento/PycharmProjects/Conda-Feedstocks/ocaml-feedstock/build_artifacts/src_cache/ocaml-5_3_0_eb9eab2f && grep -n "ocamllex\.opt" Makefile | head -20
