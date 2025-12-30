@@ -55,10 +55,8 @@ else
   export ASPP="$CC -c"
   export AS=$(basename "${AS:-as}")
 
+  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   # Platform-specific linker flags and tools
-  if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-  fi
   if [[ "${target_platform}" == "osx-"* ]]; then
     # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
     # Use full path to ensure we don't pick up binutils ar from PATH
