@@ -68,6 +68,8 @@ unix_noop_update_toolchain() {
           echo "WARNING: Failed to build flexdll_mingw64.o"
         fi
 
+        sed -i 's/-cclib "-link \$(RES)"/-cclib $(RES)/' flexdll/Makefile
+        
         # CRITICAL: Fix LINKFLAGS for MinGW in flexdll/Makefile
         # Upstream flexdll uses '-cclib "-link $(RES)"' when NATDYNLINK=true.
         # The "-link" flag is for MSVC's link.exe, NOT MinGW's ld.

@@ -78,7 +78,7 @@ if [[ "${_DISABLE_GETENTROPY}" == "1" ]]; then
   _GETENTROPY_ARGS=(ac_cv_func_getentropy=no)
 fi
 
-CONFIG_ARGS=(--enable-shared --disable-static)
+CONFIG_ARGS=(--enable-shared)
 
 # ============================================================================
 # Save original environment & resolve cross-compiler paths
@@ -164,7 +164,7 @@ else
 fi
 
 # Common configure args (used in all stages)
-CONFIG_ARGS=(--enable-shared --disable-static --mandir=${OCAML_PREFIX}/share/man)
+CONFIG_ARGS=(--enable-shared --mandir=${OCAML_PREFIX}/share/man)
 
 # Stage 1 uses BUILD toolchain
 if [[ "${_PLATFORM_TYPE}" == "macos" ]]; then
@@ -386,8 +386,8 @@ else
   )
 fi
 
-make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" -j${CPU_COUNT}
-make installcross
+run_logged "stage3_crosscompiledruntime" make crosscompiledruntime "${_STAGE3_CROSSCOMPILEDRUNTIME_ARGS[@]}" -j${CPU_COUNT}
+run_logged "stage3_installcross" make installcross
 
 # ============================================================================
 # Post-install fixes

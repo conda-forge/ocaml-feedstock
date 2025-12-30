@@ -33,7 +33,7 @@ if [[ "${target_platform}" == "osx-"* ]]; then
     export AR=$(basename ${_AR})
     export RANLIB="${_AR/-as/-ranlib}"
   else
-    echo "ERROR: Install llvm-ar/llvm-ranlib" && exit 1
+    echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB" && exit 1
   fi
   export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"

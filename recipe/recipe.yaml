@@ -125,8 +125,10 @@ requirements:
         - lld ${{ c_compiler_version }}.*
         - llvm-tools ${{ c_compiler_version }}.*
   host:
+    - ${{ m2 }}bash >=5.2
     - zstd
   run:
+    - ${{ m2 }}bash >=5.2
     # OCaml runtime links against zstd for compressed marshaling
     - zstd
 
