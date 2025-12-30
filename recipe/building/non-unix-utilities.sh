@@ -92,11 +92,12 @@ unix_noop_update_toolchain() {
           fi
           grep -E 'LINKFLAGS|cclib.*RES' flexdll/Makefile | head -5 || true
 
-          # CRITICAL: Create stub for static_symtable
+          # CRITICAL: Create stub for static_symtable AND WinMain
           # flexdll_mingw64.o references static_symtable (extern symtbl static_symtable)
           # which is normally defined in the OCaml runtime. But with -nostdlib, no runtime.
-          # We provide an empty symbol table stub to satisfy the linker.
-          echo "Creating static_symtable stub..."
+          # Also, libmingw32.a's crtexewin.o provides main() that calls WinMain().
+          # We must provide WinMain() to satisfy the linker, redirecting to caml_startup.
+          echo "Creating static_symtable and WinMain stub..."
           cat > flexdll/static_symtable_stub.c << 'STUB_EOF'
 /* Stub for static_symtable - empty symbol table for flexlink.exe */
 #ifdef _WIN64
@@ -107,6 +108,20 @@ typedef unsigned int UINT_PTR;
 typedef struct { void *addr; char *name; } dynsymbol;
 typedef struct { UINT_PTR size; dynsymbol entries[]; } symtbl;
 symtbl static_symtable = { 0 };
+
+/* WinMain stub - libmingw32.a's crtexewin.o expects this.
+ * crtexewin.o provides main() which calls WinMain().
+ * We redirect to caml_startup which is the OCaml entry point. */
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+extern void caml_startup(char **argv);
+extern int __argc;
+extern char **__argv;
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
+                   LPSTR lpCmdLine, int nCmdShow) {
+    caml_startup(__argv);
+    return 0;
+}
 STUB_EOF
           ${CC:-gcc} -c -o flexdll/static_symtable_stub.o flexdll/static_symtable_stub.c
           if [[ -f "flexdll/static_symtable_stub.o" ]]; then
