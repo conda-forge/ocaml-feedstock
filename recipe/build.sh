@@ -17,23 +17,31 @@ fi
 
 mkdir -p "${SRC_DIR}"/_logs
 
-# CONFIG_ARGS=(--enable-shared)
-# if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-#   CONFIG_ARGS+=(PKG_CONFIG=false)
-#   EXE=""
-#   SH_EXT="sh"
-# else
-#   export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
-#   export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
-#   CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
-#   EXE=".exe"
-#   SH_EXT="bat"
-# fi
+# ONFIG_ARGS=(--enable-shared)
+# f [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+#  CONFIG_ARGS+=(PKG_CONFIG=false)
+#  EXE=""
+#  SH_EXT="sh"
+# lse
+#  export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
+#  export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
+#  CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
+#  EXE=".exe"
+#  SH_EXT="bat"
+# i
 
-# (
-#   OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native && mkdir -p "${SRC_DIR}"/_native
-#   source "${RECIPE_DIR}"/building/build-native.sh
-# )
+# 
+#  OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native && mkdir -p "${OCAML_INSTALL_PREFIX}"
+#  source "${RECIPE_DIR}"/building/build-native.sh
+# 
+
+# 
+#  OCAML_PREFIX="${SRC_DIR}"/_native
+#  OCAMLIB="${OCAML_PREFIX}"/lib/ocaml
+#  
+#  OCAML_INSTALL_PREFIX="${SRC_DIR}"/_cross && mkdir -p "${OCAML_INSTALL_PREFIX}"
+#  source "${RECIPE_DIR}"/building/build-cross-compiler.sh
+# 
 
 export OCAML_INSTALL_PREFIX="${PREFIX}"
 # Simplify compiler paths to basenames (hardcoded in binaries)
@@ -125,7 +133,6 @@ else
 
   echo "=== Configuring native compiler ==="
   ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/config.log; exit 1; }
-  cat "${SRC_DIR}"/_logs/configure.log
 
   # No-op for unix
   unix_noop_update_toolchain
@@ -144,12 +151,21 @@ else
 
     if [[ "${target_platform}" == "osx-"* ]]; then
       sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC|}/' "$config_file"
-      sed -i -E 's/^(let mk(?:main)?dll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
+      sed -i -E 's/^(let mkdll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
+      sed -i -E 's/^(let mkmaindll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
     fi
 
     # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
     sed -i 's|-L[^ ]*||g' "$config_file"
-  fi
+  else
+    # Use environment variable references - users can customize via CONDA_OCAML_*
+    sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
+    sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
+    sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
+    sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
+    sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_CC%|}/' "$config_file"
+    sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL% -maindll|}/' "$config_file"
   fi
 
   # Remove -L paths from Makefile.config (embedded in ocamlc binary)
