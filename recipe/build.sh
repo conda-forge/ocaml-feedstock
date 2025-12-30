@@ -19,21 +19,34 @@ mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
 export OCAML_INSTALL_PREFIX="${PREFIX}"
 # Simplify compiler paths to basenames (hardcoded in binaries)
+export AR=$(basename "${AR}")
+export AS=$(basename "${AS}")
 export CC=$(basename "${CC}")
 export ASPP="$CC -c"
-export AS=$(basename "${AS}")
-export AR=$(basename "${AR}")
 export RANLIB=$(basename "${RANLIB}")
 
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use full path to ensure we don't pick up binutils ar from PATH
-  AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
-  export AR=$(basename ${AR})
-  export RANLIB=$(basename ${AR/-ar/-ranlib})
+  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
+  if [[ -n "${_AR}" ]]; then
+    export AR=$(basename ${_AR})
+    export RANLIB="${_AR/-as/-ranlib}"
+  else
+    echo "ERROR: Install llvm-ar/llvm-ranlib" && exit 1
+  fi
   export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
 fi
+
+
+# Define CONDA_OCAML_* variables
+export CONDA_OCAML_AR="${AR}"
+export CONDA_OCAML_AS="${AS}"
+export CONDA_OCAML_CC="${CC}"
+export CONDA_OCAML_RANLIB="${RANLIB}"
+export CONDA_OCAML_MKEXE="${CC}"
+export CONDA_OCAML_MKDLL="${CC} -shared"
 
 CONFIG_ARGS=(--enable-shared)
 
@@ -134,14 +147,6 @@ fi
 # Cross-compilers
 # ============================================================================
 
-# Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
-export CONDA_OCAML_AS="${AS}"
-export CONDA_OCAML_CC="${CC}"
-export CONDA_OCAML_AR="${AR}"
-export CONDA_OCAML_RANLIB="${RANLIB}"
-export CONDA_OCAML_MKEXE="${CC}"
-export CONDA_OCAML_MKDLL="${CC} -shared"
-
 source "${RECIPE_DIR}"/building/build-cross-compiler.sh
 
 # ============================================================================
@@ -187,10 +192,10 @@ done
 
 # Install activation scripts with build-time tool substitution
 # Use basenames so scripts work regardless of install location
-_BUILD_CC=$(basename "${CC:-${HOST}-cc}")
-_BUILD_AS=$(basename "${AS:-${HOST}-as}")
-_BUILD_AR=$(basename "${AR:-${HOST}-ar}")
-_BUILD_RANLIB=$(basename "${RANLIB:-${HOST}-ranlib}")
+_BUILD_CC=$(basename "${CC}")
+_BUILD_AS=$(basename "${AS}")
+_BUILD_AR=$(basename "${AR}")
+_BUILD_RANLIB=$(basename "${RANLIB}")
 
 for CHANGE in "activate" "deactivate"; do
   mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
