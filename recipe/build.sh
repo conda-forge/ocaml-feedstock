@@ -17,31 +17,31 @@ fi
 
 mkdir -p "${SRC_DIR}"/_logs
 
-# ONFIG_ARGS=(--enable-shared)
-# f [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-#  CONFIG_ARGS+=(PKG_CONFIG=false)
-#  EXE=""
-#  SH_EXT="sh"
-# lse
-#  export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
-#  export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
-#  CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
-#  EXE=".exe"
-#  SH_EXT="bat"
-# i
+# CONFIG_ARGS=(--enable-shared)
+# if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+#   CONFIG_ARGS+=(PKG_CONFIG=false)
+#   EXE=""
+#   SH_EXT="sh"
+# else
+#   export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
+#   export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
+#   CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
+#   EXE=".exe"
+#   SH_EXT="bat"
+# fi
 
-# 
-#  OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native && mkdir -p "${OCAML_INSTALL_PREFIX}"
-#  source "${RECIPE_DIR}"/building/build-native.sh
-# 
+# (
+#   OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native && mkdir -p "${OCAML_INSTALL_PREFIX}"
+#   source "${RECIPE_DIR}"/building/build-native.sh
+# )
 
-# 
-#  OCAML_PREFIX="${SRC_DIR}"/_native
-#  OCAMLIB="${OCAML_PREFIX}"/lib/ocaml
-#  
-#  OCAML_INSTALL_PREFIX="${SRC_DIR}"/_cross && mkdir -p "${OCAML_INSTALL_PREFIX}"
-#  source "${RECIPE_DIR}"/building/build-cross-compiler.sh
-# 
+# (
+#   OCAML_PREFIX="${SRC_DIR}"/_native
+#   OCAMLIB="${OCAML_PREFIX}"/lib/ocaml
+#   
+#   OCAML_INSTALL_PREFIX="${SRC_DIR}"/_cross && mkdir -p "${OCAML_INSTALL_PREFIX}"
+#   source "${RECIPE_DIR}"/building/build-cross-compiler.sh
+# )
 
 export OCAML_INSTALL_PREFIX="${PREFIX}"
 # Simplify compiler paths to basenames (hardcoded in binaries)
@@ -54,13 +54,14 @@ export RANLIB=$(basename "${RANLIB}")
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use full path to ensure we don't pick up binutils ar from PATH
-  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
+  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar*" -type f 2>/dev/null | head -1)
   if [[ -n "${_AR}" ]]; then
     export AR=$(basename ${_AR})
-    export RANLIB="${_AR/-as/-ranlib}"
+    export RANLIB="${_AR/-ar/-ranlib}"
   else
     echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB"
   fi
+  export AS=$(basename "${ASPP}")
   export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
 fi
@@ -151,6 +152,7 @@ else
 
     if [[ "${target_platform}" == "osx-"* ]]; then
       sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC|}/' "$config_file"
+      sed -i -E 's/^(let mk(?:main)?dll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
       sed -i -E 's/^(let mkdll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
       sed -i -E 's/^(let mkmaindll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
     fi
@@ -158,6 +160,11 @@ else
     # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
+    # Force usage of flexlink instead of C-compiler (flexlink cannot be detected by configure)
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64|' Makefile.config
+    sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
+    sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
+    
     # Use environment variable references - users can customize via CONDA_OCAML_*
     sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
     sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
