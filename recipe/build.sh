@@ -76,8 +76,9 @@ if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"*
   export CONDA_OCAML_MKEXE="${CC}"
   export CONDA_OCAML_MKDLL="${CC} -shared"
 else
-  # -subsystem console: prevents WinMain errors from GUI startup code
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -subsystem console"
+  # -subsystem console + -link -Wl,--subsystem,console: prevents WinMain errors
+  # Use BOTH flexlink's flag AND pass directly to linker to ensure it takes effect
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -subsystem console -link -Wl,--subsystem,console"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
@@ -152,7 +153,9 @@ else
     sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
 
     if [[ "${target_platform}" == "osx-"* ]]; then
-      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC|}/' "$config_file"
+      # macOS: clang needs -c flag to assemble without linking
+      # Without -c, clang tries to link and fails with "undefined _main"
+      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC -c|}/' "$config_file"
       sed -i -E 's/^(let mkdll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
       sed -i -E 's/^(let mkmaindll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
     fi
@@ -161,12 +164,17 @@ else
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
     # Force usage of flexlink instead of C-compiler (flexlink cannot be detected by configure)
-    # CRITICAL: Add -subsystem console to prevent WinMain errors
+    # CRITICAL: Add -subsystem console AND -link -Wl,--subsystem,console to prevent WinMain errors
     # conda-forge's MinGW may default to GUI subsystem (crtexewin.o expecting WinMain)
-    # Explicit -subsystem console forces console subsystem (crtexe.o using main)
-    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -subsystem console|' Makefile.config
+    # Use BOTH flexlink's -subsystem flag AND pass flag directly to linker via -link
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -subsystem console -link -Wl,--subsystem,console|' Makefile.config
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
+
+    # DEBUG: Show what MKEXE is set to
+    echo "=== DEBUG: Makefile.config MKEXE setting ==="
+    grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "MKEXE not found in Makefile.config"
+    echo "=== END DEBUG ==="
     
     # Use environment variable references - users can customize via CONDA_OCAML_*
     sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
@@ -184,7 +192,8 @@ else
   sed -i 's|-L[^ ]*||g' "${config_file}"
 
   echo "=== Compiling native compiler ==="
-  make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+  # V=1 shows actual commands being run (helps debug MKEXE issues)
+  make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     echo "=== Running tests ==="
