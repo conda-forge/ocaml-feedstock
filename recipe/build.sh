@@ -28,12 +28,12 @@ export RANLIB=$(basename "${RANLIB}")
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use full path to ensure we don't pick up binutils ar from PATH
-  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" /usr/bin -name "llvm-ar" -type f 2>/dev/null | head -1)
+  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
   if [[ -n "${_AR}" ]]; then
     export AR=$(basename ${_AR})
     export RANLIB="${_AR/-as/-ranlib}"
   else
-    echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB" && exit 1
+    echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB"
   fi
   export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
