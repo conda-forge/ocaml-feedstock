@@ -17,6 +17,13 @@ fi
 
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
+# Simplify compiler paths to basenames (hardcoded in binaries)
+export CC=$(basename "${CC}")
+export ASPP="$CC -c"
+export AS=$(basename "${AS}")
+export AR=$(basename "${AR}")
+export RANLIB=$(basename "${RANLIB}")
+
 CONFIG_ARGS=(--enable-shared)
 
 # Platform detection and OCAML_INSTALL_PREFIX setup
@@ -30,10 +37,16 @@ else
   export OCAML_INSTALL_PREFIX="${PREFIX}"/Library
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
   CONFIG_ARGS+=(LDFLAGS="-L${OCAML_INSTALL_PREFIX}/lib -L${PREFIX}/lib ${LDFLAGS:-}")
+  export MINGW_CC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc.exe" -type f 2>/dev/null | head -1)
+  if [[ -n "${MINGW_CC}" ]]; then
+    MINGW_DIR=$(dirname "${MINGW_CC}") && export PATH="${MINGW_DIR}:${PATH}"
+  else
+    echo "ERROR: non-unix build developped with GCC" && exit 1
+  fi
   SH_EXT="bat"
 fi
 
-CONFIG_ARGS=+(
+CONFIG_ARGS+=(
   --mandir="${OCAML_INSTALL_PREFIX}"/share/man
   --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
   --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin
@@ -56,23 +69,17 @@ else
   # No-op for unix
   unix_noop_build_toolchain
 
-  # Simplify compiler paths to basenames (hardcoded in binaries)
-  export CC=$(basename "${CC}")
-  export ASPP="$CC -c"
-  export AS=$(basename "${AS:-as}")
-
   export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   # Platform-specific linker flags and tools
   if [[ "${target_platform}" == "osx-"* ]]; then
     # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
     # Use full path to ensure we don't pick up binutils ar from PATH
-    export AR="${BUILD_PREFIX}/bin/llvm-ar"
-    export RANLIB="${BUILD_PREFIX}/bin/llvm-ranlib"
-    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+    AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
+    export AR=$(basename ${AR})
+    export RANLIB=$(basename ${AR/-ar/-ranlib})
+    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   else
-    export AR=$(basename "${AR:-ar}")
-    export RANLIB=$(basename "${RANLIB:-ranlib}")
   fi
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
@@ -131,8 +138,8 @@ fi
 # Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
 export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
-export CONDA_OCAML_AR="${AR:-${HOST}-ar}"
-export CONDA_OCAML_RANLIB="${RANLIB:-ranlib}"
+export CONDA_OCAML_AR="${AR}"
+export CONDA_OCAML_RANLIB="${RANLIB}"
 export CONDA_OCAML_MKEXE="${CC}"
 export CONDA_OCAML_MKDLL="${CC} -shared"
 
