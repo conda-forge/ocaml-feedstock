@@ -81,7 +81,8 @@ else
   # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
   # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
   PKG_CONFIG=false ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
-
+  cat "${SRC_DIR}"/_logs/configure.log
+  
   # No-op for unix
   unix_noop_update_toolchain
 
