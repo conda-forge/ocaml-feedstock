@@ -15,6 +15,7 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
   fi
 fi
 
+mkdir -p "${SRC_DIR}"/_logs
 
 # CONFIG_ARGS=(--enable-shared)
 # if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
@@ -63,8 +64,8 @@ export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
 export CONDA_OCAML_RANLIB="${RANLIB}"
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-  export CONDA_OCAML_MKEXE="${_CC}"
-  export CONDA_OCAML_MKDLL="${_CC} -shared"
+  export CONDA_OCAML_MKEXE="${CC}"
+  export CONDA_OCAML_MKDLL="${CC} -shared"
 else
   export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
