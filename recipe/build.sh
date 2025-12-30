@@ -28,7 +28,7 @@ export RANLIB=$(basename "${RANLIB}")
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use full path to ensure we don't pick up binutils ar from PATH
-  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
+  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" /usr/bin -name "llvm-ar" -type f 2>/dev/null | head -1)
   if [[ -n "${_AR}" ]]; then
     export AR=$(basename ${_AR})
     export RANLIB="${_AR/-as/-ranlib}"
@@ -56,6 +56,7 @@ if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"*
   # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
   # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
   CONFIG_ARGS+=(PKG_CONFIG=false)
+  EXE=""
   SH_EXT="sh"
 else
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
@@ -68,6 +69,7 @@ else
   else
     echo "ERROR: non-unix build developped with GCC" && exit 1
   fi
+  EXE=".exe"
   SH_EXT="bat"
 fi
 

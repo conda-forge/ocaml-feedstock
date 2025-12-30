@@ -69,6 +69,7 @@ unix_noop_update_toolchain() {
         fi
 
         sed -i 's/-cclib "-link \$(RES)"/-cclib $(RES)/' flexdll/Makefile
+        sed -i 's/\$(LINKFLAGS)\(.*\)\$(OBJS)/$(LINKFLAGS) -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,--subsystem,console\1$(OBJS)/' flexdll/Makefile
         
         # CRITICAL: Fix LINKFLAGS for MinGW in flexdll/Makefile
         # Upstream flexdll uses '-cclib "-link $(RES)"' when NATDYNLINK=true.
