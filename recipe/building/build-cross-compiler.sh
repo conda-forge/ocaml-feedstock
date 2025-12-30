@@ -114,11 +114,11 @@ if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-6
     config_file="utils/config.generated.ml"
     if [[ "${_PLATFORM}" == "macos" ]]; then
       sed -i 's#^let asm = .*#let asm = {|$CONDA_OCAML_CC -c|}#' "$config_file"
-      sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL|}#' "$config_file"
+      sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}#' "$config_file"
       sed -i 's#^let mkexe = .*#let mkexe = {|$CONDA_OCAML_CC|}#' "$config_file"
     else
       sed -i 's#^let asm = .*#let asm = {|$CONDA_OCAML_AS|}#' "$config_file"
-      sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}#' "$config_file"
+      sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL|}#' "$config_file"
       sed -i 's#^let mkexe = .*#let mkexe = {|$CONDA_OCAML_CC -Wl,-E|}#' "$config_file"
     fi
     sed -i 's#^let c_compiler = .*#let c_compiler = {|$CONDA_OCAML_CC|}#' "$config_file"
