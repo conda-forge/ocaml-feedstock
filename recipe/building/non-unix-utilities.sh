@@ -8,7 +8,6 @@ unix_noop_build_toolchain() {
       CC="${_MINGW_CC}"
       RANLIB="${_MINGW_DIR}/x86_64-w64-mingw32-ranlib"
       export PATH="${_MINGW_DIR}:${PATH}"
-      export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
       
       # Create 'gcc' alias for windres preprocessor
       if [[ ! -f "${_MINGW_DIR}/gcc.exe" ]]; then
@@ -138,30 +137,20 @@ unix_noop_update_toolchain() {
       fi
     fi
 
-    # Define CONDA_OCAML_* variables during build (Windows uses these via %VAR% syntax)
-    export CONDA_OCAML_AS="${AS:-as}"
-    export CONDA_OCAML_CC="${CC:-gcc}"
-    export CONDA_OCAML_AR="${AR:-ar}"
-    export CONDA_OCAML_RANLIB="${RANLIB:-ranlib}"
-    export CONDA_OCAML_MKEXE="${CC:-gcc}"
-    export CONDA_OCAML_MKDLL="${CC:-gcc} -shared"
-
     config_file="utils/config.generated.ml"
-    if [[ -f "$config_file" ]]; then
-      # Windows: Use %VAR% syntax (not $VAR)
-      # These are set in activate.bat with defaults
-      sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
-      sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
+    # Windows: Use %VAR% syntax (not $VAR)
+    # These are set in activate.bat with defaults
+    sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
+    sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
 
-      # Windows linker/dll settings
-      # CONDA_OCAML_MKEXE: executable linker (gcc or clang)
-      # CONDA_OCAML_MKDLL: shared library linker (gcc -shared, cl /LD, etc.)
-      sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
-      sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-      sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-      sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
-      sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
-    fi
+    # Windows linker/dll settings
+    # CONDA_OCAML_MKEXE: executable linker (gcc or clang)
+    # CONDA_OCAML_MKDLL: shared library linker (gcc -shared, cl /LD, etc.)
+    sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
+    sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
+    sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
   fi
 
   # Remove failing test

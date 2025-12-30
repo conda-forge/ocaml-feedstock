@@ -17,22 +17,27 @@ fi
 
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
+CONFIG_ARGS=(
+  --enable-shared
+  --mandir="${OCAML_INSTALL_PREFIX}"/share/man
+  --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
+  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin
+  -prefix "${OCAML_INSTALL_PREFIX}"
+)
+
 # Platform detection and OCAML_INSTALL_PREFIX setup
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
   export OCAML_INSTALL_PREFIX="${PREFIX}"
+  # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
+  # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
+  CONFIG_ARGS+=(PKG_CONFIG=false)
   SH_EXT="sh"
 else
   export OCAML_INSTALL_PREFIX="${PREFIX}"/Library
+  export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+  CONFIG_ARGS+=(LDFLAGS="-L${OCAML_INSTALL_PREFIX}/lib -L${PREFIX}/lib ${LDFLAGS:-}")
   SH_EXT="bat"
 fi
-
-CONFIG_ARGS=(
-  --enable-shared
-  --disable-static
-  --mandir="${OCAML_INSTALL_PREFIX}"/share/man
-  --with-target-bindir="${PREFIX}"/bin
-  -prefix "${OCAML_INSTALL_PREFIX}"
-)
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ -d "${BUILD_PREFIX}"/lib/ocaml-cross-compilers ]]; then
@@ -74,54 +79,36 @@ else
   fi
 
   echo "=== Configuring native compiler ==="
-  # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
-  # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
   ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/config.log; exit 1; }
   cat "${SRC_DIR}"/_logs/configure.log
 
   # No-op for unix
   unix_noop_update_toolchain
 
-  # Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
-  export CONDA_OCAML_AS="${AS}"
-  export CONDA_OCAML_CC="${CC}"
-  export CONDA_OCAML_AR="${AR:-ar}"
-  export CONDA_OCAML_RANLIB="${RANLIB:-ranlib}"
-  export CONDA_OCAML_MKDLL="${CC} -shared"
-
   # Patch config.generated.ml to use CONDA_OCAML_* env vars (expanded at runtime)
   config_file="utils/config.generated.ml"
-  if [[ -f "$config_file" ]]; then
-    if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-      # Use environment variable references - users can customize via CONDA_OCAML_*
-      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
-      sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
-      sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
+  if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+    # Use environment variable references - users can customize via CONDA_OCAML_*
+    sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
+    sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
+    sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
+    sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
+    sed -i 's/^let ranlib = .*/let ranlib = {|\$CONDA_OCAML_RANLIB|}/' "$config_file"
+    sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
 
-      if [[ "${target_platform}" == "osx-"* ]]; then
-        sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
-        sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL -undefined dynamic_lookup|}/' "$config_file"
-        sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
-        sed -i 's/^let ranlib = .*/let ranlib = {|\$CONDA_OCAML_RANLIB|}/' "$config_file"
-      else
-        # Linux
-        sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
-        sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
-        sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
-        sed -i 's/^let ranlib = .*/let ranlib = {|\$CONDA_OCAML_RANLIB|}/' "$config_file"
-      fi
-
-      # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
-      sed -i 's|-L[^ ]*||g' "$config_file"
+    if [[ "${target_platform}" == "osx-"* ]]; then
+      sed -i 's/^(let mk(?:main)?dll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
     fi
+
+    # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
+    sed -i 's|-L[^ ]*||g' "$config_file"
   fi
 
   # Remove -L paths from Makefile.config (embedded in ocamlc binary)
   config_file="Makefile.config"
-  if [[ -f "${config_file}" ]]; then
-    sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
-    sed -i 's|-L[^ ]*||g' "${config_file}"
-  fi
+  sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
+  sed -i 's|-L[^ ]*||g' "${config_file}"
 
   echo "=== Compiling native compiler ==="
   make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
@@ -139,6 +126,14 @@ fi
 # ============================================================================
 # Cross-compilers
 # ============================================================================
+
+# Define CONDA_OCAML_* variables during build (used by patched config.generated.ml)
+export CONDA_OCAML_AS="${AS}"
+export CONDA_OCAML_CC="${CC}"
+export CONDA_OCAML_AR="${AR:-${HOST}-ar}"
+export CONDA_OCAML_RANLIB="${RANLIB:-ranlib}"
+export CONDA_OCAML_MKEXE="${CC}"
+export CONDA_OCAML_MKDLL="${CC} -shared"
 
 source "${RECIPE_DIR}"/building/build-cross-compiler.sh
 
