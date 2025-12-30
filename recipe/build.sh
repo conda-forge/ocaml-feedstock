@@ -78,9 +78,9 @@ if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"*
   export CONDA_OCAML_MKEXE="${CC}"
   export CONDA_OCAML_MKDLL="${CC} -shared"
 else
-  # -mconsole: tells GCC to select console CRT startup code (crtexe.o, not crtexewin.o)
-  # -Wl,--subsystem,console alone doesn't work - CRT selection is done by GCC, not ld
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -ccopt -mconsole"
+  # -link -mconsole: passes -mconsole to GCC to select console CRT startup code
+  # flexlink doesn't have -ccopt, use -link to pass flags to the underlying compiler
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -link -mconsole"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
@@ -166,10 +166,10 @@ else
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
     # Force usage of flexlink instead of C-compiler (flexlink cannot be detected by configure)
-    # CRITICAL: -ccopt -mconsole tells GCC to select console CRT startup code
+    # CRITICAL: -link -mconsole passes -mconsole to GCC to select console CRT startup code
     # crtexe.o (console, expects main) instead of crtexewin.o (GUI, expects WinMain)
-    # Note: -Wl,--subsystem,console alone doesn't work - CRT selection is done by GCC, not ld
-    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -ccopt -mconsole|' Makefile.config
+    # Note: flexlink doesn't have -ccopt, use -link to pass flags to underlying compiler
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -link -mconsole|' Makefile.config
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
 
