@@ -186,10 +186,10 @@ done
 
 # Install activation scripts with build-time tool substitution
 # Use basenames so scripts work regardless of install location
-_BUILD_CC=$(basename "${CC:-cc}")
-_BUILD_AS=$(basename "${AS:-as}")
-_BUILD_AR=$(basename "${AR:-ar}")
-_BUILD_RANLIB=$(basename "${RANLIB:-ranlib}")
+_BUILD_CC=$(basename "${CC:-${HOST}-cc}")
+_BUILD_AS=$(basename "${AS:-${HOST}-as}")
+_BUILD_AR=$(basename "${AR:-${HOST}-ar}")
+_BUILD_RANLIB=$(basename "${RANLIB:-${HOST}-ranlib}")
 
 for CHANGE in "activate" "deactivate"; do
   mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
