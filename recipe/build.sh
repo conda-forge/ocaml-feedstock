@@ -17,6 +17,7 @@ fi
 
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
+export OCAML_INSTALL_PREFIX="${PREFIX}"
 # Simplify compiler paths to basenames (hardcoded in binaries)
 export CC=$(basename "${CC}")
 export ASPP="$CC -c"
@@ -24,18 +25,29 @@ export AS=$(basename "${AS}")
 export AR=$(basename "${AR}")
 export RANLIB=$(basename "${RANLIB}")
 
+if [[ "${target_platform}" == "osx-"* ]]; then
+  # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
+  # Use full path to ensure we don't pick up binutils ar from PATH
+  AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
+  export AR=$(basename ${AR})
+  export RANLIB=$(basename ${AR/-ar/-ranlib})
+  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
+  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+fi
+
 CONFIG_ARGS=(--enable-shared)
 
 # Platform detection and OCAML_INSTALL_PREFIX setup
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-  export OCAML_INSTALL_PREFIX="${PREFIX}"
+  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
   # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
   CONFIG_ARGS+=(PKG_CONFIG=false)
   SH_EXT="sh"
 else
-  export OCAML_INSTALL_PREFIX="${PREFIX}"/Library
-  export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig:${PREFIX}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+  export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
+  export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
+  export LIBRARY_PATH="${OCAML_INSTALL_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
   CONFIG_ARGS+=(LDFLAGS="-L${OCAML_INSTALL_PREFIX}/lib -L${PREFIX}/lib ${LDFLAGS:-}")
   export MINGW_CC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc.exe" -type f 2>/dev/null | head -1)
   if [[ -n "${MINGW_CC}" ]]; then
@@ -49,7 +61,7 @@ fi
 CONFIG_ARGS+=(
   --mandir="${OCAML_INSTALL_PREFIX}"/share/man
   --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
-  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin
+  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin/bash
   -prefix "${OCAML_INSTALL_PREFIX}"
 )
 
@@ -68,19 +80,6 @@ else
 
   # No-op for unix
   unix_noop_build_toolchain
-
-  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-  # Platform-specific linker flags and tools
-  if [[ "${target_platform}" == "osx-"* ]]; then
-    # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
-    # Use full path to ensure we don't pick up binutils ar from PATH
-    AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
-    export AR=$(basename ${AR})
-    export RANLIB=$(basename ${AR/-ar/-ranlib})
-    export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  else
-  fi
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     CONFIG_ARGS+=(--enable-ocamltest)
