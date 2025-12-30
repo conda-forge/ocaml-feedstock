@@ -40,7 +40,7 @@ mkdir -p "${SRC_DIR}"/_logs
 #   OCAMLIB="${OCAML_PREFIX}"/lib/ocaml
 #   
 #   OCAML_INSTALL_PREFIX="${SRC_DIR}"/_cross && mkdir -p "${OCAML_INSTALL_PREFIX}"
-#   source "${RECIPE_DIR}"/building/build-cross-compiler.sh
+#   source "${RECIPE_DIR}"/building/build-cross-compiler-new.sh
 # )
 
 export OCAML_INSTALL_PREFIX="${PREFIX}"
@@ -76,7 +76,8 @@ if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"*
   export CONDA_OCAML_MKEXE="${CC}"
   export CONDA_OCAML_MKDLL="${CC} -shared"
 else
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
+  # -subsystem console: prevents WinMain errors from GUI startup code
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -subsystem console"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
@@ -152,7 +153,6 @@ else
 
     if [[ "${target_platform}" == "osx-"* ]]; then
       sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC|}/' "$config_file"
-      sed -i -E 's/^(let mk(?:main)?dll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
       sed -i -E 's/^(let mkdll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
       sed -i -E 's/^(let mkmaindll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
     fi
@@ -161,7 +161,10 @@ else
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
     # Force usage of flexlink instead of C-compiler (flexlink cannot be detected by configure)
-    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64|' Makefile.config
+    # CRITICAL: Add -subsystem console to prevent WinMain errors
+    # conda-forge's MinGW may default to GUI subsystem (crtexewin.o expecting WinMain)
+    # Explicit -subsystem console forces console subsystem (crtexe.o using main)
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -subsystem console|' Makefile.config
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
     
