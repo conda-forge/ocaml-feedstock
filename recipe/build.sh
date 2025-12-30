@@ -17,13 +17,7 @@ fi
 
 mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
 
-CONFIG_ARGS=(
-  --enable-shared
-  --mandir="${OCAML_INSTALL_PREFIX}"/share/man
-  --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
-  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin
-  -prefix "${OCAML_INSTALL_PREFIX}"
-)
+CONFIG_ARGS=(--enable-shared)
 
 # Platform detection and OCAML_INSTALL_PREFIX setup
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
@@ -38,6 +32,13 @@ else
   CONFIG_ARGS+=(LDFLAGS="-L${OCAML_INSTALL_PREFIX}/lib -L${PREFIX}/lib ${LDFLAGS:-}")
   SH_EXT="bat"
 fi
+
+CONFIG_ARGS=+(
+  --mandir="${OCAML_INSTALL_PREFIX}"/share/man
+  --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
+  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin
+  -prefix "${OCAML_INSTALL_PREFIX}"
+)
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ -d "${BUILD_PREFIX}"/lib/ocaml-cross-compilers ]]; then
