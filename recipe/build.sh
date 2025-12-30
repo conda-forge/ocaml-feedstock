@@ -62,7 +62,6 @@ export CONDA_OCAML_AR="${AR}"
 export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
 export CONDA_OCAML_RANLIB="${RANLIB}"
-export CONDA_OCAML_RANLIB="${_RANLIB}"
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKEXE="${_CC}"
   export CONDA_OCAML_MKDLL="${_CC} -shared"
