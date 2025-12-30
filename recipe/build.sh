@@ -61,7 +61,9 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   else
     echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB"
   fi
-  export AS=$(basename "${ASPP}")
+  # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
+  # basename doesn't strip arguments, so we need to extract the first word first
+  export AS=$(basename "${ASPP%% *}")
   export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
 fi
@@ -76,9 +78,9 @@ if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"*
   export CONDA_OCAML_MKEXE="${CC}"
   export CONDA_OCAML_MKDLL="${CC} -shared"
 else
-  # -subsystem console + -link -Wl,--subsystem,console: prevents WinMain errors
-  # Use BOTH flexlink's flag AND pass directly to linker to ensure it takes effect
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -subsystem console -link -Wl,--subsystem,console"
+  # -mconsole: tells GCC to select console CRT startup code (crtexe.o, not crtexewin.o)
+  # -Wl,--subsystem,console alone doesn't work - CRT selection is done by GCC, not ld
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -ccopt -mconsole"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
@@ -164,10 +166,10 @@ else
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
     # Force usage of flexlink instead of C-compiler (flexlink cannot be detected by configure)
-    # CRITICAL: Add -subsystem console AND -link -Wl,--subsystem,console to prevent WinMain errors
-    # conda-forge's MinGW may default to GUI subsystem (crtexewin.o expecting WinMain)
-    # Use BOTH flexlink's -subsystem flag AND pass flag directly to linker via -link
-    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -subsystem console -link -Wl,--subsystem,console|' Makefile.config
+    # CRITICAL: -ccopt -mconsole tells GCC to select console CRT startup code
+    # crtexe.o (console, expects main) instead of crtexewin.o (GUI, expects WinMain)
+    # Note: -Wl,--subsystem,console alone doesn't work - CRT selection is done by GCC, not ld
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -ccopt -mconsole|' Makefile.config
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
 
