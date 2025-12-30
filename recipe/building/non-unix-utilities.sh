@@ -69,7 +69,6 @@ unix_noop_update_toolchain() {
         fi
 
         sed -i 's/-cclib "-link \$(RES)"/-cclib $(RES)/' flexdll/Makefile
-        sed -i 's/\$(LINKFLAGS)\(.*\)\$(OBJS)/$(LINKFLAGS) -cclib flexdll_mingw64.o -cclib static_symtable_stub.o -cclib -Wl,--subsystem,console\1$(OBJS)/' flexdll/Makefile
         
         # CRITICAL: Fix LINKFLAGS for MinGW in flexdll/Makefile
         # Upstream flexdll uses '-cclib "-link $(RES)"' when NATDYNLINK=true.
@@ -145,9 +144,9 @@ unix_noop_update_toolchain() {
     # Windows linker/dll settings
     # CONDA_OCAML_MKEXE: executable linker (gcc or clang)
     # CONDA_OCAML_MKDLL: shared library linker (gcc -shared, cl /LD, etc.)
-    sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
-    sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    # sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
+    # sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    # sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
     sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
     sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
   fi
