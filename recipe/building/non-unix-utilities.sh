@@ -144,9 +144,9 @@ unix_noop_update_toolchain() {
     # Windows linker/dll settings
     # CONDA_OCAML_MKEXE: executable linker (gcc or clang)
     # CONDA_OCAML_MKDLL: shared library linker (gcc -shared, cl /LD, etc.)
-    # sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
-    # sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-    # sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
+    sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
     sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
     sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
   fi

@@ -15,7 +15,24 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
   fi
 fi
 
-mkdir -p "${PREFIX}"/lib "${SRC_DIR}"/_logs
+
+# CONFIG_ARGS=(--enable-shared)
+# if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+#   CONFIG_ARGS+=(PKG_CONFIG=false)
+#   EXE=""
+#   SH_EXT="sh"
+# else
+#   export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
+#   export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
+#   CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
+#   EXE=".exe"
+#   SH_EXT="bat"
+# fi
+
+# (
+#   OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native && mkdir -p "${SRC_DIR}"/_native
+#   source "${RECIPE_DIR}"/building/build-native.sh
+# )
 
 export OCAML_INSTALL_PREFIX="${PREFIX}"
 # Simplify compiler paths to basenames (hardcoded in binaries)
@@ -45,8 +62,14 @@ export CONDA_OCAML_AR="${AR}"
 export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
 export CONDA_OCAML_RANLIB="${RANLIB}"
-export CONDA_OCAML_MKEXE="${CC}"
-export CONDA_OCAML_MKDLL="${CC} -shared"
+export CONDA_OCAML_RANLIB="${_RANLIB}"
+if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+  export CONDA_OCAML_MKEXE="${_CC}"
+  export CONDA_OCAML_MKDLL="${_CC} -shared"
+else
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
+  export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
+fi
 
 CONFIG_ARGS=(--enable-shared)
 
@@ -120,11 +143,13 @@ else
     sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
 
     if [[ "${target_platform}" == "osx-"* ]]; then
-      sed -i 's/^(let mk(?:main)?dll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
+      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC|}/' "$config_file"
+      sed -i -E 's/^(let mk(?:main)?dll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
     fi
 
     # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
     sed -i 's|-L[^ ]*||g' "$config_file"
+  fi
   fi
 
   # Remove -L paths from Makefile.config (embedded in ocamlc binary)
