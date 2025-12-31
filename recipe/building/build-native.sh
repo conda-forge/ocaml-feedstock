@@ -38,8 +38,8 @@ elif [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKDLL="${_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
   # Windows: Use flexlink for FlexDLL support (needed by OCaml runtime)
-  # Note: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
-  # We solve this by linking a WinMain shim (see winmain_shim.c in build.sh)
+  # OCaml's configure adds -link -municode which uses wmainCRTStartup entry
+  # point, avoiding WinMain requirement. DO NOT override MKEXE in Makefile.config!
   export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
