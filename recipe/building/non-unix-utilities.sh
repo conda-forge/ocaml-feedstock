@@ -25,41 +25,62 @@ unix_noop_build_toolchain() {
 
 unix_noop_update_toolchain() {
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+    echo "=== DEBUG: unix_noop_update_toolchain starting (Windows path) ==="
+    echo "target_platform=${target_platform}"
+
     if [[ -f "Makefile.config" ]]; then
+      echo "--- Checking TOOLCHAIN ---"
       # Fix TOOLCHAIN (used by flexdll directly)
       if ! grep -qE "^TOOLCHAIN[[:space:]]*=.*mingw64" Makefile.config; then
         if grep -qE "^TOOLCHAIN" Makefile.config; then
+          echo "Patching existing TOOLCHAIN to mingw64"
           sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' Makefile.config
         else
+          echo "Adding TOOLCHAIN=mingw64"
           echo "TOOLCHAIN=mingw64" >> Makefile.config
         fi
+      else
+        echo "TOOLCHAIN already set to mingw64"
       fi
+      grep "^TOOLCHAIN" Makefile.config || true
 
+      echo "--- Checking FLEXDLL_CHAIN ---"
       # Fix FLEXDLL_CHAIN (used by OCaml to pass CHAINS to flexdll)
       if ! grep -qE "^FLEXDLL_CHAIN[[:space:]]*=.*mingw64" Makefile.config; then
         if grep -qE "^FLEXDLL_CHAIN" Makefile.config; then
+          echo "Patching existing FLEXDLL_CHAIN to mingw64"
           sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
         else
+          echo "Adding FLEXDLL_CHAIN=mingw64"
           echo "FLEXDLL_CHAIN=mingw64" >> Makefile.config
         fi
+      else
+        echo "FLEXDLL_CHAIN already set to mingw64"
       fi
+      grep "^FLEXDLL_CHAIN" Makefile.config || true
 
+      echo "--- Building flexdll_mingw64.o ---"
       # Build flexdll support object for NATIVECCLIBS
       # NOTE: We do NOT set NATDYNLINK=false - that breaks flexlink.exe build
       # by switching to -nostdlib mode which causes WinMain errors.
       # Let OCaml use its default NATDYNLINK setting from configure.
       if [[ -d "flexdll" ]]; then
-        echo "Building flexdll_mingw64.o..."
+        echo "flexdll directory exists, building flexdll_mingw64.o..."
         if make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o; then
           if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
+            echo "flexdll_mingw64.o exists"
+            ls -la flexdll/flexdll_mingw64.o
             FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
-            echo "Adding ${FLEXDLL_OBJ} to NATIVECCLIBS"
+            echo "FLEXDLL_OBJ=${FLEXDLL_OBJ}"
             if grep -q "^NATIVECCLIBS" Makefile.config; then
+              echo "Appending to existing NATIVECCLIBS"
               # Use extended regex with proper backreference
               sed -i -E "s|^(NATIVECCLIBS=.*)|\1 ${FLEXDLL_OBJ}|" Makefile.config
             else
+              echo "Creating new NATIVECCLIBS"
               echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
             fi
+            echo "--- NATIVECCLIBS after append ---"
             grep "^NATIVECCLIBS" Makefile.config || true
           else
             echo "WARNING: flexdll_mingw64.o not found after build"
@@ -68,7 +89,19 @@ unix_noop_update_toolchain() {
           echo "WARNING: Failed to build flexdll_mingw64.o"
         fi
 
+        echo "--- Patching flexdll/Makefile for MinGW ---"
         sed -i 's/-cclib "-link \$(RES)"/-cclib $(RES)/' flexdll/Makefile
+        echo "After patching LINKFLAGS:"
+        grep -E "LINKFLAGS|cclib.*RES" flexdll/Makefile | head -5 || true
+
+        echo "--- flexdll/Makefile flexlink.exe build lines ---"
+        grep -n "flexlink.exe\|OCAMLOPT\|OCAMLC\|-nostdlib" flexdll/Makefile | head -20 || true
+
+        echo "--- Makefile.config NATDYNLINK setting ---"
+        grep -E "^NATDYNLINK" Makefile.config || echo "NATDYNLINK not set in Makefile.config"
+
+        echo "--- Makefile.config OC_LDFLAGS (used by addprefix) ---"
+        grep -E "^OC_LDFLAGS|^OC_DLL_LDFLAGS" Makefile.config || echo "OC_LDFLAGS not set"
         
         # CRITICAL: Fix LINKFLAGS for MinGW in flexdll/Makefile
         # Upstream flexdll uses '-cclib "-link $(RES)"' when NATDYNLINK=true.
@@ -135,11 +168,13 @@ unix_noop_update_toolchain() {
       fi
     fi
 
+    echo "--- Patching config.generated.ml ---"
     config_file="utils/config.generated.ml"
+    echo "Patching asm and c_compiler to use %AS% and %CC%"
     # Windows: Use %VAR% syntax (not $VAR)
     # These are set in activate.bat with defaults
-    sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
-    sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
+    sed -i 's/^let asm = .*/let asm = {|%AS%|}/' "$config_file"
+    sed -i 's/^let c_compiler = .*/let c_compiler = {|%CC%|}/' "$config_file"
 
     # Windows linker/dll settings
     # CONDA_OCAML_MKEXE: executable linker (gcc or clang)
@@ -149,6 +184,11 @@ unix_noop_update_toolchain() {
     sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
     sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
     sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
+
+    echo "After patching:"
+    grep -E "^let c_compiler|^let asm" "$config_file" || true
+
+    echo "=== DEBUG: unix_noop_update_toolchain complete ==="
   fi
 
   # Remove failing test

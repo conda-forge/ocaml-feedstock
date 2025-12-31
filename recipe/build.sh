@@ -143,8 +143,32 @@ else
   echo "=== Configuring native compiler ==="
   ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/config.log; exit 1; }
 
+  # DEBUG: Show Makefile.config BEFORE any patching (matches working build output)
+  echo "=== DEBUG: Post-configure Makefile.config (BEFORE patching) ==="
+  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
+  grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^MKEXEDEBUGFLAG" Makefile.config || true
+  echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
+  grep -E "^BYTECCLIBS|^NATIVECCLIBS" Makefile.config || true
+  echo "--- TOOLCHAIN/FLEXDLL settings ---"
+  grep -E "^TOOLCHAIN|^FLEXDLL" Makefile.config || true
+  echo "--- CC/AS/AR settings ---"
+  grep -E "^CC=|^AS=|^AR=" Makefile.config || true
+  echo "=== END DEBUG ==="
+
   # No-op for unix
   unix_noop_update_toolchain
+
+  # DEBUG: Show Makefile.config AFTER unix_noop_update_toolchain
+  echo "=== DEBUG: Post-patching Makefile.config (AFTER unix_noop_update_toolchain) ==="
+  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
+  grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^MKEXEDEBUGFLAG" Makefile.config || true
+  echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
+  grep -E "^BYTECCLIBS|^NATIVECCLIBS" Makefile.config || true
+  echo "--- TOOLCHAIN/FLEXDLL settings ---"
+  grep -E "^TOOLCHAIN|^FLEXDLL" Makefile.config || true
+  echo "--- CC/AS/AR settings ---"
+  grep -E "^CC=|^AS=|^AR=" Makefile.config || true
+  echo "=== END DEBUG ==="
 
   # Patch config.generated.ml to use CONDA_OCAML_* env vars (expanded at runtime)
   config_file="utils/config.generated.ml"
@@ -215,18 +239,32 @@ else
     # avoids WinMain requirement). We remove $(addprefix -link ,$(OC_LDFLAGS))
     # because conda-forge's LDFLAGS/OC_LDFLAGS can contain whitespace that
     # generates garbage "-link" flags causing "cannot find -link" errors.
+    echo "=== DEBUG: Windows MKEXE BEFORE build.sh patching ==="
+    grep -E "^MKEXE" "${config_file}" || true
+    echo "=== END DEBUG ==="
+
     sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -stack 33554432 -link -municode|' "${config_file}"
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' "${config_file}"
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' "${config_file}"
 
-    echo "=== DEBUG: Windows Makefile.config settings ==="
-    grep -E "^MKEXE|^MKDLL|^MKMAINDLL" "${config_file}" || true
+    echo "=== DEBUG: Windows MKEXE AFTER build.sh patching ==="
+    grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^OC_LDFLAGS" "${config_file}" || true
     echo "=== END DEBUG ==="
   fi
+
+  # DEBUG: Show config.generated.ml key settings (matches working build output)
+  echo "=== DEBUG: config.generated.ml key settings ==="
+  grep -E "^let c_compiler|^let mkdll|^let mkexe|^let mkmaindll|^let asm" utils/config.generated.ml || true
+  echo "=== END DEBUG ==="
 
   echo "=== Compiling native compiler ==="
   # V=1 shows actual commands being run (helps debug MKEXE issues)
   make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+
+  # DEBUG: Show flexlink commands from build log (matches working build output)
+  echo "=== DEBUG: flexlink commands from build log ==="
+  grep -i "flexlink" "${SRC_DIR}"/_logs/world.log | head -30 || true
+  echo "=== END DEBUG ==="
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     echo "=== Running tests ==="
