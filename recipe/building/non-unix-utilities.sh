@@ -62,6 +62,20 @@ unix_noop_update_toolchain() {
         echo "FLEXDLL_CHAIN already set to mingw64"
       fi
 
+      echo "--- DEBUG: BOOTSTRAPPING_FLEXDLL value ---"
+      # CRITICAL DEBUG: This determines if 'make flexlink.opt.exe' is triggered
+      # - If true: OCaml builds native flexlink.opt.exe using ocamlopt (needs FlexDLL symbols)
+      # - If false/missing: Only bytecode flexlink.exe built with boot/ocamlc (no FlexDLL needed)
+      grep -E "^BOOTSTRAPPING_FLEXDLL" Makefile.config || echo "BOOTSTRAPPING_FLEXDLL not set (defaults to false)"
+      echo "--- DEBUG: NATDYNLINK value ---"
+      grep -E "^NATDYNLINK" Makefile.config || echo "NATDYNLINK not set"
+      echo "--- DEBUG: NATDYNLINKOPTS value ---"
+      grep -E "^NATDYNLINKOPTS" Makefile.config || echo "NATDYNLINKOPTS not set"
+      echo "--- DEBUG: MKEXE/MKDLL values ---"
+      grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "MKEXE/MKDLL not set"
+      echo "--- DEBUG: OC_LDFLAGS value ---"
+      grep -E "^OC_LDFLAGS|^OC_DLL_LDFLAGS" Makefile.config || echo "OC_LDFLAGS not set"
+
       # Build flexdll support object for NATIVECCLIBS
       echo "--- Building flexdll_mingw64.o ---"
       if [[ -d "flexdll" ]]; then
