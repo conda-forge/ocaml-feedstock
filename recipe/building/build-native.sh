@@ -38,8 +38,8 @@ elif [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKDLL="${_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
   # Windows: Use flexlink for FlexDLL support (needed by OCaml runtime)
-  # OCaml's configure adds -link -municode which uses wmainCRTStartup entry
-  # point, avoiding WinMain requirement. DO NOT override MKEXE in Makefile.config!
+  # We override MKEXE to include -link -municode (wmainCRTStartup entry point,
+  # avoids WinMain) but remove $(addprefix...) that causes LDFLAGS garbage.
   export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi

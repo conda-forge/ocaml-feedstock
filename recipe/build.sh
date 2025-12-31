@@ -82,8 +82,8 @@ elif [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
   # Windows: Use flexlink for FlexDLL support (needed by OCaml runtime)
-  # OCaml's configure adds -link -municode which uses wmainCRTStartup entry
-  # point, avoiding WinMain requirement. DO NOT override MKEXE in Makefile.config!
+  # We override MKEXE to include -link -municode (wmainCRTStartup entry point,
+  # avoids WinMain) but remove $(addprefix...) that causes LDFLAGS garbage.
   export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
@@ -211,10 +211,11 @@ else
     echo "=== END DEBUG ==="
 
   elif [[ "${target_platform}" != "linux-"* ]]; then
-    # Windows: OCaml's configure sets MKEXE correctly with -link -municode
-    # which uses wmainCRTStartup entry point (avoids WinMain requirement).
-    # DO NOT override MKEXE - the -municode flag is critical!
-    # We only need to ensure MKDLL/MKMAINDLL use flexlink with mingw64 chain.
+    # Windows: Override MKEXE but KEEP -link -municode (uses wmainCRTStartup,
+    # avoids WinMain requirement). We remove $(addprefix -link ,$(OC_LDFLAGS))
+    # because conda-forge's LDFLAGS/OC_LDFLAGS can contain whitespace that
+    # generates garbage "-link" flags causing "cannot find -link" errors.
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -stack 33554432 -link -municode|' "${config_file}"
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' "${config_file}"
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' "${config_file}"
 
