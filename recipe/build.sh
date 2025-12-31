@@ -210,9 +210,10 @@ else
   fi
 
   # Remove -L paths and debug-prefix-map from Makefile.config (embedded in ocamlc binary)
+  # CRITICAL: Skip MKEXE/MKDLL lines - they use "-link -L..." syntax for flexlink which must be preserved
   config_file="Makefile.config"
   sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
-  sed -i 's|-L[^ ]*||g' "${config_file}"
+  sed -i '/^MK/!s|-L[^ ]*||g' "${config_file}"
 
   if [[ "${target_platform}" == "osx-"* ]]; then
     # macOS: Add -headerpad_max_install_names to ALL linker flags
@@ -235,19 +236,10 @@ else
     echo "=== END DEBUG ==="
 
   elif [[ "${target_platform}" != "linux-"* ]]; then
-    # Windows: Override MKEXE but KEEP -link -municode (uses wmainCRTStartup,
-    # avoids WinMain requirement). We remove $(addprefix -link ,$(OC_LDFLAGS))
-    # because conda-forge's LDFLAGS/OC_LDFLAGS can contain whitespace that
-    # generates garbage "-link" flags causing "cannot find -link" errors.
-    echo "=== DEBUG: Windows MKEXE BEFORE build.sh patching ==="
-    grep -E "^MKEXE" "${config_file}" || true
-    echo "=== END DEBUG ==="
-
-    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -stack 33554432 -link -municode|' "${config_file}"
-    sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' "${config_file}"
-    sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' "${config_file}"
-
-    echo "=== DEBUG: Windows MKEXE AFTER build.sh patching ==="
+    # Windows: DO NOT override MKEXE - configure sets it correctly with -link -municode
+    # (uses wmainCRTStartup entry point, avoids WinMain). The $(addprefix...) is fine
+    # when OC_LDFLAGS is empty. We only override MKDLL/MKMAINDLL for flexlink chain.
+    echo "=== DEBUG: Windows Makefile.config settings ==="
     grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^OC_LDFLAGS" "${config_file}" || true
     echo "=== END DEBUG ==="
   fi
