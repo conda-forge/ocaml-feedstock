@@ -81,10 +81,12 @@ elif [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
-  # Use GCC directly with -mconsole for executables (not flexlink)
-  # flexlink's -subsystem console doesn't affect CRT startup code selection
-  # -mconsole tells GCC to select console CRT (crtexe.o) not GUI CRT (crtexewin.o)
-  export CONDA_OCAML_MKEXE="${CC} -mconsole"
+  # Windows: Use flexlink with explicit console entry point
+  # Problem: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
+  # Solution: Force console entry point via linker flag --entry=mainCRTStartup
+  # Both crtexe.o and crtexewin.o define both entry points - only the default differs
+  # This preserves FlexDLL support (needed by OCaml runtime for dynamic loading)
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -link --entry=mainCRTStartup"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
@@ -169,11 +171,12 @@ else
     # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
-    # Use GCC directly with -mconsole for executables (not flexlink)
-    # flexlink's -subsystem console doesn't affect CRT startup code selection
-    # -mconsole tells GCC to select console CRT (crtexe.o) not GUI CRT (crtexewin.o)
-    # Note: This works for the C runtime (ocamlrun.exe) which doesn't need FlexDLL
-    sed -i "s|^MKEXE=.*|MKEXE=${CC} -mconsole|" Makefile.config
+    # Windows: Use flexlink with explicit console entry point
+    # Problem: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
+    # Solution: Force console entry point via linker flag --entry=mainCRTStartup
+    # Both crtexe.o and crtexewin.o define both entry points - only the default differs
+    # This preserves FlexDLL support (needed by OCaml runtime for dynamic loading)
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -link --entry=mainCRTStartup|' Makefile.config
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
 
@@ -181,7 +184,7 @@ else
     echo "=== DEBUG: Makefile.config MKEXE setting ==="
     grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "MKEXE not found in Makefile.config"
     echo "=== END DEBUG ==="
-    
+
     # Use environment variable references - users can customize via CONDA_OCAML_*
     sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
     sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
@@ -196,6 +199,27 @@ else
   config_file="Makefile.config"
   sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
   sed -i 's|-L[^ ]*||g' "${config_file}"
+
+  # macOS: Add -headerpad_max_install_names to ALL linker flags
+  # This ensures install_name_tool can relink ALL native binaries (including ocamldoc.opt)
+  # Without this, binaries built by ocamlopt (not just MKEXE) may fail during conda relocation
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    # Add headerpad to OC_LDFLAGS (used by ocamlopt for native binaries)
+    if grep -q "^OC_LDFLAGS=" "${config_file}"; then
+      sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-headerpad_max_install_names|' "${config_file}"
+    else
+      echo "OC_LDFLAGS=-Wl,-headerpad_max_install_names" >> "${config_file}"
+    fi
+    # Add headerpad to NATIVECCLINKOPTS (native code C linker options)
+    if grep -q "^NATIVECCLINKOPTS=" "${config_file}"; then
+      sed -i 's|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-headerpad_max_install_names|' "${config_file}"
+    else
+      echo "NATIVECCLINKOPTS=-Wl,-headerpad_max_install_names" >> "${config_file}"
+    fi
+    echo "=== DEBUG: macOS headerpad settings ==="
+    grep -E "^OC_LDFLAGS|^NATIVECCLINKOPTS|^MKEXE" "${config_file}" || true
+    echo "=== END DEBUG ==="
+  fi
 
   echo "=== Compiling native compiler ==="
   # V=1 shows actual commands being run (helps debug MKEXE issues)
