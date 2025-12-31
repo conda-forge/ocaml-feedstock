@@ -210,10 +210,11 @@ else
   fi
 
   # Remove -L paths and debug-prefix-map from Makefile.config (embedded in ocamlc binary)
-  # CRITICAL: Skip MKEXE/MKDLL lines - they use "-link -L..." syntax for flexlink which must be preserved
+  # PREFIX paths can cause truncation issues in binaries - remove them all
   config_file="Makefile.config"
   sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
-  sed -i '/^MK/!s|-L[^ ]*||g' "${config_file}"
+  sed -i 's|-link -L[^ ]*||g' "${config_file}"  # Remove flexlink's "-link -L..." patterns cleanly
+  sed -i 's|-L[^ ]*||g' "${config_file}"        # Remove standalone -L paths from other lines
 
   if [[ "${target_platform}" == "osx-"* ]]; then
     # macOS: Add -headerpad_max_install_names to ALL linker flags
