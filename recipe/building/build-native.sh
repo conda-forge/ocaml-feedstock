@@ -37,12 +37,10 @@ elif [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKEXE="${_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
-  # Windows: Use flexlink with explicit console entry point
-  # Problem: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
-  # Solution: Force console entry point via linker flag --entry=mainCRTStartup
-  # Both crtexe.o and crtexewin.o define both entry points - only the default differs
-  # This preserves FlexDLL support (needed by OCaml runtime for dynamic loading)
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -link --entry=mainCRTStartup"
+  # Windows: Use flexlink for FlexDLL support (needed by OCaml runtime)
+  # Note: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
+  # We solve this by linking a WinMain shim (see winmain_shim.c in build.sh)
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 

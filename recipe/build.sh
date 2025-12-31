@@ -81,12 +81,10 @@ elif [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
-  # Windows: Use flexlink with explicit console entry point
-  # Problem: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
-  # Solution: Force console entry point via linker flag --entry=mainCRTStartup
-  # Both crtexe.o and crtexewin.o define both entry points - only the default differs
-  # This preserves FlexDLL support (needed by OCaml runtime for dynamic loading)
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -link --entry=mainCRTStartup"
+  # Windows: Use flexlink for FlexDLL support (needed by OCaml runtime)
+  # Note: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
+  # We solve this by linking a WinMain shim (see winmain_shim.c below)
+  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
@@ -176,14 +174,6 @@ else
     # Solution: Force console entry point via linker flag --entry=mainCRTStartup
     # Both crtexe.o and crtexewin.o define both entry points - only the default differs
     # This preserves FlexDLL support (needed by OCaml runtime for dynamic loading)
-    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -link --entry=mainCRTStartup|' Makefile.config
-    sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
-    sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
-
-    # DEBUG: Show what MKEXE is set to
-    echo "=== DEBUG: Makefile.config MKEXE setting ==="
-    grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "MKEXE not found in Makefile.config"
-    echo "=== END DEBUG ==="
 
     # Use environment variable references - users can customize via CONDA_OCAML_*
     sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
@@ -195,15 +185,15 @@ else
     sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL% -maindll|}/' "$config_file"
   fi
 
-  # Remove -L paths from Makefile.config (embedded in ocamlc binary)
+  # Remove -L paths and debug-prefix-map from Makefile.config (embedded in ocamlc binary)
   config_file="Makefile.config"
   sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
   sed -i 's|-L[^ ]*||g' "${config_file}"
 
-  # macOS: Add -headerpad_max_install_names to ALL linker flags
-  # This ensures install_name_tool can relink ALL native binaries (including ocamldoc.opt)
-  # Without this, binaries built by ocamlopt (not just MKEXE) may fail during conda relocation
   if [[ "${target_platform}" == "osx-"* ]]; then
+    # macOS: Add -headerpad_max_install_names to ALL linker flags
+    # This ensures install_name_tool can relink ALL native binaries (including ocamldoc.opt)
+    # Without this, binaries built by ocamlopt (not just MKEXE) may fail during conda relocation
     # Add headerpad to OC_LDFLAGS (used by ocamlopt for native binaries)
     if grep -q "^OC_LDFLAGS=" "${config_file}"; then
       sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-headerpad_max_install_names|' "${config_file}"
@@ -218,6 +208,61 @@ else
     fi
     echo "=== DEBUG: macOS headerpad settings ==="
     grep -E "^OC_LDFLAGS|^NATIVECCLINKOPTS|^MKEXE" "${config_file}" || true
+    echo "=== END DEBUG ==="
+
+  elif [[ "${target_platform}" != "linux-"* ]]; then
+    # Windows: Create WinMain shim because conda-forge MinGW defaults to GUI CRT
+    # The issue: crtexewin.o's main() calls WinMain(), regardless of entry point
+    # Solution: Provide a WinMain that calls main() - link with all executables
+    echo "=== Creating WinMain shim for Windows console mode ==="
+    cat > "${SRC_DIR}/winmain_shim.c" << 'WINMAIN_EOF'
+/* WinMain shim for conda-forge MinGW console applications
+ * conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain.
+ * This shim provides WinMain that calls main() for console applications.
+ */
+#ifdef _WIN32
+#include <windows.h>
+#include <stdlib.h>
+
+extern int main(int argc, char **argv);
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    (void)hInstance; (void)hPrevInstance; (void)lpCmdLine; (void)nCmdShow;
+    return main(__argc, __argv);
+}
+#endif
+WINMAIN_EOF
+
+    # Compile the shim
+    "${CC}" -c -o "${SRC_DIR}/winmain_shim.o" "${SRC_DIR}/winmain_shim.c"
+    if [[ -f "${SRC_DIR}/winmain_shim.o" ]]; then
+      echo "Successfully compiled winmain_shim.o"
+
+      # Add to NATIVECCLIBS so it's linked with all native executables
+      if grep -q "^NATIVECCLIBS=" "${config_file}"; then
+        sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 ${SRC_DIR}/winmain_shim.o|" "${config_file}"
+      else
+        echo "NATIVECCLIBS=${SRC_DIR}/winmain_shim.o" >> "${config_file}"
+      fi
+
+      # Also add to BYTECCLIBS for bytecode runtime (ocamlrun.exe)
+      if grep -q "^BYTECCLIBS=" "${config_file}"; then
+        sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=${SRC_DIR}/winmain_shim.o \1|" "${config_file}"
+      else
+        echo "BYTECCLIBS=${SRC_DIR}/winmain_shim.o" >> "${config_file}"
+      fi
+    else
+      echo "ERROR: Failed to compile winmain_shim.o"
+      exit 1
+    fi
+
+    # Keep using flexlink for FlexDLL support
+    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64|' "${config_file}"
+    sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' "${config_file}"
+    sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' "${config_file}"
+
+    echo "=== DEBUG: Makefile.config settings ==="
+    grep -E "^MKEXE|^MKDLL|^NATIVECCLIBS|^BYTECCLIBS" "${config_file}" || true
     echo "=== END DEBUG ==="
   fi
 
