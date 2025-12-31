@@ -75,11 +75,11 @@ export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
 export CONDA_OCAML_RANLIB="${RANLIB}"
 if [[ "${target_platform}" == "linux-"* ]]; then
-  export CONDA_OCAML_MKEXE="${_CC} -Wl,-E"
-  export CONDA_OCAML_MKDLL="${_CC} -shared"
+  export CONDA_OCAML_MKEXE="${CC} -Wl,-E"
+  export CONDA_OCAML_MKDLL="${CC} -shared"
 elif [[ "${target_platform}" == "osx-"* ]]; then
-  export CONDA_OCAML_MKEXE="${_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-  export CONDA_OCAML_MKDLL="${_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+  export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
   # Use GCC directly with -mconsole for executables (not flexlink)
   # flexlink's -subsystem console doesn't affect CRT startup code selection
