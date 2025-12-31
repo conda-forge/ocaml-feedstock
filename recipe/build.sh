@@ -213,7 +213,7 @@ else
   # PREFIX paths can cause truncation issues in binaries - remove them all
   config_file="Makefile.config"
   sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
-  sed -i 's|-link -L[^ ]*||g' "${config_file}"  # Remove flexlink's "-link -L..." patterns cleanly
+  sed -i 's|-link\s+-L[^ ]*||g' "${config_file}"  # Remove flexlink's "-link -L..." patterns cleanly
   sed -i 's|-L[^ ]*||g' "${config_file}"        # Remove standalone -L paths from other lines
 
   if [[ "${target_platform}" == "osx-"* ]]; then
