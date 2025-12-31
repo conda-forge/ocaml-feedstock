@@ -234,22 +234,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 WINMAIN_EOF
 
     # Compile the shim
-    "${CC}" -c -o "${SRC_DIR}/winmain_shim.o" "${SRC_DIR}/winmain_shim.c"
-    if [[ -f "${SRC_DIR}/winmain_shim.o" ]]; then
+    "${CC}" -c -o "${_SRC_DIR_}/winmain_shim.o" "${_SRC_DIR_}/winmain_shim.c"
+    if [[ -f "${_SRC_DIR_}/winmain_shim.o" ]]; then
       echo "Successfully compiled winmain_shim.o"
 
       # Add to NATIVECCLIBS so it's linked with all native executables
       if grep -q "^NATIVECCLIBS=" "${config_file}"; then
-        sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 ${SRC_DIR}/winmain_shim.o|" "${config_file}"
+        sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 ${_SRC_DIR_}/winmain_shim.o|" "${config_file}"
       else
-        echo "NATIVECCLIBS=${SRC_DIR}/winmain_shim.o" >> "${config_file}"
+        echo "NATIVECCLIBS=${_SRC_DIR_}/winmain_shim.o" >> "${config_file}"
       fi
 
       # Also add to BYTECCLIBS for bytecode runtime (ocamlrun.exe)
       if grep -q "^BYTECCLIBS=" "${config_file}"; then
-        sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=${SRC_DIR}/winmain_shim.o \1|" "${config_file}"
+        sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=${_SRC_DIR_}/winmain_shim.o \1|" "${config_file}"
       else
-        echo "BYTECCLIBS=${SRC_DIR}/winmain_shim.o" >> "${config_file}"
+        echo "BYTECCLIBS=${_SRC_DIR_}/winmain_shim.o" >> "${config_file}"
       fi
     else
       echo "ERROR: Failed to compile winmain_shim.o"
