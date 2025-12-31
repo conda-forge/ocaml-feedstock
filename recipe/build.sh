@@ -64,7 +64,7 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
   # basename doesn't strip arguments, so we need to extract the first word first
   export AS=$(basename "${ASPP%% *}")
-  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld"
+  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
 fi
 
@@ -74,13 +74,17 @@ export CONDA_OCAML_AR="${AR}"
 export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
 export CONDA_OCAML_RANLIB="${RANLIB}"
-if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-  export CONDA_OCAML_MKEXE="${CC}"
-  export CONDA_OCAML_MKDLL="${CC} -shared"
+if [[ "${target_platform}" == "linux-"* ]]; then
+  export CONDA_OCAML_MKEXE="${_CC} -Wl,-E"
+  export CONDA_OCAML_MKDLL="${_CC} -shared"
+elif [[ "${target_platform}" == "osx-"* ]]; then
+  export CONDA_OCAML_MKEXE="${_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export CONDA_OCAML_MKDLL="${_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 else
-  # -link -mconsole: passes -mconsole to GCC to select console CRT startup code
-  # flexlink doesn't have -ccopt, use -link to pass flags to the underlying compiler
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64 -link -mconsole"
+  # Use GCC directly with -mconsole for executables (not flexlink)
+  # flexlink's -subsystem console doesn't affect CRT startup code selection
+  # -mconsole tells GCC to select console CRT (crtexe.o) not GUI CRT (crtexewin.o)
+  export CONDA_OCAML_MKEXE="${CC} -mconsole"
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
@@ -165,11 +169,11 @@ else
     # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
-    # Force usage of flexlink instead of C-compiler (flexlink cannot be detected by configure)
-    # CRITICAL: -link -mconsole passes -mconsole to GCC to select console CRT startup code
-    # crtexe.o (console, expects main) instead of crtexewin.o (GUI, expects WinMain)
-    # Note: flexlink doesn't have -ccopt, use -link to pass flags to underlying compiler
-    sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -link -mconsole|' Makefile.config
+    # Use GCC directly with -mconsole for executables (not flexlink)
+    # flexlink's -subsystem console doesn't affect CRT startup code selection
+    # -mconsole tells GCC to select console CRT (crtexe.o) not GUI CRT (crtexewin.o)
+    # Note: This works for the C runtime (ocamlrun.exe) which doesn't need FlexDLL
+    sed -i "s|^MKEXE=.*|MKEXE=${CC} -mconsole|" Makefile.config
     sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64|' Makefile.config
     sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -maindll -chain mingw64|' Makefile.config
 
