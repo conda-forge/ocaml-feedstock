@@ -59,12 +59,23 @@ unix_noop_update_toolchain() {
       fi
       grep "^FLEXDLL_CHAIN" Makefile.config || true
 
-      echo "--- DEBUG: BOOTSTRAPPING_FLEXDLL value ---"
-      # CRITICAL DEBUG: This determines if 'make flexlink.opt.exe' is triggered
+      echo "--- DEBUG: BOOTSTRAPPING_FLEXDLL value (from Makefile.build_config) ---"
+      # CRITICAL: BOOTSTRAPPING_FLEXDLL is in Makefile.build_config, NOT Makefile.config!
       # - If true: OCaml builds native flexlink.opt.exe using ocamlopt (needs FlexDLL symbols)
-      # - If false/missing: Only bytecode flexlink.exe built with boot/ocamlc (no FlexDLL needed)
-      # Working builds have false/missing, failing builds have true
-      grep -E "^BOOTSTRAPPING_FLEXDLL" Makefile.config || echo "BOOTSTRAPPING_FLEXDLL not set (defaults to false)"
+      # - If false: Only bytecode flexlink.exe built with boot/ocamlc (no FlexDLL needed)
+      if [[ -f "Makefile.build_config" ]]; then
+        grep -E "^BOOTSTRAPPING_FLEXDLL" Makefile.build_config || echo "BOOTSTRAPPING_FLEXDLL not in Makefile.build_config"
+        # FIX: Disable BOOTSTRAPPING_FLEXDLL to avoid building flexlink.opt.exe
+        # flexlink.opt.exe requires FlexDLL symbols which we don't have in -nostdlib mode
+        if grep -q "^BOOTSTRAPPING_FLEXDLL=true" Makefile.build_config; then
+          echo "DISABLING BOOTSTRAPPING_FLEXDLL to prevent flexlink.opt.exe build"
+          sed -i 's/^BOOTSTRAPPING_FLEXDLL=true/BOOTSTRAPPING_FLEXDLL=false/' Makefile.build_config
+          echo "After fix:"
+          grep "^BOOTSTRAPPING_FLEXDLL" Makefile.build_config
+        fi
+      else
+        echo "Makefile.build_config not found"
+      fi
       echo "--- DEBUG: NATDYNLINK value ---"
       grep -E "^NATDYNLINK" Makefile.config || echo "NATDYNLINK not set"
       echo "--- DEBUG: NATDYNLINKOPTS value ---"
