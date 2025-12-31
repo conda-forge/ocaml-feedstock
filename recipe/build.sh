@@ -76,8 +76,35 @@ else
   echo "=== Configuring native compiler ==="
   ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
+  # DEBUG: Show configure results BEFORE any patching
+  echo "=== DEBUG: Post-configure Makefile.config (BEFORE patching) ==="
+  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
+  grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "(not found)"
+  echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
+  grep -E "^NATIVECCLIBS|^BYTECCLIBS" Makefile.config || echo "(not found)"
+  echo "--- TOOLCHAIN/FLEXDLL settings ---"
+  grep -E "^TOOLCHAIN|^FLEXDLL" Makefile.config || echo "(not found)"
+  echo "--- CC/AS/AR settings ---"
+  grep -E "^CC=|^AS=|^AR=|^RANLIB=" Makefile.config || echo "(not found)"
+  echo "=== END DEBUG ==="
+
   # No-op for unix
   unix_noop_update_toolchain
+
+  # DEBUG: Show Makefile.config AFTER patching
+  echo "=== DEBUG: Post-patching Makefile.config (AFTER unix_noop_update_toolchain) ==="
+  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
+  grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "(not found)"
+  echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
+  grep -E "^NATIVECCLIBS|^BYTECCLIBS" Makefile.config || echo "(not found)"
+  echo "--- TOOLCHAIN/FLEXDLL settings ---"
+  grep -E "^TOOLCHAIN|^FLEXDLL" Makefile.config || echo "(not found)"
+  echo "=== END DEBUG ==="
+
+  # DEBUG: Show config.generated.ml key settings
+  echo "=== DEBUG: config.generated.ml key settings ==="
+  grep -E "^let (asm|c_compiler|mkexe|mkdll|mkmaindll) " utils/config.generated.ml || echo "(not found)"
+  echo "=== END DEBUG ==="
 
   # Patch config.generated.ml with compiler paths for build
   config_file="utils/config.generated.ml"
@@ -102,7 +129,21 @@ else
   fi
 
   echo "=== Compiling native compiler ==="
-  make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+  # Use V=1 for verbose output to see actual flexlink/compiler commands
+  make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || {
+    echo "=== BUILD FAILED - showing last 200 lines ==="
+    tail -200 "${SRC_DIR}"/_logs/world.log
+    echo "=== Searching for flexlink commands in log ==="
+    grep -n "flexlink" "${SRC_DIR}"/_logs/world.log | tail -20 || echo "(no flexlink commands found)"
+    echo "=== Searching for MKEXE in log ==="
+    grep -n "MKEXE\|ocamlrun\.exe\|ocamlrund\.exe" "${SRC_DIR}"/_logs/world.log | tail -20 || echo "(no MKEXE found)"
+    exit 1
+  }
+
+  # DEBUG: Show successful flexlink commands
+  echo "=== DEBUG: flexlink commands from build log ==="
+  grep "flexlink" "${SRC_DIR}"/_logs/world.log | head -10 || echo "(no flexlink commands found)"
+  echo "=== END DEBUG ==="
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     echo "=== Building cross-compiler for ${target} ==="

@@ -30,46 +30,83 @@ unix_noop_build_toolchain() {
 
 unix_noop_update_toolchain() {
   if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+    echo "=== DEBUG: unix_noop_update_toolchain starting (Windows path) ==="
+    echo "target_platform=${target_platform}"
+
     if [[ -f "Makefile.config" ]]; then
       # Fix TOOLCHAIN (used by flexdll directly)
+      echo "--- Checking TOOLCHAIN ---"
       if ! grep -qE "^TOOLCHAIN[[:space:]]*=.*mingw64" Makefile.config; then
         if grep -qE "^TOOLCHAIN" Makefile.config; then
+          echo "Patching existing TOOLCHAIN to mingw64"
           sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' Makefile.config
         else
+          echo "Adding TOOLCHAIN=mingw64"
           echo "TOOLCHAIN=mingw64" >> Makefile.config
         fi
+      else
+        echo "TOOLCHAIN already set to mingw64"
       fi
 
       # Fix FLEXDLL_CHAIN (used by OCaml to pass CHAINS to flexdll)
+      echo "--- Checking FLEXDLL_CHAIN ---"
       if ! grep -qE "^FLEXDLL_CHAIN[[:space:]]*=.*mingw64" Makefile.config; then
         if grep -qE "^FLEXDLL_CHAIN" Makefile.config; then
+          echo "Patching existing FLEXDLL_CHAIN to mingw64"
           sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' Makefile.config
         else
+          echo "Adding FLEXDLL_CHAIN=mingw64"
           echo "FLEXDLL_CHAIN=mingw64" >> Makefile.config
         fi
+      else
+        echo "FLEXDLL_CHAIN already set to mingw64"
       fi
 
       # Build flexdll support object for NATIVECCLIBS
+      echo "--- Building flexdll_mingw64.o ---"
       if [[ -d "flexdll" ]]; then
-        make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o 2>/dev/null || true
+        echo "flexdll directory exists, building flexdll_mingw64.o..."
+        make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o 2>&1 || echo "WARNING: flexdll build failed or already built"
         if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
+          echo "flexdll_mingw64.o exists"
+          ls -la flexdll/flexdll_mingw64.o
           FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
+          echo "FLEXDLL_OBJ=${FLEXDLL_OBJ}"
           if grep -q "^NATIVECCLIBS" Makefile.config; then
+            echo "Appending to existing NATIVECCLIBS"
             sed -i "s|^(NATIVECCLIBS=.*)|\$1 ${FLEXDLL_OBJ}|" Makefile.config
           else
+            echo "Adding new NATIVECCLIBS"
             echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
           fi
+        else
+          echo "WARNING: flexdll_mingw64.o NOT found after build"
+          ls -la flexdll/ || true
         fi
+      else
+        echo "WARNING: flexdll directory does not exist"
       fi
+    else
+      echo "WARNING: Makefile.config not found"
     fi
-    
+
     config_file="utils/config.generated.ml"
+    echo "--- Patching config.generated.ml ---"
     if [[ -f "$config_file" ]]; then
+      echo "Patching asm and c_compiler to use %AS% and %CC%"
       sed -i 's/^let asm = .*/let asm = {|%AS%|}/' "$config_file"
       sed -i 's/^let c_compiler = .*/let c_compiler = {|%CC%|}/' "$config_file"
+      echo "After patching:"
+      grep -E "^let (asm|c_compiler) " "$config_file"
+    else
+      echo "WARNING: config.generated.ml not found"
     fi
+
+    echo "=== DEBUG: unix_noop_update_toolchain complete ==="
+  else
+    echo "=== DEBUG: unix_noop_update_toolchain skipped (Unix platform: ${target_platform}) ==="
   fi
-  
+
   # Remove failing test
   rm -f testsuite/tests/unicode/$'\u898b'.ml
 }
