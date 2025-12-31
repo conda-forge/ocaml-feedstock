@@ -59,6 +59,22 @@ unix_noop_update_toolchain() {
       fi
       grep "^FLEXDLL_CHAIN" Makefile.config || true
 
+      echo "--- Fixing MKEXE (remove addprefix garbage) ---"
+      # CRITICAL: OCaml's configure generates:
+      #   MKEXE=flexlink ... -link -municode $(addprefix -link ,$(OC_LDFLAGS))
+      # When OC_LDFLAGS has multiple items (e.g., "-L/path1 -L/path2"), addprefix creates:
+      #   -link -L/path1 -link -L/path2
+      # After we strip -L paths, we're left with garbage: "-link -link -link"
+      # Fix: Override MKEXE entirely, keeping only -link -municode (for wmainCRTStartup)
+      if grep -q '$(addprefix' Makefile.config; then
+        echo "Removing $(addprefix...) from MKEXE/MKDLL"
+        sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -stack 33554432 -link -municode|' Makefile.config
+        sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64 -stack 33554432|' Makefile.config
+        sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -chain mingw64 -stack 33554432 -maindll|' Makefile.config
+      fi
+      echo "--- MKEXE/MKDLL after fix ---"
+      grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || true
+
       echo "--- Building flexdll_mingw64.o ---"
       # Build flexdll support object for NATIVECCLIBS
       # NOTE: We do NOT set NATDYNLINK=false - that breaks flexlink.exe build
