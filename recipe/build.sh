@@ -17,8 +17,8 @@ fi
 
 mkdir -p "${SRC_DIR}"/_logs
 
+CONFIG_ARGS=(--enable-shared --disable-static PKG_CONFIG=false)
 if [[ "0" == "1" ]]; then
-  CONFIG_ARGS=(--enable-shared PKG_CONFIG=false)
   if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
     EXE=""
     SH_EXT="sh"
@@ -52,24 +52,7 @@ export AS=$(basename "${AS}")
 export CC=$(basename "${CC}")
 export ASPP="$CC -c"
 export RANLIB=$(basename "${RANLIB}")
-
-if [[ "${target_platform}" == "osx-"* ]]; then
-  # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
-  # Use full path to ensure we don't pick up binutils ar from PATH
-  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar*" -type f 2>/dev/null | head -1)
-  if [[ -n "${_AR}" ]]; then
-    export AR=$(basename ${_AR})
-    export RANLIB="${_AR/-ar/-ranlib}"
-  else
-    echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB"
-  fi
-  # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
-  # basename doesn't strip arguments, so we need to extract the first word first
-  export AS=$(basename "${ASPP%% *}")
-  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-fi
-
+export LIBRARY_PATH="${PREFIX}/lib:${PREFIX}/Library/lib:${LIBRARY_PATH:-}"
 
 # Define CONDA_OCAML_* variables
 export CONDA_OCAML_AR="${AR}"
@@ -90,21 +73,29 @@ else
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
-CONFIG_ARGS=(--enable-shared PKG_CONFIG=false)
-
-# Platform detection and OCAML_INSTALL_PREFIX setup
-if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-  export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
-  # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
-  # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
+if [[ "${target_platform}" == "osx-"* ]]; then
+  # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
+  # Use full path to ensure we don't pick up binutils ar from PATH
+  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar*" -type f 2>/dev/null | head -1)
+  if [[ -n "${_AR}" ]]; then
+    export AR=$(basename ${_AR})
+    export RANLIB="${_AR/-ar/-ranlib}"
+  else
+    echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB"
+  fi
+  # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
+  # basename doesn't strip arguments, so we need to extract the first word first
+  export AS=$(basename "${ASPP%% *}")
+  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  EXE=""
+  SH_EXT="sh"
+elif [[ "${target_platform}" == "linux-"* ]]; then
   EXE=""
   SH_EXT="sh"
 else
-  # Windows: match debug branch - do NOT pass LDFLAGS with -L paths to configure
-  # Passing LDFLAGS causes $(addprefix -link ,$(OC_LDFLAGS)) to generate garbage
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
-  # Set LIBRARY_PATH so MinGW gcc can find zstd without -L flags in LDFLAGS
-  export LIBRARY_PATH="${BUILD_PREFIX}/Library/lib:${PREFIX}/Library/lib:${LIBRARY_PATH:-}"
+  CONFIG_ARGS+=(--with-flexdir="${SRC_DIR}"/flexdll --with-zstd --with-gnu-ld)
   EXE=".exe"
   SH_EXT="bat"
 fi

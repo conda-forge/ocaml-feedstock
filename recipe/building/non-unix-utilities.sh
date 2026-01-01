@@ -92,39 +92,39 @@ unix_noop_update_toolchain() {
       echo "--- MKEXE/MKDLL after fix ---"
       grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || true
 
-      echo "--- Building flexdll_mingw64.o ---"
-      # Build flexdll support object for NATIVECCLIBS
-      # NOTE: We do NOT set NATDYNLINK=false - that breaks flexlink.exe build
-      # by switching to -nostdlib mode which causes WinMain errors.
-      # Let OCaml use its default NATDYNLINK setting from configure.
-      if [[ -d "flexdll" ]]; then
-        echo "flexdll directory exists, building flexdll_mingw64.o..."
-        if make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o; then
-          if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
-            echo "flexdll_mingw64.o exists"
-            ls -la flexdll/flexdll_mingw64.o
-            FLEXDLL_OBJ="${_SRC_DIR_}/flexdll/flexdll_mingw64.o"
-            echo "FLEXDLL_OBJ=${FLEXDLL_OBJ}"
-            if grep -q "^NATIVECCLIBS" Makefile.config; then
-              echo "Appending to existing NATIVECCLIBS"
-              # Use extended regex with proper backreference
-              sed -i -E "s|^(NATIVECCLIBS=.*)|\1 ${FLEXDLL_OBJ}|" Makefile.config
-            else
-              echo "Creating new NATIVECCLIBS"
-              echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
-            fi
-            echo "--- NATIVECCLIBS after append ---"
-            grep "^NATIVECCLIBS" Makefile.config || true
-          else
-            echo "WARNING: flexdll_mingw64.o not found after build"
-          fi
-        else
-          echo "WARNING: Failed to build flexdll_mingw64.o"
-        fi
+      # echo "--- Building flexdll_mingw64.o ---"
+      # # Build flexdll support object for NATIVECCLIBS
+      # # NOTE: We do NOT set NATDYNLINK=false - that breaks flexlink.exe build
+      # # by switching to -nostdlib mode which causes WinMain errors.
+      # # Let OCaml use its default NATDYNLINK setting from configure.
+      # if [[ -d "flexdll" ]]; then
+      #   echo "flexdll directory exists, building flexdll_mingw64.o..."
+      #   if make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o; then
+      #     if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
+      #       echo "flexdll_mingw64.o exists"
+      #       ls -la flexdll/flexdll_mingw64.o
+      #       FLEXDLL_OBJ="${_SRC_DIR_}/flexdll/flexdll_mingw64.o"
+      #       echo "FLEXDLL_OBJ=${FLEXDLL_OBJ}"
+      #       if grep -q "^NATIVECCLIBS" Makefile.config; then
+      #         echo "Appending to existing NATIVECCLIBS"
+      #         # Use extended regex with proper backreference
+      #         sed -i -E "s|^(NATIVECCLIBS=.*)|\1 ${FLEXDLL_OBJ}|" Makefile.config
+      #       else
+      #         echo "Creating new NATIVECCLIBS"
+      #         echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
+      #       fi
+      #       echo "--- NATIVECCLIBS after append ---"
+      #       grep "^NATIVECCLIBS" Makefile.config || true
+      #     else
+      #       echo "WARNING: flexdll_mingw64.o not found after build"
+      #     fi
+      #   else
+      #     echo "WARNING: Failed to build flexdll_mingw64.o"
+      #   fi
 
-        echo "--- DEBUG: flexdll/Makefile LINKFLAGS (NOT patching - pass-through to ld) ---"
-        grep -E "LINKFLAGS|cclib.*RES" flexdll/Makefile | head -5 || true
-      fi
+      #   echo "--- DEBUG: flexdll/Makefile LINKFLAGS (NOT patching - pass-through to ld) ---"
+      #   grep -E "LINKFLAGS|cclib.*RES" flexdll/Makefile | head -5 || true
+      # fi
     fi
 
     echo "--- Patching config.generated.ml ---"
