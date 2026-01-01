@@ -23,6 +23,7 @@ set _RECIPE_DIR=%RECIPE_DIR:\=/%
 :: These are exported to bash for use in patching GHC settings files
 set _PREFIX_=%_PREFIX%
 set _BUILD_PREFIX_=%_BUILD_PREFIX%
+set _SRC_DIR_=%_SRC_DIR%
 
 :: Convert C: and D: /c, /d (Unix-style for bash/configure)
 set _PREFIX=%_PREFIX:C:=/c/%
