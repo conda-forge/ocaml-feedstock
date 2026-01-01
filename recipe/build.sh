@@ -88,7 +88,7 @@ else
   CONFIG_ARGS+=(
     --with-flexdll
     --with-gnu-ld
-    LDFLAGS="${PREFIX}"/Library/lib;${LDFLAGS:-}"
+    LDFLAGS="${PREFIX}/Library/lib;${LDFLAGS:-}"
   )
   EXE=".exe"
   SH_EXT="bat"
