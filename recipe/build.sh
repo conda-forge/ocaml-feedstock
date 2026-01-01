@@ -121,7 +121,8 @@ else
   # CRITICAL: This file determines if flexlink.opt.exe is built (needs FlexDLL symbols)
   echo "=== DEBUG: Makefile.build_config (CRITICAL - contains BOOTSTRAPPING_FLEXDLL) ==="
   if [[ -f "Makefile.build_config" ]]; then
-    cat Makefile.build_config
+    cat Makefile*
+    cat config.log
   else
     echo "Makefile.build_config NOT FOUND"
   fi
