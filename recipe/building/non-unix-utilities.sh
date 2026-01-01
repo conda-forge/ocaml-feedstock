@@ -134,15 +134,15 @@ unix_noop_update_toolchain() {
     # These are set in activate.bat with defaults
     sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
     sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
+    sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
+    sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
 
     # Windows linker/dll settings
     # CONDA_OCAML_MKEXE: executable linker (gcc or clang)
     # CONDA_OCAML_MKDLL: shared library linker (gcc -shared, cl /LD, etc.)
-    sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
-    sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-    sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
-    sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
+    # sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
+    # sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    # sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
 
     echo "After patching:"
     grep -E "^let c_compiler|^let asm" "$config_file" || true

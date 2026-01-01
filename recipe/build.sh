@@ -23,8 +23,7 @@ if [[ "0" == "1" ]]; then
     EXE=""
     SH_EXT="sh"
   else
-    export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
-    # CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
+    CONFIG_ARGS+=(--with-flexdir="${SRC_DIR}"/flexdll --with-zstd --with-gnu-ld)
     EXE=".exe"
     SH_EXT="bat"
   fi
@@ -65,12 +64,6 @@ if [[ "${target_platform}" == "linux-"* ]]; then
 elif [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-else
-  # Windows: Use flexlink for FlexDLL support (needed by OCaml runtime)
-  # We override MKEXE to include -link -municode (wmainCRTStartup entry point,
-  # avoids WinMain) but remove $(addprefix...) that causes LDFLAGS garbage.
-  export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
-  export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
 if [[ "${target_platform}" == "osx-"* ]]; then
@@ -199,9 +192,9 @@ else
     sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
     sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
     sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
-    sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_CC%|}/' "$config_file"
-    sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL% -maindll|}/' "$config_file"
+    # sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_CC%|}/' "$config_file"
+    # sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
+    # sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL% -maindll|}/' "$config_file"
   fi
 
   # Remove -L paths and debug-prefix-map from Makefile.config (embedded in ocamlc binary)
