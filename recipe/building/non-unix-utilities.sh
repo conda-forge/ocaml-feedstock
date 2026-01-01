@@ -122,19 +122,8 @@ unix_noop_update_toolchain() {
           echo "WARNING: Failed to build flexdll_mingw64.o"
         fi
 
-        echo "--- Patching flexdll/Makefile for MinGW ---"
-        sed -i 's/-cclib "-link \$(RES)"/-cclib $(RES)/' flexdll/Makefile
-        echo "After patching LINKFLAGS:"
+        echo "--- DEBUG: flexdll/Makefile LINKFLAGS (NOT patching - pass-through to ld) ---"
         grep -E "LINKFLAGS|cclib.*RES" flexdll/Makefile | head -5 || true
-
-        echo "--- flexdll/Makefile flexlink.exe build lines ---"
-        grep -n "flexlink.exe\|OCAMLOPT\|OCAMLC\|-nostdlib" flexdll/Makefile | head -20 || true
-
-        echo "--- Makefile.config NATDYNLINK setting ---"
-        grep -E "^NATDYNLINK" Makefile.config || echo "NATDYNLINK not set in Makefile.config"
-
-        echo "--- Makefile.config OC_LDFLAGS (used by addprefix) ---"
-        grep -E "^OC_LDFLAGS|^OC_DLL_LDFLAGS" Makefile.config || echo "OC_LDFLAGS not set"
       fi
     fi
 
