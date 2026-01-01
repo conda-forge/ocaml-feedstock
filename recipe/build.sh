@@ -74,12 +74,63 @@ else
   fi
 
   echo "=== Configuring native compiler ==="
+  echo "--- DEBUG: Environment before configure ---"
+  echo "CC=${CC:-<not set>}"
+  echo "AS=${AS:-<not set>}"
+  echo "AR=${AR:-<not set>}"
+  echo "RANLIB=${RANLIB:-<not set>}"
+  echo "LDFLAGS=${LDFLAGS:-<not set>}"
+  echo "LIBRARY_PATH=${LIBRARY_PATH:-<not set>}"
+  echo "PKG_CONFIG=${PKG_CONFIG:-<not set>}"
+  echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-<not set>}"
+  echo "--- DEBUG: CONFIG_ARGS ---"
+  printf "  %s\n" "${CONFIG_ARGS[@]}"
+  echo "--- END DEBUG ---"
   ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+
+  # DEBUG: Show config.log (autoconf's detailed log)
+  echo "=== DEBUG: config.log (full autoconf log for comparison) ==="
+  if [[ -f "config.log" ]]; then
+    echo "--- config.log exists, showing key sections ---"
+    echo "### zstd detection ###"
+    grep -A5 "checking for zstd" config.log || echo "(not found)"
+    echo "### pkg-config usage ###"
+    grep -B2 -A5 -i "pkg-config\|PKG_CONFIG" config.log | head -30 || echo "(not found)"
+    echo "### flexdll/flexlink detection ###"
+    grep -B2 -A5 -i "flexdll\|flexlink\|BOOTSTRAPPING_FLEXDLL" config.log | head -30 || echo "(not found)"
+    echo "### TOOLCHAIN/mingw ###"
+    grep -B2 -A5 -i "TOOLCHAIN\|mingw" config.log | head -30 || echo "(not found)"
+    echo "### Full config.log (last 100 lines) ###"
+    tail -100 config.log
+  else
+    echo "config.log not found"
+  fi
+  echo "=== END config.log ==="
+
+  # DEBUG: Show configure stdout/stderr
+  echo "=== DEBUG: configure output summary ==="
+  echo "--- zstd detection ---"
+  grep -A2 "checking for zstd" "${SRC_DIR}"/_logs/configure.log || echo "(not found)"
+  echo "--- pkg-config usage ---"
+  grep -i "pkg-config\|PKG_CONFIG" "${SRC_DIR}"/_logs/configure.log | head -10 || echo "(not found)"
+  echo "--- flexdll detection ---"
+  grep -i "flexdll\|BOOTSTRAPPING_FLEXDLL" "${SRC_DIR}"/_logs/configure.log || echo "(not found)"
+  echo "=== END configure output ==="
+
+  # DEBUG: Show Makefile.build_config (contains BOOTSTRAPPING_FLEXDLL)
+  # CRITICAL: This file determines if flexlink.opt.exe is built (needs FlexDLL symbols)
+  echo "=== DEBUG: Makefile.build_config (CRITICAL - contains BOOTSTRAPPING_FLEXDLL) ==="
+  if [[ -f "Makefile.build_config" ]]; then
+    cat Makefile.build_config
+  else
+    echo "Makefile.build_config NOT FOUND"
+  fi
+  echo "=== END Makefile.build_config ==="
 
   # DEBUG: Show configure results BEFORE any patching
   echo "=== DEBUG: Post-configure Makefile.config (BEFORE patching) ==="
-  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
-  grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "(not found)"
+  echo "--- MKEXE/MKDLL/MKMAINDLL/MKEXEDEBUGFLAG settings ---"
+  grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^MKEXEDEBUGFLAG" Makefile.config || echo "(not found)"
   echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
   grep -E "^NATIVECCLIBS|^BYTECCLIBS" Makefile.config || echo "(not found)"
   echo "--- TOOLCHAIN/FLEXDLL settings ---"
@@ -93,12 +144,14 @@ else
 
   # DEBUG: Show Makefile.config AFTER patching
   echo "=== DEBUG: Post-patching Makefile.config (AFTER unix_noop_update_toolchain) ==="
-  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
-  grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || echo "(not found)"
+  echo "--- MKEXE/MKDLL/MKMAINDLL/MKEXEDEBUGFLAG settings ---"
+  grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^MKEXEDEBUGFLAG" Makefile.config || echo "(not found)"
   echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
   grep -E "^NATIVECCLIBS|^BYTECCLIBS" Makefile.config || echo "(not found)"
   echo "--- TOOLCHAIN/FLEXDLL settings ---"
   grep -E "^TOOLCHAIN|^FLEXDLL" Makefile.config || echo "(not found)"
+  echo "--- CC/AS/AR settings ---"
+  grep -E "^CC=|^AS=|^AR=" Makefile.config || echo "(not found)"
   echo "=== END DEBUG ==="
 
   # DEBUG: Show config.generated.ml key settings
@@ -130,20 +183,39 @@ else
 
   echo "=== Compiling native compiler ==="
   # Use V=1 for verbose output to see actual flexlink/compiler commands
-  make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || {
-    echo "=== BUILD FAILED - showing last 200 lines ==="
-    tail -200 "${SRC_DIR}"/_logs/world.log
-    echo "=== Searching for flexlink commands in log ==="
+  if ! make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1; then
+    echo "=== BUILD FAILED - Extracting debug info ==="
+    echo "--- Last 100 lines of world.log ---"
+    tail -100 "${SRC_DIR}"/_logs/world.log
+    echo "--- ocamlc.opt.exe link command ---"
+    grep -E "ocamlc.opt|ocamlopt.*-o.*ocamlc" "${SRC_DIR}"/_logs/world.log | tail -5 || echo "(not found)"
+    echo "--- flexlink.opt.exe build attempts ---"
+    grep -E "flexlink\.opt" "${SRC_DIR}"/_logs/world.log | tail -10 || echo "(not found)"
+    echo "--- undefined reference errors ---"
+    grep -E "undefined reference|undefined symbol" "${SRC_DIR}"/_logs/world.log | head -20 || echo "(none found)"
+    echo "--- NATIVECCLIBS in link commands ---"
+    grep -E "NATIVECCLIBS|lgcc_eh|flexdll_mingw64" "${SRC_DIR}"/_logs/world.log | tail -10 || echo "(not found)"
+    echo "--- flexlink commands ---"
     grep -n "flexlink" "${SRC_DIR}"/_logs/world.log | tail -20 || echo "(no flexlink commands found)"
-    echo "=== Searching for MKEXE in log ==="
-    grep -n "MKEXE\|ocamlrun\.exe\|ocamlrund\.exe" "${SRC_DIR}"/_logs/world.log | tail -20 || echo "(no MKEXE found)"
+    echo "--- MKEXE/ocamlrun.exe in log ---"
+    grep -n "MKEXE\|ocamlrun\.exe\|ocamlrund\.exe" "${SRC_DIR}"/_logs/world.log | tail -20 || echo "(not found)"
     exit 1
-  }
+  fi
 
   # DEBUG: Show successful flexlink commands
   echo "=== DEBUG: flexlink commands from build log ==="
-  grep "flexlink" "${SRC_DIR}"/_logs/world.log | head -10 || echo "(no flexlink commands found)"
+  grep "flexlink" "${SRC_DIR}"/_logs/world.log | head -30 || echo "(no flexlink commands found)"
   echo "=== END DEBUG ==="
+
+  # DEBUG: Show Windows-specific settings for comparison
+  if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+    echo "=== DEBUG: Windows post-build verification ==="
+    echo "--- Final MKEXE/MKDLL/NATIVECCLIBS ---"
+    grep -E "^MKEXE|^MKDLL|^NATIVECCLIBS" Makefile.config || echo "(not found)"
+    echo "--- flexlink.exe/flexlink.opt.exe status ---"
+    ls -la flexdll/flexlink.exe flexdll/flexlink.opt.exe 2>/dev/null || echo "(not found)"
+    echo "=== END DEBUG ==="
+  fi
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     echo "=== Building cross-compiler for ${target} ==="

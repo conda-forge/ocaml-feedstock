@@ -62,11 +62,20 @@ unix_noop_update_toolchain() {
         echo "FLEXDLL_CHAIN already set to mingw64"
       fi
 
-      echo "--- DEBUG: BOOTSTRAPPING_FLEXDLL value ---"
-      # CRITICAL DEBUG: This determines if 'make flexlink.opt.exe' is triggered
-      # - If true: OCaml builds native flexlink.opt.exe using ocamlopt (needs FlexDLL symbols)
-      # - If false/missing: Only bytecode flexlink.exe built with boot/ocamlc (no FlexDLL needed)
-      grep -E "^BOOTSTRAPPING_FLEXDLL" Makefile.config || echo "BOOTSTRAPPING_FLEXDLL not set (defaults to false)"
+      echo "--- DEBUG: BOOTSTRAPPING_FLEXDLL value (from Makefile.build_config) ---"
+      # CRITICAL: BOOTSTRAPPING_FLEXDLL is in Makefile.build_config, NOT Makefile.config!
+      # - If true: OCaml builds bytecode flexlink.exe AND native flexlink.opt.exe
+      # - If false/missing: Expects flexlink already on PATH (breaks build)
+      # We NEED true for bytecode flexlink, but must check if opt.exe causes issues
+      if [[ -f "Makefile.build_config" ]]; then
+        grep -E "^BOOTSTRAPPING_FLEXDLL" Makefile.build_config || echo "BOOTSTRAPPING_FLEXDLL not in Makefile.build_config"
+        echo "--- Full Makefile.build_config for comparison ---"
+        cat Makefile.build_config
+      else
+        echo "Makefile.build_config not found (PROBLEM - configure may have failed)"
+      fi
+      echo "--- Checking Makefile.config for BOOTSTRAPPING_FLEXDLL (should NOT be here) ---"
+      grep -E "^BOOTSTRAPPING_FLEXDLL" Makefile.config || echo "BOOTSTRAPPING_FLEXDLL not in Makefile.config (correct - it's in Makefile.build_config)"
       echo "--- DEBUG: NATDYNLINK value ---"
       grep -E "^NATDYNLINK" Makefile.config || echo "NATDYNLINK not set"
       echo "--- DEBUG: NATDYNLINKOPTS value ---"
@@ -80,19 +89,27 @@ unix_noop_update_toolchain() {
       echo "--- Building flexdll_mingw64.o ---"
       if [[ -d "flexdll" ]]; then
         echo "flexdll directory exists, building flexdll_mingw64.o..."
+        echo "Current directory: $(pwd)"
+        echo "SRC_DIR=${SRC_DIR}"
         make -C flexdll TOOLCHAIN=mingw64 flexdll_mingw64.o 2>&1 || echo "WARNING: flexdll build failed or already built"
         if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
           echo "flexdll_mingw64.o exists"
           ls -la flexdll/flexdll_mingw64.o
+          # Use SRC_DIR path for NATIVECCLIBS (will be expanded by make)
           FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
           echo "FLEXDLL_OBJ=${FLEXDLL_OBJ}"
+          echo "--- NATIVECCLIBS before modification ---"
+          grep "^NATIVECCLIBS" Makefile.config || echo "(not found)"
           if grep -q "^NATIVECCLIBS" Makefile.config; then
             echo "Appending to existing NATIVECCLIBS"
-            sed -i "s|^(NATIVECCLIBS=.*)|\$1 ${FLEXDLL_OBJ}|" Makefile.config
+            # Use extended regex with proper backreference
+            sed -i -E "s|^(NATIVECCLIBS=.*)|\1 ${FLEXDLL_OBJ}|" Makefile.config
           else
             echo "Adding new NATIVECCLIBS"
             echo "NATIVECCLIBS=${FLEXDLL_OBJ}" >> Makefile.config
           fi
+          echo "--- NATIVECCLIBS after modification ---"
+          grep "^NATIVECCLIBS" Makefile.config || echo "(PROBLEM: NATIVECCLIBS not found after modification)"
         else
           echo "WARNING: flexdll_mingw64.o NOT found after build"
           ls -la flexdll/ || true
