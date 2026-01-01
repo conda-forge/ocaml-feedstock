@@ -72,7 +72,7 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
   # basename doesn't strip arguments, so we need to extract the first word first
   export AS=$(basename "${ASPP%% *}")
-  export LDFLAGS="${LDFLAGS:-} -L${_PREFIX_}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
   # export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"

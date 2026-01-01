@@ -58,6 +58,7 @@ ocamlopt -o multi lib.cmx main.cmx
 
 # 6. Bytecode compiler via ocamlrun (full compile)
 echo "=== Testing bytecode compiler via ocamlrun ==="
+echo "DBG: ${OCAML_PREFIX}"
 printf 'print_endline "Hi CF"\n' > hi.ml
 ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
 ./hi | grep -q "Hi CF" && echo "  full bytecode compile via ocamlrun: OK"
