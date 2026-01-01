@@ -139,6 +139,15 @@ else
   echo "=== Configuring native compiler ==="
   ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
+  # DEBUG: Show Makefile.build_config (contains BOOTSTRAPPING_FLEXDLL)
+  echo "=== DEBUG: Makefile.build_config (CRITICAL - contains BOOTSTRAPPING_FLEXDLL) ==="
+  if [[ -f "Makefile.build_config" ]]; then
+    cat Makefile.build_config
+  else
+    echo "Makefile.build_config NOT FOUND"
+  fi
+  echo "=== END Makefile.build_config ==="
+
   # DEBUG: Show Makefile.config BEFORE any patching (matches working build output)
   echo "=== DEBUG: Post-configure Makefile.config (BEFORE patching) ==="
   echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
@@ -246,7 +255,20 @@ else
 
   echo "=== Compiling native compiler ==="
   # V=1 shows actual commands being run (helps debug MKEXE issues)
-  make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1 || { cat "${SRC_DIR}"/_logs/world.log; exit 1; }
+  if ! make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1; then
+    echo "=== BUILD FAILED - Extracting debug info ==="
+    echo "--- Last 100 lines of world.log ---"
+    tail -100 "${SRC_DIR}"/_logs/world.log
+    echo "--- ocamlc.opt.exe link command ---"
+    grep -E "ocamlc.opt|ocamlopt.*-o.*ocamlc" "${SRC_DIR}"/_logs/world.log | tail -5 || true
+    echo "--- flexlink.opt.exe attempts ---"
+    grep -E "flexlink\.opt" "${SRC_DIR}"/_logs/world.log | tail -10 || true
+    echo "--- undefined reference errors ---"
+    grep -E "undefined reference|undefined symbol" "${SRC_DIR}"/_logs/world.log | head -20 || true
+    echo "--- NATIVECCLIBS in link commands ---"
+    grep -E "NATIVECCLIBS|lgcc_eh|flexdll_mingw64" "${SRC_DIR}"/_logs/world.log | tail -10 || true
+    exit 1
+  fi
 
   # DEBUG: Show flexlink commands from build log (matches working build output)
   echo "=== DEBUG: flexlink commands from build log ==="
