@@ -85,6 +85,8 @@ elif [[ "${target_platform}" == "linux-"* ]]; then
   SH_EXT="sh"
 else
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
+  export LDFLAGS="${PREFIX}/Library/lib;${LDFLAGS:-}"
+  echo "${LDFLAGS}"
   CONFIG_ARGS+=(
     --with-flexdll
     --with-gnu-ld
