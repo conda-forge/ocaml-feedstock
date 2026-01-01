@@ -85,12 +85,10 @@ elif [[ "${target_platform}" == "linux-"* ]]; then
   SH_EXT="sh"
 else
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
-  export LDFLAGS="${PREFIX}/Library/lib;${LDFLAGS:-}"
-  echo "${LDFLAGS}"
+  export LDFLAGS="-L${_PREFIX_}/Library/lib ${LDFLAGS:-}"
   CONFIG_ARGS+=(
     --with-flexdll
     --with-gnu-ld
-    LDFLAGS="${PREFIX}/Library/lib;${LDFLAGS:-}"
   )
   EXE=".exe"
   SH_EXT="bat"
@@ -99,9 +97,9 @@ fi
 CONFIG_ARGS+=(
   --mandir="${OCAML_INSTALL_PREFIX}"/share/man
   --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
-  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin/bash
   -prefix "${OCAML_INSTALL_PREFIX}"
 )
+#  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin/bash
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ -d "${BUILD_PREFIX}"/lib/ocaml-cross-compilers ]]; then
@@ -119,12 +117,10 @@ else
   # No-op for unix
   unix_noop_build_toolchain
 
-  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
-    CONFIG_ARGS+=(--enable-ocamltest)
-  fi
+  [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
 
   echo "=== Configuring native compiler ==="
-  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+  ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
   
   # DEBUG: Show Makefile.build_config (contains BOOTSTRAPPING_FLEXDLL)
   echo "=== DEBUG: Makefile.build_config (CRITICAL - contains BOOTSTRAPPING_FLEXDLL) ==="
