@@ -115,7 +115,7 @@ unix_noop_update_toolchain() {
           if [[ -f "flexdll/flexdll_mingw64.o" ]]; then
             echo "flexdll_mingw64.o exists"
             ls -la flexdll/flexdll_mingw64.o
-            FLEXDLL_OBJ="${SRC_DIR}/flexdll/flexdll_mingw64.o"
+            FLEXDLL_OBJ="${_SRC_DIR_}/flexdll/flexdll_mingw64.o"
             echo "FLEXDLL_OBJ=${FLEXDLL_OBJ}"
             if grep -q "^NATIVECCLIBS" Makefile.config; then
               echo "Appending to existing NATIVECCLIBS"
@@ -218,8 +218,8 @@ unix_noop_update_toolchain() {
     echo "Patching asm and c_compiler to use %AS% and %CC%"
     # Windows: Use %VAR% syntax (not $VAR)
     # These are set in activate.bat with defaults
-    sed -i 's/^let asm = .*/let asm = {|%AS%|}/' "$config_file"
-    sed -i 's/^let c_compiler = .*/let c_compiler = {|%CC%|}/' "$config_file"
+    sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
+    sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
 
     # Windows linker/dll settings
     # CONDA_OCAML_MKEXE: executable linker (gcc or clang)

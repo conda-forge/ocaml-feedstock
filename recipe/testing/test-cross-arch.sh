@@ -31,7 +31,7 @@ case "${TARGET_PLATFORM}" in
   osx-arm64)
     ARCH_CHECK="ARM64"
     CHECK_CMD="otool -hv"
-    SHARED_EXT="dylib"
+    SHARED_EXT="so"
     ;;
   *)
     echo "Not a cross-compilation target (${TARGET_PLATFORM}), skipping"

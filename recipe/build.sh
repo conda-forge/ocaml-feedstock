@@ -17,31 +17,35 @@ fi
 
 mkdir -p "${SRC_DIR}"/_logs
 
-# CONFIG_ARGS=(--enable-shared)
-# if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-#   CONFIG_ARGS+=(PKG_CONFIG=false)
-#   EXE=""
-#   SH_EXT="sh"
-# else
-#   export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
-#   export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
-#   CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
-#   EXE=".exe"
-#   SH_EXT="bat"
-# fi
+if [[ "0" == "1" ]]; then
+  CONFIG_ARGS=(--enable-shared)
+  if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+    CONFIG_ARGS+=(PKG_CONFIG=false)
+    EXE=""
+    SH_EXT="sh"
+  else
+    export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
+    export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
+    CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
+    EXE=".exe"
+    SH_EXT="bat"
+  fi
 
-# (
-#   OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native && mkdir -p "${OCAML_INSTALL_PREFIX}"
-#   source "${RECIPE_DIR}"/building/build-native.sh
-# )
+  (
+    OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    source "${RECIPE_DIR}"/building/build-native.sh
+  )
 
-# (
-#   OCAML_PREFIX="${SRC_DIR}"/_native
-#   OCAMLIB="${OCAML_PREFIX}"/lib/ocaml
-#   
-#   OCAML_INSTALL_PREFIX="${SRC_DIR}"/_cross && mkdir -p "${OCAML_INSTALL_PREFIX}"
-#   source "${RECIPE_DIR}"/building/build-cross-compiler-new.sh
-# )
+  (
+    OCAML_PREFIX="${SRC_DIR}"/_native
+    OCAMLIB="${OCAML_PREFIX}"/lib/ocaml
+    
+    OCAML_INSTALL_PREFIX="${SRC_DIR}"/_cross && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    source "${RECIPE_DIR}"/building/build-cross-compiler-new.sh
+  )
+  
+  exit 0
+fi
 
 export OCAML_INSTALL_PREFIX="${PREFIX}"
 # Simplify compiler paths to basenames (hardcoded in binaries)
@@ -99,16 +103,9 @@ if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"*
   EXE=""
   SH_EXT="sh"
 else
+  # Windows: match debug branch - do NOT pass LDFLAGS with -L paths to configure
+  # Passing LDFLAGS causes $(addprefix -link ,$(OC_LDFLAGS)) to generate garbage
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
-  export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
-  export LIBRARY_PATH="${OCAML_INSTALL_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
-  CONFIG_ARGS+=(LDFLAGS="-L${OCAML_INSTALL_PREFIX}/lib -L${PREFIX}/lib ${LDFLAGS:-}")
-  export MINGW_CC=$(find "${BUILD_PREFIX}" -name "x86_64-w64-mingw32-gcc.exe" -type f 2>/dev/null | head -1)
-  if [[ -n "${MINGW_CC}" ]]; then
-    MINGW_DIR=$(dirname "${MINGW_CC}") && export PATH="${MINGW_DIR}:${PATH}"
-  else
-    echo "ERROR: non-unix build developped with GCC" && exit 1
-  fi
   EXE=".exe"
   SH_EXT="bat"
 fi
@@ -141,7 +138,7 @@ else
   fi
 
   echo "=== Configuring native compiler ==="
-  ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/config.log; exit 1; }
+  ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
 
   # DEBUG: Show Makefile.config BEFORE any patching (matches working build output)
   echo "=== DEBUG: Post-configure Makefile.config (BEFORE patching) ==="
@@ -186,8 +183,6 @@ else
       # macOS: clang needs -c flag to assemble without linking
       # Without -c, clang tries to link and fails with "undefined _main"
       sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC -c|}/' "$config_file"
-      sed -i -E 's/^(let mkdll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
-      sed -i -E 's/^(let mkmaindll = .*_MKDLL)(.*)/\1 -undefined dynamic_lookup\2/' "$config_file"
     fi
 
     # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
