@@ -106,6 +106,8 @@ else
   # Windows: match debug branch - do NOT pass LDFLAGS with -L paths to configure
   # Passing LDFLAGS causes $(addprefix -link ,$(OC_LDFLAGS)) to generate garbage
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
+  # Set LIBRARY_PATH so MinGW gcc can find zstd without -L flags in LDFLAGS
+  export LIBRARY_PATH="${BUILD_PREFIX}/Library/lib:${PREFIX}/Library/lib:${LIBRARY_PATH:-}"
   EXE=".exe"
   SH_EXT="bat"
 fi
