@@ -85,7 +85,13 @@ elif [[ "${target_platform}" == "linux-"* ]]; then
   SH_EXT="sh"
 else
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
-  CONFIG_ARGS+=(--with-flexdir="${SRC_DIR}"/flexdll --with-zstd --with-gnu-ld ZSTD_LIBS="${PREFIX}"/Library/lib/libzstd.lib)
+  CONFIG_ARGS+=(
+    --with-flexdir="${SRC_DIR}"/flexdll
+    --with-flexdll
+    --with-gnu-ld
+    --with-zstd
+    ZSTD_LIBS="${PREFIX}"/Library/lib/libzstd.lib
+  )
   EXE=".exe"
   SH_EXT="bat"
 fi
