@@ -61,28 +61,16 @@ unix_noop_update_toolchain() {
 
       echo "--- DEBUG: BOOTSTRAPPING_FLEXDLL value (from Makefile.build_config) ---"
       # CRITICAL: BOOTSTRAPPING_FLEXDLL is in Makefile.build_config, NOT Makefile.config!
-      # - If true: OCaml builds bytecode flexlink.exe AND native flexlink.opt.exe
+      # - If true: OCaml builds bytecode flexlink.exe, then copies to flexlink.opt.exe
       # - If false: Expects flexlink already on PATH (breaks build)
-      # We NEED true for bytecode flexlink, but must skip flexlink.opt.exe
+      # The flexlink.opt.exe target just does: cp flexdll/flexlink.exe flexlink.opt.exe
+      # DO NOT skip it - it's needed for opt/bin/flexlink.exe symlink!
       if [[ -f "Makefile.build_config" ]]; then
         grep -E "^BOOTSTRAPPING_FLEXDLL" Makefile.build_config || echo "BOOTSTRAPPING_FLEXDLL not in Makefile.build_config"
       else
         echo "Makefile.build_config not found"
       fi
 
-      # FIX: Patch Makefile to skip flexlink.opt.exe build
-      # The opt.opt target has: $(MAKE) flexlink.opt$(EXE) when BOOTSTRAPPING_FLEXDLL=true
-      # flexlink.opt.exe uses -nostdlib and fails with undefined FlexDLL symbols
-      # We comment out that line so bytecode flexlink.exe is used instead
-      echo "--- Patching Makefile to skip flexlink.opt.exe ---"
-      if grep -q 'flexlink.opt\$(EXE)' Makefile; then
-        # Comment out the flexlink.opt.exe build in opt.opt target
-        sed -i 's/^\t\$(MAKE) flexlink.opt\$(EXE)$/\t@echo "Skipping flexlink.opt.exe (uses -nostdlib, needs FlexDLL symbols)"/' Makefile
-        echo "Patched Makefile - flexlink.opt.exe build skipped"
-        grep -n "flexlink.opt" Makefile | head -5
-      else
-        echo "flexlink.opt.exe line not found in Makefile (may already be patched)"
-      fi
       echo "--- DEBUG: NATDYNLINK value ---"
       grep -E "^NATDYNLINK" Makefile.config || echo "NATDYNLINK not set"
       echo "--- DEBUG: NATDYNLINKOPTS value ---"

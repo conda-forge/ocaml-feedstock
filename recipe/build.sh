@@ -138,11 +138,13 @@ else
 
   echo "=== Configuring native compiler ==="
   ./configure "${CONFIG_ARGS[@]}" LDFLAGS="${LDFLAGS:-}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
-
+  cat config.log
+  
   # DEBUG: Show Makefile.build_config (contains BOOTSTRAPPING_FLEXDLL)
   echo "=== DEBUG: Makefile.build_config (CRITICAL - contains BOOTSTRAPPING_FLEXDLL) ==="
   if [[ -f "Makefile.build_config" ]]; then
     cat Makefile.build_config
+    cat Makefile*
   else
     echo "Makefile.build_config NOT FOUND"
   fi
