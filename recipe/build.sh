@@ -58,13 +58,6 @@ export CONDA_OCAML_AR="${AR}"
 export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
 export CONDA_OCAML_RANLIB="${RANLIB}"
-if [[ "${target_platform}" == "linux-"* ]]; then
-  export CONDA_OCAML_MKEXE="${CC} -Wl,-E"
-  export CONDA_OCAML_MKDLL="${CC} -shared"
-elif [[ "${target_platform}" == "osx-"* ]]; then
-  export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-  export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-fi
 
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
@@ -81,14 +74,18 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   export AS=$(basename "${ASPP%% *}")
   export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
   EXE=""
   SH_EXT="sh"
 elif [[ "${target_platform}" == "linux-"* ]]; then
+  export CONDA_OCAML_MKEXE="${CC} -Wl,-E"
+  export CONDA_OCAML_MKDLL="${CC} -shared"
   EXE=""
   SH_EXT="sh"
 else
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
-  CONFIG_ARGS+=(--with-flexdir="${SRC_DIR}"/flexdll --with-zstd --with-gnu-ld)
+  CONFIG_ARGS+=(--with-flexdir="${SRC_DIR}"/flexdll --with-zstd --with-gnu-ld ZSTD_LIBS="${PREFIX}"/Library/lib/libzstd.lib)
   EXE=".exe"
   SH_EXT="bat"
 fi
