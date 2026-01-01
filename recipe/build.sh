@@ -51,7 +51,7 @@ export AS=$(basename "${AS}")
 export CC=$(basename "${CC}")
 export ASPP="$CC -c"
 export RANLIB=$(basename "${RANLIB}")
-export LIBRARY_PATH="${PREFIX}/lib:${PREFIX}/Library/lib:${LIBRARY_PATH:-}"
+export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 
 # Define CONDA_OCAML_* variables
 export CONDA_OCAML_AR="${AR}"
@@ -72,8 +72,8 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
   # basename doesn't strip arguments, so we need to extract the first word first
   export AS=$(basename "${ASPP%% *}")
-  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  export LDFLAGS="${LDFLAGS:-} -L${_PREFIX_}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  # export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
   EXE=""

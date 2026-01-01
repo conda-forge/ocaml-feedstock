@@ -26,7 +26,7 @@ rm -f ./hi
 
 # Test bytecode compiler via ocamlrun
 echo -n "  ocamlc.byte via ocamlrun: "
-ocamlrun "${PREFIX}/bin/ocamlc.byte" -version | grep -q "${VERSION}" && echo "OK"
+ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -version | grep -q "${VERSION}" && echo "OK"
 
 # 2. Native compilation + execution
 echo "=== Testing native compilation ==="
@@ -59,7 +59,7 @@ ocamlopt -o multi lib.cmx main.cmx
 # 6. Bytecode compiler via ocamlrun (full compile)
 echo "=== Testing bytecode compiler via ocamlrun ==="
 printf 'print_endline "Hi CF"\n' > hi.ml
-ocamlrun "${PREFIX}/bin/ocamlc.byte" -o hi hi.ml
+ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
 ./hi | grep -q "Hi CF" && echo "  full bytecode compile via ocamlrun: OK"
 
 # Cleanup

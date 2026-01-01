@@ -108,16 +108,8 @@ case "${_PLATFORM_TYPE}" in
     export CONDA_OCAML_MKEXE="${NATIVE_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
     export CONDA_OCAML_MKDLL="${NATIVE_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
     ;;
-  windows)
-    # Windows: Use flexlink for FlexDLL support (needed by OCaml runtime)
-    # -link -municode uses wmainCRTStartup entry point, avoids WinMain
-    export CONDA_OCAML_MKEXE="flexlink -exe -chain mingw64"
-    export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
     ;;
 esac
-
-echo "  CONDA_OCAML_MKEXE: ${CONDA_OCAML_MKEXE}"
-echo "  CONDA_OCAML_MKDLL: ${CONDA_OCAML_MKDLL}"
 
 # ============================================================================
 # Configure Arguments
@@ -142,8 +134,6 @@ CONFIG_ARGS+=(
   AS="${NATIVE_AS}"
   CC="${NATIVE_CC}"
   RANLIB="${NATIVE_RANLIB}"
-  MKEXE="${NATIVE_CC}"
-  MKDLL="${NATIVE_CC} -shared"
 )
 
 # ============================================================================
@@ -188,9 +178,6 @@ else
   sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
   sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
   sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
-  sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_MKEXE%|}/' "$config_file"
-  sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL% -maindll|}/' "$config_file"
 fi
 
 # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
