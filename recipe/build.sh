@@ -18,15 +18,13 @@ fi
 mkdir -p "${SRC_DIR}"/_logs
 
 if [[ "0" == "1" ]]; then
-  CONFIG_ARGS=(--enable-shared)
+  CONFIG_ARGS=(--enable-shared PKG_CONFIG=false)
   if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
-    CONFIG_ARGS+=(PKG_CONFIG=false)
     EXE=""
     SH_EXT="sh"
   else
-    export PKG_CONFIG_PATH="${OCAML_INSTALL_PREFIX}/lib/pkgconfig;${PREFIX}/lib/pkgconfig;${PKG_CONFIG_PATH:-}"
     export LIBRARY_PATH="${BUILD_PREFIX}/lib;${PREFIX}/lib;${LIBRARY_PATH:-}"
-    CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
+    # CONFIG_ARGS+=(LDFLAGS="-L${BUILD_PREFIX}/Library/lib -L${BUILD_PREFIX}/lib -L${PREFIX}/Library/lib -L${PREFIX}/lib ${LDFLAGS:-}")
     EXE=".exe"
     SH_EXT="bat"
   fi
@@ -92,14 +90,13 @@ else
   export CONDA_OCAML_MKDLL="flexlink -chain mingw64"
 fi
 
-CONFIG_ARGS=(--enable-shared)
+CONFIG_ARGS=(--enable-shared PKG_CONFIG=false)
 
 # Platform detection and OCAML_INSTALL_PREFIX setup
 if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
   export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   # PKG_CONFIG=false forces zstd fallback detection: simple "-lzstd" instead of
   # pkg-config's "-L/long/build/path -lzstd" which causes binary truncation issues
-  CONFIG_ARGS+=(PKG_CONFIG=false)
   EXE=""
   SH_EXT="sh"
 else
