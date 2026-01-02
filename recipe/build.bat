@@ -41,6 +41,11 @@ set _BUILD_PREFIX=%_BUILD_PREFIX://=/%
 set _SRC_DIR=%_SRC_DIR://=/%
 set _RECIPE_DIR=%_RECIPE_DIR://=/%
 
+:: UTF-8 and MSYS2 settings
+chcp 65001
+set PYTHONUTF8=1
+set LC_ALL=en_US.UTF-8
+  
 set MSYSTEM=MINGW64
 set MSYS2_PATH_TYPE=inherit
 set MSYS2_ARG_CONV_EXCL="*"

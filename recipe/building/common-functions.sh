@@ -43,15 +43,15 @@ apply_cross_patches() {
 }
 
 # ==============================================================================
-# Helper: Find LLVM tool with full path (required for macOS to avoid GNU ar)
-# Usage: find_llvm_tool <tool_name> [required]
+# Helper: Find tool with full path (required for macOS to avoid GNU ar)
+# Usage: find_tool <tool_name> [required]
 # Returns: Full path to tool, or exits if required and not found
 # ==============================================================================
-find_llvm_tool() {
+find_tool() {
   local tool_name="$1"
   local required="${2:-false}"
+  
   local tool_path
-
   tool_path=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "${tool_name}"* -type f 2>/dev/null | head -1)
 
   if [[ -n "${tool_path}" ]]; then
@@ -59,7 +59,7 @@ find_llvm_tool() {
   elif [[ "${required}" == "true" ]]; then
     echo "ERROR: ${tool_name} not found - required on macOS (GNU format incompatible with ld64)" >&2
     echo "Searched in: ${BUILD_PREFIX} ${PREFIX}" >&2
-    return 1
+    exit 1
   else
     echo ""
   fi
