@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+
+# ==============================================================================
+# CRITICAL: Ensure we're using conda bash 5.2+, not system bash
+# ==============================================================================
+if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO[1]} -lt 2) ]]; then
+  echo "re-exec with conda bash..."
+  if [[ -x "${BUILD_PREFIX}/bin/bash" ]]; then
+    exec "${BUILD_PREFIX}/bin/bash" "$0" "$@"
+  else
+    echo "ERROR: Could not find conda bash at ${BUILD_PREFIX}/bin/bash"
+    exit 1
+  fi
+fi
+
+source "${RECIPE_DIR}"/building/common-functions.sh
+
+mkdir -p "${SRC_DIR}"/_logs && export LOG_DIR="${SRC_DIR}"/_logs
+
+# Enable dry-run and other options
+export CONFIGURE=(./configure)
+export MAKE=(make)
+
+CONFIG_ARGS=(--enable-shared --disable-static PKG_CONFIG=false)
+
+export OCAML_INSTALL_PREFIX="${PREFIX}"
+# Simplify compiler paths to basenames (hardcoded in binaries)
+export AR=$(basename "${AR}")
+export AS=$(basename "${AS}")
+export ASPP="$CC -c"
+export CC=$(basename "${CC}")
+export NM=$(basename "${NM}")
+export RANLIB=$(basename "${RANLIB}")
+
+# Define CONDA_OCAML_* variables
+export CONDA_OCAML_AR="${AR}"
+export CONDA_OCAML_AS="${AS}"
+export CONDA_OCAML_CC="${CC}"
+export CONDA_OCAML_RANLIB="${RANLIB}"
+
+export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+
+if [[ "${target_platform}" == "osx-"* ]]; then
+  # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
+  _LLVM_NM=$(find_tool "llvm-nm")
+  [[ -n "${_LLVM_NM}" ]] && NM="${_LLVM_NM}"
+  AR=$(find_tool "llvm-ar" true)
+  LD=$(find_tool "ld.lld" true)
+  RANLIB=$(find_tool "llvm-ranlib" true)
+
+  # Pass full paths to configure to ensure correct tools are used
+  CONFIG_ARGS+=(AR="${AR}" AS="${AS}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
+
+  # Re-Export basenamed with updated PATH
+  export PATH="$(dirname ${AR}):${PATH}" \
+    AR=$(basename ${AR}) \
+    AS="${CC}" \
+    LD=$(basename ${LD}) \
+    NM=$(basename ${NM}) \
+    RANLIB=$(basename ${RANLIB})
+
+  # Basenames for embedding in binaries (users need these in PATH at runtime)
+  export CONDA_OCAML_AR="${AR}"
+  export CONDA_OCAML_AS="${AS}"
+  export CONDA_OCAML_RANLIB="${RANLIB}"
+  export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+
+  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  # Needed so freshly-built ocaml can find zstd
+  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  EXE=""
+  SH_EXT="sh"
+elif [[ "${target_platform}" == "linux-"* ]]; then
+  export CONDA_OCAML_MKEXE="${CC} -Wl,-E"
+  export CONDA_OCAML_MKDLL="${CC} -shared"
+  EXE=""
+  SH_EXT="sh"
+else
+  export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
+  export LDFLAGS="-L${_PREFIX_}/Library/lib ${LDFLAGS:-}"
+  CONFIG_ARGS+=(--with-flexdll --with-gnu-ld)
+  EXE=".exe"
+  SH_EXT="bat"
+fi
+
+CONFIG_ARGS+=(
+  --mandir="${OCAML_INSTALL_PREFIX}"/share/man
+  --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
+  -prefix "${OCAML_INSTALL_PREFIX}"
+)
+
+if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+  if [[ -d "${BUILD_PREFIX}"/lib/ocaml-cross-compilers ]]; then
+    echo "=== Cross-compiling with cross-compiler ==="
+    source "${RECIPE_DIR}/building/cross-compile.sh"
+  else
+    # Cross-compilation: use unified 3-stage build script
+    echo "=== Cross-compiling with unified 3-stage build script ==="
+    source "${RECIPE_DIR}/building/3-stage-cross-compile.sh"
+  fi
+else
+  # Load unix no-op non-unix helpers
+  source "${RECIPE_DIR}/building/non-unix-utilities.sh"
+
+  # No-op for unix
+  unix_noop_build_toolchain
+
+  [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]] && CONFIG_ARGS+=(--enable-ocamltest)
+
+  echo "=== Configuring native compiler ==="
+  ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
+
+  # No-op for unix
+  unix_noop_update_toolchain
+
+  # Patch config.generated.ml to use CONDA_OCAML_* env vars (expanded at runtime)
+  config_file="utils/config.generated.ml"
+  if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+    # Use environment variable references - users can customize via CONDA_OCAML_*
+    sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_AS|}/' "$config_file"
+    sed -i 's/^let c_compiler = .*/let c_compiler = {|\$CONDA_OCAML_CC|}/' "$config_file"
+    sed -i 's/^let mkexe = .*/let mkexe = {|\$CONDA_OCAML_CC|}/' "$config_file"
+    sed -i 's/^let ar = .*/let ar = {|\$CONDA_OCAML_AR|}/' "$config_file"
+    sed -i 's/^let ranlib = .*/let ranlib = {|\$CONDA_OCAML_RANLIB|}/' "$config_file"
+    sed -i 's/^let mkdll = .*/let mkdll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+    sed -i 's/^let mkmaindll = .*/let mkmaindll = {|\$CONDA_OCAML_MKDLL|}/' "$config_file"
+
+    if [[ "${target_platform}" == "osx-"* ]]; then
+      # macOS: clang needs -c flag to assemble without linking
+      # Without -c, clang tries to link and fails with "undefined _main"
+      sed -i 's/^let asm = .*/let asm = {|\$CONDA_OCAML_CC -c|}/' "$config_file"
+    fi
+
+    # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
+    sed -i 's|-L[^ ]*||g' "$config_file"
+  else
+    # Use environment variable references - users can customize via CONDA_OCAML_*
+    sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
+    sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
+    sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
+    sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
+  fi
+
+  # Remove -L paths and debug-prefix-map from Makefile.config (embedded in ocamlc binary)
+  # PREFIX paths can cause truncation issues in binaries - remove them all
+  config_file="Makefile.config"
+  sed -i 's|-fdebug-prefix-map=[^ ]*||g' "${config_file}"
+  sed -i 's|-link\s+-L[^ ]*||g' "${config_file}"  # Remove flexlink's "-link -L..." patterns cleanly
+  sed -i 's|-L[^ ]*||g' "${config_file}"        # Remove standalone -L paths from other lines
+
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    # macOS: Add -headerpad_max_install_names to ALL linker flags
+    # This ensures install_name_tool can relink ALL native binaries (including ocamldoc.opt)
+    # Without this, binaries built by ocamlopt (not just MKEXE) may fail during conda relocation
+    # Add headerpad to OC_LDFLAGS (used by ocamlopt for native binaries)
+    if grep -q "^OC_LDFLAGS=" "${config_file}"; then
+      sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
+    else
+      echo "OC_LDFLAGS=-Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
+    fi
+    # Add headerpad to NATIVECCLINKOPTS (native code C linker options)
+    if grep -q "^NATIVECCLINKOPTS=" "${config_file}"; then
+      sed -i 's|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
+    else
+      echo "NATIVECCLINKOPTS=-Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
+    fi
+    echo "=== DEBUG: macOS headerpad settings ==="
+    grep -E "^OC_LDFLAGS|^NATIVECCLINKOPTS|^MKEXE" "${config_file}" || true
+    echo "=== END DEBUG ==="
+  fi
+
+  echo "=== Compiling native compiler ==="
+  # V=1 shows actual commands being run (helps debug MKEXE issues)
+  if ! make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1; then
+    cat "${SRC_DIR}"/_logs/world.log
+    exit 1
+  fi
+
+  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
+    echo "=== Running tests ==="
+    make ocamltest -j "${CPU_COUNT}" > "${SRC_DIR}"/_logs/ocamltest.log 2>&1 || { cat "${SRC_DIR}"/_logs/ocamltest.log; }
+    make tests > "${SRC_DIR}"/_logs/tests.log 2>&1 || { grep -3 'tests failed' "${SRC_DIR}"/_logs/tests.log; }
+  fi
+
+  echo "=== Installing native compiler ==="
+  make install > "${SRC_DIR}"/_logs/install.log 2>&1 || { cat "${SRC_DIR}"/_logs/install.log; exit 1; }
+fi
+
+# ============================================================================
+# Cross-compilers
+# ============================================================================
+
+source "${RECIPE_DIR}"/building/build-cross-compiler.sh
+
+# ============================================================================
+# Post-install fixes (applies to both native and cross-compiled builds)
+# ============================================================================
+
+# Fix Makefile.config: replace BUILD_PREFIX paths with PREFIX
+if [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" ]]; then
+  sed -i "s#${BUILD_PREFIX}#${PREFIX}#g" "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
+fi
