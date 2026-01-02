@@ -55,7 +55,7 @@ del hi.exe
 
 REM 3. Bytecode compiler via ocamlrun
 echo === Testing bytecode compiler via ocamlrun ===
-ocamlrun %PREFIX%\bin\ocamlc.byte -version | findstr /C:"%VERSION%" >nul
+ocamlrun %OCAML_PREFIX%\bin\ocamlc.byte -version | findstr /C:"%VERSION%" >nul
 if errorlevel 1 (
     echo   ocamlc.byte via ocamlrun: FAILED
     exit /b 1

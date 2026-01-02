@@ -72,7 +72,7 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
   # basename doesn't strip arguments, so we need to extract the first word first
   export AS=$(basename "${ASPP%% *}")
-  export LDFLAGS="${LDFLAGS:-} -L${PREFIX}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  # export LDFLAGS="${LDFLAGS:-} -Wl,-L${PREFIX}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
   # export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
@@ -122,42 +122,8 @@ else
   echo "=== Configuring native compiler ==="
   ./configure "${CONFIG_ARGS[@]}" > "${SRC_DIR}"/_logs/configure.log 2>&1 || { cat "${SRC_DIR}"/_logs/configure.log; exit 1; }
   
-  # DEBUG: Show Makefile.build_config (contains BOOTSTRAPPING_FLEXDLL)
-  echo "=== DEBUG: Makefile.build_config (CRITICAL - contains BOOTSTRAPPING_FLEXDLL) ==="
-  if [[ -f "Makefile.build_config" ]]; then
-    cat Makefile*
-    cat config.log
-  else
-    echo "Makefile.build_config NOT FOUND"
-  fi
-  echo "=== END Makefile.build_config ==="
-
-  # DEBUG: Show Makefile.config BEFORE any patching (matches working build output)
-  echo "=== DEBUG: Post-configure Makefile.config (BEFORE patching) ==="
-  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
-  grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^MKEXEDEBUGFLAG" Makefile.config || true
-  echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
-  grep -E "^BYTECCLIBS|^NATIVECCLIBS" Makefile.config || true
-  echo "--- TOOLCHAIN/FLEXDLL settings ---"
-  grep -E "^TOOLCHAIN|^FLEXDLL" Makefile.config || true
-  echo "--- CC/AS/AR settings ---"
-  grep -E "^CC=|^AS=|^AR=" Makefile.config || true
-  echo "=== END DEBUG ==="
-
   # No-op for unix
   unix_noop_update_toolchain
-
-  # DEBUG: Show Makefile.config AFTER unix_noop_update_toolchain
-  echo "=== DEBUG: Post-patching Makefile.config (AFTER unix_noop_update_toolchain) ==="
-  echo "--- MKEXE/MKDLL/MKMAINDLL settings ---"
-  grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^MKEXEDEBUGFLAG" Makefile.config || true
-  echo "--- NATIVECCLIBS/BYTECCLIBS settings ---"
-  grep -E "^BYTECCLIBS|^NATIVECCLIBS" Makefile.config || true
-  echo "--- TOOLCHAIN/FLEXDLL settings ---"
-  grep -E "^TOOLCHAIN|^FLEXDLL" Makefile.config || true
-  echo "--- CC/AS/AR settings ---"
-  grep -E "^CC=|^AS=|^AR=" Makefile.config || true
-  echo "=== END DEBUG ==="
 
   # Patch config.generated.ml to use CONDA_OCAML_* env vars (expanded at runtime)
   config_file="utils/config.generated.ml"
@@ -180,20 +146,11 @@ else
     # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
     sed -i 's|-L[^ ]*||g' "$config_file"
   else
-    # Windows: Use flexlink with explicit console entry point
-    # Problem: conda-forge MinGW defaults to GUI CRT (crtexewin.o) which expects WinMain
-    # Solution: Force console entry point via linker flag --entry=mainCRTStartup
-    # Both crtexe.o and crtexewin.o define both entry points - only the default differs
-    # This preserves FlexDLL support (needed by OCaml runtime for dynamic loading)
-
     # Use environment variable references - users can customize via CONDA_OCAML_*
     sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
     sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
     sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
     sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
-    # sed -i 's/^let mkexe = .*/let mkexe = {|%CONDA_OCAML_CC%|}/' "$config_file"
-    # sed -i 's/^let mkdll = .*/let mkdll = {|%CONDA_OCAML_MKDLL%|}/' "$config_file"
-    # sed -i 's/^let mkmaindll = .*/let mkmaindll = {|%CONDA_OCAML_MKDLL% -maindll|}/' "$config_file"
   fi
 
   # Remove -L paths and debug-prefix-map from Makefile.config (embedded in ocamlc binary)
@@ -209,55 +166,27 @@ else
     # Without this, binaries built by ocamlopt (not just MKEXE) may fail during conda relocation
     # Add headerpad to OC_LDFLAGS (used by ocamlopt for native binaries)
     if grep -q "^OC_LDFLAGS=" "${config_file}"; then
-      sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-headerpad_max_install_names|' "${config_file}"
+      sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
     else
-      echo "OC_LDFLAGS=-Wl,-headerpad_max_install_names" >> "${config_file}"
+      echo "OC_LDFLAGS=-Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
     fi
     # Add headerpad to NATIVECCLINKOPTS (native code C linker options)
     if grep -q "^NATIVECCLINKOPTS=" "${config_file}"; then
-      sed -i 's|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-headerpad_max_install_names|' "${config_file}"
+      sed -i 's|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
     else
-      echo "NATIVECCLINKOPTS=-Wl,-headerpad_max_install_names" >> "${config_file}"
+      echo "NATIVECCLINKOPTS=-Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
     fi
     echo "=== DEBUG: macOS headerpad settings ==="
     grep -E "^OC_LDFLAGS|^NATIVECCLINKOPTS|^MKEXE" "${config_file}" || true
     echo "=== END DEBUG ==="
-
-  elif [[ "${target_platform}" != "linux-"* ]]; then
-    # Windows: DO NOT override MKEXE - configure sets it correctly with -link -municode
-    # (uses wmainCRTStartup entry point, avoids WinMain). The $(addprefix...) is fine
-    # when OC_LDFLAGS is empty. We only override MKDLL/MKMAINDLL for flexlink chain.
-    echo "=== DEBUG: Windows Makefile.config settings ==="
-    grep -E "^MKEXE|^MKDLL|^MKMAINDLL|^OC_LDFLAGS" "${config_file}" || true
-    echo "=== END DEBUG ==="
   fi
-
-  # DEBUG: Show config.generated.ml key settings (matches working build output)
-  echo "=== DEBUG: config.generated.ml key settings ==="
-  grep -E "^let c_compiler|^let mkdll|^let mkexe|^let mkmaindll|^let asm" utils/config.generated.ml || true
-  echo "=== END DEBUG ==="
 
   echo "=== Compiling native compiler ==="
   # V=1 shows actual commands being run (helps debug MKEXE issues)
   if ! make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1; then
-    echo "=== BUILD FAILED - Extracting debug info ==="
-    echo "--- Last 100 lines of world.log ---"
-    tail -100 "${SRC_DIR}"/_logs/world.log
-    echo "--- ocamlc.opt.exe link command ---"
-    grep -E "ocamlc.opt|ocamlopt.*-o.*ocamlc" "${SRC_DIR}"/_logs/world.log | tail -5 || true
-    echo "--- flexlink.opt.exe attempts ---"
-    grep -E "flexlink\.opt" "${SRC_DIR}"/_logs/world.log | tail -10 || true
-    echo "--- undefined reference errors ---"
-    grep -E "undefined reference|undefined symbol" "${SRC_DIR}"/_logs/world.log | head -20 || true
-    echo "--- NATIVECCLIBS in link commands ---"
-    grep -E "NATIVECCLIBS|lgcc_eh|flexdll_mingw64" "${SRC_DIR}"/_logs/world.log | tail -10 || true
+    cat "${SRC_DIR}"/_logs/world.log
     exit 1
   fi
-
-  # DEBUG: Show flexlink commands from build log (matches working build output)
-  echo "=== DEBUG: flexlink commands from build log ==="
-  grep -i "flexlink" "${SRC_DIR}"/_logs/world.log | head -30 || true
-  echo "=== END DEBUG ==="
 
   if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
     echo "=== Running tests ==="
