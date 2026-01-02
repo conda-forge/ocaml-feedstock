@@ -114,7 +114,6 @@ case "${target_platform}" in
     export CONDA_OCAML_MKEXE="${CONDA_OCAML_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
     export CONDA_OCAML_MKDLL="${CONDA_OCAML_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
     ;;
-    ;;
 esac
 
 # ============================================================================
