@@ -64,21 +64,21 @@ export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use full path to ensure we don't pick up binutils ar from PATH
-  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar*" -type f 2>/dev/null | head -1)
+  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar"* -type f 2>/dev/null | head -1)
   if [[ -n "${_AR}" ]]; then
-    export AR=$(basename ${_AR})
+    export AR=$(basename "${_AR}")
   else
     echo "WARNING: llvm-ar not found, using GNU"
   fi
-  _RANLIB=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ranlib*" -type f 2>/dev/null | head -1)
+  _RANLIB=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ranlib"* -type f 2>/dev/null | head -1)
   if [[ -n "${_RANLIB}" ]]; then
-    export RANLIB="${_RANLIB}"
+    export RANLIB=$(basename "${_RANLIB}")
   else
     echo "WARNING: llvm-ranlib not found, using GNU"
   fi
-  _NM=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-nm*" -type f 2>/dev/null | head -1)
+  _NM=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-nm"* -type f 2>/dev/null | head -1)
   if [[ -n "${_NM}" ]]; then
-    export NM="${_NM}"
+    export NM=$(basename "${_NM}")
   else
     echo "WARNING: llvm-nm not found, using GNU"
   fi
@@ -90,6 +90,7 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   # export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+  CONFIG_ARGS+=(--with-flexdll --with-gnu-ld AR="${AR}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
   EXE=""
   SH_EXT="sh"
 elif [[ "${target_platform}" == "linux-"* ]]; then
