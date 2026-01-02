@@ -90,7 +90,7 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   # export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-  CONFIG_ARGS+=(--with-flexdll --with-gnu-ld AR="${AR}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
+  CONFIG_ARGS+=(AR="${AR}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
   EXE=""
   SH_EXT="sh"
 elif [[ "${target_platform}" == "linux-"* ]]; then
