@@ -63,33 +63,40 @@ export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
-  # Use full path to ensure we don't pick up binutils ar from PATH
-  _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar"* -type f 2>/dev/null | head -1)
-  if [[ -n "${_AR}" ]]; then
-    export AR=$(basename "${_AR}")
+  # Use FULL PATHS to override conda-build's prefixed binutils tools
+  _LLVM_AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
+  _LLVM_RANLIB=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ranlib" -type f 2>/dev/null | head -1)
+  _LLVM_NM=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-nm" -type f 2>/dev/null | head -1)
+
+  if [[ -n "${_LLVM_AR}" ]]; then
+    export AR="${_LLVM_AR}"
+    export CONDA_OCAML_AR="llvm-ar"  # basename for embedding in binaries
+    echo "=== Using LLVM ar: ${AR} ==="
   else
-    echo "WARNING: llvm-ar not found, using GNU"
+    echo "ERROR: llvm-ar not found - GNU ar format is incompatible with ld64/lld"
+    echo "Searched in: ${BUILD_PREFIX} ${PREFIX}"
+    exit 1
   fi
-  _RANLIB=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ranlib"* -type f 2>/dev/null | head -1)
-  if [[ -n "${_RANLIB}" ]]; then
-    export RANLIB=$(basename "${_RANLIB}")
+  if [[ -n "${_LLVM_RANLIB}" ]]; then
+    export RANLIB="${_LLVM_RANLIB}"
+    export CONDA_OCAML_RANLIB="llvm-ranlib"
+    echo "=== Using LLVM ranlib: ${RANLIB} ==="
   else
-    echo "WARNING: llvm-ranlib not found, using GNU"
+    echo "ERROR: llvm-ranlib not found"
+    exit 1
   fi
-  _NM=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-nm"* -type f 2>/dev/null | head -1)
-  if [[ -n "${_NM}" ]]; then
-    export NM=$(basename "${_NM}")
+  if [[ -n "${_LLVM_NM}" ]]; then
+    export NM="${_LLVM_NM}"
   else
-    echo "WARNING: llvm-nm not found, using GNU"
+    echo "WARNING: llvm-nm not found, using default"
   fi
   # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
   # basename doesn't strip arguments, so we need to extract the first word first
   export AS=$(basename "${ASPP%% *}")
   export LD=ld64.lld
-  # export LDFLAGS="${LDFLAGS:-} -Wl,-L${PREFIX}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
-  # export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+  # Pass full paths to configure to ensure correct tools are used
   CONFIG_ARGS+=(AR="${AR}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
   EXE=""
   SH_EXT="sh"
