@@ -57,12 +57,21 @@ unix_noop_update_toolchain() {
       grep "^FLEXDLL_CHAIN" Makefile.config || true
     fi
 
+    grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || true
+    if grep -q '$(addprefix' Makefile.config; then
+      echo "Removing \$(addprefix...) from MKEXE/MKDLL"
+      sed -i 's|^MKEXE=.*|MKEXE=flexlink -exe -chain mingw64 -stack 33554432 -link -municode|' Makefile.config
+      sed -i 's|^MKDLL=.*|MKDLL=flexlink -chain mingw64 -stack 33554432|' Makefile.config
+      sed -i 's|^MKMAINDLL=.*|MKMAINDLL=flexlink -chain mingw64 -stack 33554432 -maindll|' Makefile.config
+    fi
+    echo "--- MKEXE/MKDLL after fix ---"
+    grep -E "^MKEXE|^MKDLL|^MKMAINDLL" Makefile.config || true
+    
     config_file="utils/config.generated.ml"
     sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_AS%|}/' "$config_file"
     sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
     sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
     sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
-    echo "=== DEBUG: unix_noop_update_toolchain complete ==="
   fi
 
   # Remove failing test
