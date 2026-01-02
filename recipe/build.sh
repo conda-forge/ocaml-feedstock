@@ -89,7 +89,8 @@ if [[ "${target_platform}" == "osx-"* ]]; then
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
 
-  echo "=== macOS LLVM tools: AR=${AR} RANLIB=${RANLIB} ==="
+  # Needed so freshly-built ocaml can find zstd
+  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   EXE=""
   SH_EXT="sh"
 elif [[ "${target_platform}" == "linux-"* ]]; then
