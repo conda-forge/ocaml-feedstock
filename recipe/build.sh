@@ -65,23 +65,29 @@ export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
-  # Use FULL PATHS to override conda-build's prefixed binutils tools
   _LLVM_NM=$(find_llvm_tool "llvm-nm")
   [[ -n "${_LLVM_NM}" ]] && NM="${_LLVM_NM}"
   AR=$(find_llvm_tool "llvm-ar" true)
   LD=$(find_llvm_tool "ld.lld" true)
   RANLIB=$(find_llvm_tool "llvm-ranlib" true)
-  
 
+  # Pass full paths to configure to ensure correct tools are used
+  CONFIG_ARGS+=(AR="${AR}" AS="${AS}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
+
+  # Re-Export basenamed with updated PATH
+  export PATH="$(dirname ${AR}):${PATH}" \
+    AR=$(basename ${AR}) \
+    AS="${CC}" \
+    LD=$(basename ${LD}) \
+    NM=$(basename ${NM}) \
+    RANLIB=$(basename ${RANLIB})
+  
   # Basenames for embedding in binaries (users need these in PATH at runtime)
   export CONDA_OCAML_AR="${AR}"
+  export CONDA_OCAML_AS="${AS}"
   export CONDA_OCAML_RANLIB="${RANLIB}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-  # Pass full paths to configure to ensure correct tools are used
-  CONFIG_ARGS+=(AR="${AR}" AS="${AS}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
-  export PATH="$(dirname ${AR}):${PATH}" $(basename ${AR}) $(basename ${LD}) $(basename ${NM}) $(basename ${RANLIB})
-  export AS="${CC}"
 
   echo "=== macOS LLVM tools: AR=${AR} RANLIB=${RANLIB} ==="
   EXE=""
