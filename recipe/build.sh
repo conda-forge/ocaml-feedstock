@@ -23,7 +23,7 @@ if [[ "0" == "1" ]]; then
     EXE=""
     SH_EXT="sh"
   else
-    CONFIG_ARGS+=(--with-flexdir="${SRC_DIR}"/flexdll --with-zstd --with-gnu-ld)
+    CONFIG_ARGS+=(--with-flexdll --with-gnu-ld)
     EXE=".exe"
     SH_EXT="bat"
   fi
@@ -48,10 +48,10 @@ export OCAML_INSTALL_PREFIX="${PREFIX}"
 # Simplify compiler paths to basenames (hardcoded in binaries)
 export AR=$(basename "${AR}")
 export AS=$(basename "${AS}")
-export CC=$(basename "${CC}")
 export ASPP="$CC -c"
+export CC=$(basename "${CC}")
+export NM=$(basename "${NM}")
 export RANLIB=$(basename "${RANLIB}")
-export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 
 # Define CONDA_OCAML_* variables
 export CONDA_OCAML_AR="${AR}"
@@ -59,20 +59,34 @@ export CONDA_OCAML_AS="${AS}"
 export CONDA_OCAML_CC="${CC}"
 export CONDA_OCAML_RANLIB="${RANLIB}"
 
+export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use full path to ensure we don't pick up binutils ar from PATH
   _AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar*" -type f 2>/dev/null | head -1)
   if [[ -n "${_AR}" ]]; then
     export AR=$(basename ${_AR})
-    export RANLIB="${_AR/-ar/-ranlib}"
   else
-    echo "WARNING: llvm-ar/llvm-ranlib not found, using GNU AR/RANLIB"
+    echo "WARNING: llvm-ar not found, using GNU"
+  fi
+  _RANLIB=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ranlib*" -type f 2>/dev/null | head -1)
+  if [[ -n "${_RANLIB}" ]]; then
+    export RANLIB="${_RANLIB}"
+  else
+    echo "WARNING: llvm-ranlib not found, using GNU"
+  fi
+  _NM=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-nm*" -type f 2>/dev/null | head -1)
+  if [[ -n "${_NM}" ]]; then
+    export NM="${_NM}"
+  else
+    echo "WARNING: llvm-nm not found, using GNU"
   fi
   # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
   # basename doesn't strip arguments, so we need to extract the first word first
   export AS=$(basename "${ASPP%% *}")
-  export LDFLAGS="${LDFLAGS:-} -Wl,-L${PREFIX}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export LD=ld64.lld
+  # export LDFLAGS="${LDFLAGS:-} -Wl,-L${PREFIX}/lib -fuse-ld=lld -Wl,-headerpad_max_install_names"
   # export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
@@ -86,10 +100,7 @@ elif [[ "${target_platform}" == "linux-"* ]]; then
 else
   export OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   export LDFLAGS="-L${_PREFIX_}/Library/lib ${LDFLAGS:-}"
-  CONFIG_ARGS+=(
-    --with-flexdll
-    --with-gnu-ld
-  )
+  CONFIG_ARGS+=(--with-flexdll --with-gnu-ld)
   EXE=".exe"
   SH_EXT="bat"
 fi
@@ -99,7 +110,6 @@ CONFIG_ARGS+=(
   --with-target-bindir="${OCAML_INSTALL_PREFIX}"/bin
   -prefix "${OCAML_INSTALL_PREFIX}"
 )
-#  --with-target-sh="${OCAML_INSTALL_PREFIX}"/bin/bash
 
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   if [[ -d "${BUILD_PREFIX}"/lib/ocaml-cross-compilers ]]; then
@@ -183,7 +193,7 @@ else
 
   echo "=== Compiling native compiler ==="
   # V=1 shows actual commands being run (helps debug MKEXE issues)
-  if ! make V=1 world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1; then
+  if ! make world.opt -j"${CPU_COUNT}" > "${SRC_DIR}"/_logs/world.log 2>&1; then
     cat "${SRC_DIR}"/_logs/world.log
     exit 1
   fi
