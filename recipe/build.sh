@@ -15,30 +15,9 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
   fi
 fi
 
+source "${RECIPE_DIR}"/building/common-functions.sh
+
 mkdir -p "${SRC_DIR}"/_logs
-
-# ==============================================================================
-# Helper: Find LLVM tool with full path (required for macOS to avoid GNU ar)
-# Usage: find_llvm_tool <tool_name> [required]
-# Returns: Full path to tool, or exits if required and not found
-# ==============================================================================
-find_llvm_tool() {
-  local tool_name="$1"
-  local required="${2:-false}"
-  local tool_path
-
-  tool_path=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "${tool_name}" -type f 2>/dev/null | head -1)
-
-  if [[ -n "${tool_path}" ]]; then
-    echo "${tool_path}"
-  elif [[ "${required}" == "true" ]]; then
-    echo "ERROR: ${tool_name} not found - required on macOS (GNU format incompatible with ld64)" >&2
-    echo "Searched in: ${BUILD_PREFIX} ${PREFIX}" >&2
-    exit 1
-  else
-    echo ""
-  fi
-}
 
 CONFIG_ARGS=(--enable-shared --disable-static PKG_CONFIG=false)
 if [[ "0" == "1" ]]; then
@@ -87,24 +66,24 @@ export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use FULL PATHS to override conda-build's prefixed binutils tools
-  export AR=$(find_llvm_tool "llvm-ar" true)
-  export RANLIB=$(find_llvm_tool "llvm-ranlib" true)
   _LLVM_NM=$(find_llvm_tool "llvm-nm")
-  [[ -n "${_LLVM_NM}" ]] && export NM="${_LLVM_NM}"
+  [[ -n "${_LLVM_NM}" ]] && NM="${_LLVM_NM}"
+  AR=$(find_llvm_tool "llvm-ar" true)
+  LD=$(find_llvm_tool "ld.lld" true)
+  RANLIB=$(find_llvm_tool "llvm-ranlib" true)
+  
 
   # Basenames for embedding in binaries (users need these in PATH at runtime)
-  export CONDA_OCAML_AR="llvm-ar"
-  export CONDA_OCAML_RANLIB="llvm-ranlib"
-
-  echo "=== macOS LLVM tools: AR=${AR} RANLIB=${RANLIB} ==="
-
-  # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
-  export AS=$(basename "${ASPP%% *}")
-  export LD=ld64.lld
+  export CONDA_OCAML_AR="${AR}"
+  export CONDA_OCAML_RANLIB="${RANLIB}"
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   export CONDA_OCAML_MKDLL="${CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
   # Pass full paths to configure to ensure correct tools are used
-  CONFIG_ARGS+=(AR="${AR}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
+  CONFIG_ARGS+=(AR="${AR}" AS="${AS}" LD="${LD}" NM="${NM}" RANLIB="${RANLIB}")
+  export PATH="$(dirname ${AR}):${PATH}" $(basename ${AR}) $(basename ${LD}) $(basename ${NM}) $(basename ${RANLIB})
+  export AS="${CC}"
+
+  echo "=== macOS LLVM tools: AR=${AR} RANLIB=${RANLIB} ==="
   EXE=""
   SH_EXT="sh"
 elif [[ "${target_platform}" == "linux-"* ]]; then
