@@ -17,6 +17,29 @@ fi
 
 mkdir -p "${SRC_DIR}"/_logs
 
+# ==============================================================================
+# Helper: Find LLVM tool with full path (required for macOS to avoid GNU ar)
+# Usage: find_llvm_tool <tool_name> [required]
+# Returns: Full path to tool, or exits if required and not found
+# ==============================================================================
+find_llvm_tool() {
+  local tool_name="$1"
+  local required="${2:-false}"
+  local tool_path
+
+  tool_path=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "${tool_name}" -type f 2>/dev/null | head -1)
+
+  if [[ -n "${tool_path}" ]]; then
+    echo "${tool_path}"
+  elif [[ "${required}" == "true" ]]; then
+    echo "ERROR: ${tool_name} not found - required on macOS (GNU format incompatible with ld64)" >&2
+    echo "Searched in: ${BUILD_PREFIX} ${PREFIX}" >&2
+    exit 1
+  else
+    echo ""
+  fi
+}
+
 CONFIG_ARGS=(--enable-shared --disable-static PKG_CONFIG=false)
 if [[ "0" == "1" ]]; then
   if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
@@ -64,34 +87,18 @@ export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
 if [[ "${target_platform}" == "osx-"* ]]; then
   # macOS: MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
   # Use FULL PATHS to override conda-build's prefixed binutils tools
-  _LLVM_AR=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ar" -type f 2>/dev/null | head -1)
-  _LLVM_RANLIB=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-ranlib" -type f 2>/dev/null | head -1)
-  _LLVM_NM=$(find "${BUILD_PREFIX}" "${PREFIX}" -name "llvm-nm" -type f 2>/dev/null | head -1)
+  export AR=$(find_llvm_tool "llvm-ar" true)
+  export RANLIB=$(find_llvm_tool "llvm-ranlib" true)
+  _LLVM_NM=$(find_llvm_tool "llvm-nm")
+  [[ -n "${_LLVM_NM}" ]] && export NM="${_LLVM_NM}"
 
-  if [[ -n "${_LLVM_AR}" ]]; then
-    export AR="${_LLVM_AR}"
-    export CONDA_OCAML_AR="llvm-ar"  # basename for embedding in binaries
-    echo "=== Using LLVM ar: ${AR} ==="
-  else
-    echo "ERROR: llvm-ar not found - GNU ar format is incompatible with ld64/lld"
-    echo "Searched in: ${BUILD_PREFIX} ${PREFIX}"
-    exit 1
-  fi
-  if [[ -n "${_LLVM_RANLIB}" ]]; then
-    export RANLIB="${_LLVM_RANLIB}"
-    export CONDA_OCAML_RANLIB="llvm-ranlib"
-    echo "=== Using LLVM ranlib: ${RANLIB} ==="
-  else
-    echo "ERROR: llvm-ranlib not found"
-    exit 1
-  fi
-  if [[ -n "${_LLVM_NM}" ]]; then
-    export NM="${_LLVM_NM}"
-  else
-    echo "WARNING: llvm-nm not found, using default"
-  fi
+  # Basenames for embedding in binaries (users need these in PATH at runtime)
+  export CONDA_OCAML_AR="llvm-ar"
+  export CONDA_OCAML_RANLIB="llvm-ranlib"
+
+  echo "=== macOS LLVM tools: AR=${AR} RANLIB=${RANLIB} ==="
+
   # Get just the compiler name from ASPP (e.g., "/path/to/clang -c" → "clang")
-  # basename doesn't strip arguments, so we need to extract the first word first
   export AS=$(basename "${ASPP%% *}")
   export LD=ld64.lld
   export CONDA_OCAML_MKEXE="${CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
