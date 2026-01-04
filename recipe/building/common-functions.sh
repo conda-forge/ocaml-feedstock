@@ -80,7 +80,9 @@ find_tool() {
                   "${BUILD_PREFIX}"/bin \
                   "${PREFIX}"/bin \
                   \( -name "${tool_name}" -o -name "${tool_name}-[0-9]*" \) \
-                  -type f -perm /111 2>/dev/null | head -1)
+                  \( -type f -o -type l \) \
+                  -perm /111 \
+                  2>/dev/null | head -1)
   else
     tool_path=$(find \
                   "${_BUILD_PREFIX_}"/Library/bin \
@@ -88,7 +90,8 @@ find_tool() {
                   "${_BUILD_PREFIX_}"/bin \
                   "${_PREFIX_}"/bin \
                   \( -name "${tool_name}" -o -name "${tool_name}.exe" \) \
-                  -type f -perm /111 2>/dev/null | head -1)
+                  \( -type f -o -type l \) \
+                  -perm /111 2>/dev/null | head -1)
   fi
 
   if [[ -n "${tool_path}" ]]; then
