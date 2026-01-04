@@ -97,6 +97,7 @@ requirements:
     - ${{ m2 }}grep
     - ${{ m2 }}make
     - ${{ m2 }}sed
+    - ${{ m2 }}tar
     - binutils
     - if: linux and x86_64
       then:
@@ -117,7 +118,7 @@ requirements:
         - ${{ m2 }}which
     - if: aarch64 or ppc64le or arm64
       then:
-        - ocaml >=5.3
+        - ocaml >=5.3 *_2
         - zstd
     - if: osx
       then:

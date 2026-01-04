@@ -28,5 +28,3 @@
 @if not defined CONDA_OCAML_RANLIB (
     @if defined RANLIB (@set "CONDA_OCAML_RANLIB=%RANLIB%") else (@set "CONDA_OCAML_RANLIB=@RANLIB@")
 )
-@if not defined CONDA_OCAML_MKEXE @set "CONDA_OCAML_MKEXE=%CONDA_OCAML_CC%"
-@if not defined CONDA_OCAML_MKDLL @set "CONDA_OCAML_MKDLL=%CONDA_OCAML_CC% -shared"

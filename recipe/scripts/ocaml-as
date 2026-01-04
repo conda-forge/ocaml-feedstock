@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# OCaml assembler wrapper - expands CONDA_OCAML_AS environment variable
+# On macOS, CONDA_OCAML_AS may include '-c' flag (e.g., "clang -c")
+# shellcheck disable=SC2086
+exec ${CONDA_OCAML_AS:-as} "$@"

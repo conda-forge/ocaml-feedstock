@@ -24,9 +24,9 @@ for var in CONDA_OCAML_CC CONDA_OCAML_AS CONDA_OCAML_AR CONDA_OCAML_MKDLL; do
 done
 echo "PASS: All CONDA_OCAML_* variables are set"
 
-# Test 2: Verify ocamlopt -config shows environment variable references
+# Test 2: Verify ocamlopt -config shows wrapper script references
 echo ""
-echo "Test 2: ocamlopt -config uses environment variable references"
+echo "Test 2: ocamlopt -config uses ocaml-* wrapper scripts"
 
 CONFIG_CC=$(ocamlopt -config-var c_compiler)
 CONFIG_ASM=$(ocamlopt -config-var asm)
@@ -34,12 +34,25 @@ CONFIG_ASM=$(ocamlopt -config-var asm)
 echo "  c_compiler = $CONFIG_CC"
 echo "  asm = $CONFIG_ASM"
 
-# Config should reference CONDA_OCAML_* variables (contains $ sign)
-if [[ "$CONFIG_CC" == *'$'* ]] || [[ "$CONFIG_CC" == *'CONDA_OCAML'* ]]; then
-    echo "PASS: c_compiler references environment variable"
+# Config should reference ocaml-* wrapper scripts (for Unix.create_process compatibility)
+if [[ "$CONFIG_CC" == "ocaml-cc" ]]; then
+    echo "PASS: c_compiler uses ocaml-cc wrapper"
+elif [[ "$CONFIG_CC" == *'$'* ]] || [[ "$CONFIG_CC" == *'CONDA_OCAML'* ]]; then
+    echo "INFO: c_compiler uses direct env var reference (older build): $CONFIG_CC"
 else
-    echo "INFO: c_compiler is hardcoded (may be pre-CONDA_OCAML build): $CONFIG_CC"
+    echo "INFO: c_compiler is hardcoded: $CONFIG_CC"
 fi
+
+# Test 2b: Verify wrapper scripts exist and are executable
+echo ""
+echo "Test 2b: Verify wrapper scripts are installed"
+for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+    if [[ -x "${CONDA_PREFIX}/bin/${wrapper}" ]]; then
+        echo "  $wrapper: OK"
+    else
+        echo "  $wrapper: MISSING"
+    fi
+done
 
 # Test 3: Custom CC is respected in compilation
 echo ""

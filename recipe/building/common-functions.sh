@@ -1,9 +1,8 @@
-#!/bin/bash
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
 # Logging wrapper - captures stdout/stderr to log files for debugging
-run_logged() {
+run_logged_() {
   local logname="$1"
   shift
   local logfile="${LOG_DIR}/${logname}.log"
@@ -19,11 +18,44 @@ run_logged() {
   fi
 }
 
+run_logged() {
+  local logname="$1"
+  shift
+  local logfile="${LOG_DIR}/${logname}.log"
+  local indent="    "
+
+  local cmd="$1"
+  shift
+  
+  if [[ "${VERBOSE:-0}" == "1" ]]; then
+    echo "${indent}$ $cmd $*"
+  else
+    # Show command name + count of args
+    local nargs=$#
+    # Extract just the key names from KEY=value args
+    local keys=""
+    for arg in "$@"; do
+      [[ "$arg" == *"="* ]] && keys+=" ${arg%%=*}"
+      [[ "$arg" != *"="* ]] && keys+=" ${arg}"
+    done
+    echo "${indent}$ ${cmd##*/} [${nargs} args:${keys:- ...}]"
+  fi
+
+  if "$cmd" "$@" >> "${logfile}" 2>&1; then
+    return 0
+  else
+    local rc=$?
+    echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
+    tail -15 "${logfile}" | sed "s/^/${indent} /"
+    return ${rc}
+  fi
+}
+
 # Apply Makefile.cross and platform-specific patches
 # Requires: NEEDS_DL variable to be set (1 = add -ldl)
 apply_cross_patches() {
   cp "${RECIPE_DIR}"/building/Makefile.cross .
-  patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch || true
+  patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch > /dev/null 2>&1 || true
 
   # Fix dynlink "inconsistent assumptions" error:
   # Use otherlibrariesopt-cross target which calls dynlink-allopt with proper CAMLOPT/BEST_OCAMLOPT
@@ -69,8 +101,7 @@ get_target_id() {
     aarch64-conda-linux-gnu) echo "AARCH64" ;;
     powerpc64le-conda-linux-gnu) echo "PPC64LE" ;;
     arm64-apple-darwin*) echo "ARM64" ;;
-    x86_64-conda-linux-gnu) echo "X86_64" ;;
-    x86_64-apple-darwin*) echo "X86_64" ;;
+    x86_64-conda-linux-gnu|x86_64-apple-darwin*) echo "X86_64" ;;
     *) echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]' ;;
   esac
 }
@@ -88,6 +119,21 @@ get_target_arch() {
   esac
 }
 
+# Get target architecture for OCaml ARCH variable
+# Usage: get_target_arch "aarch64-conda-linux-gnu" → "arm64"
+get_target_platform() {
+  local target="$1"
+  
+  case "${target}" in
+    aarch64-*) echo "linux-aarch64" ;;
+    arm64-*) echo "osx-arm64" ;;
+    powerpc64le-*) echo "linux-ppc64le" ;;
+    x86_64-conda-linux-gnu) echo "linux-64" ;;
+    x86_64-apple-darwin*) echo "osx-64" ;;
+    *) echo "amd64" ;;  # default
+  esac
+}
+
 # ==============================================================================
 # macOS SDK Sysroot Detection
 # ==============================================================================
@@ -96,9 +142,6 @@ get_target_arch() {
 # Sets: ARM64_SYSROOT variable
 # Usage: setup_macos_sysroot "arm64-apple-darwin20.0.0" [cross_cc]
 setup_macos_sysroot() {
-  local target="$1"
-  local cross_cc="${2:-}"
-
   ARM64_SYSROOT=""
 
   # Try SDK search paths
@@ -111,76 +154,120 @@ setup_macos_sysroot() {
       break
     fi
   done
-
-  # Fallback: query cross-compiler for default sysroot
-  if [[ -z "${ARM64_SYSROOT}" ]] && [[ -n "${cross_cc}" ]]; then
-    local clang_sysroot
-    clang_sysroot=$("${cross_cc}" --print-sysroot 2>/dev/null || true)
-    if [[ -n "${clang_sysroot}" ]] && [[ -d "${clang_sysroot}" ]]; then
-      ARM64_SYSROOT="${clang_sysroot}"
-      echo "     Found ARM64 SDK via clang --print-sysroot: ${ARM64_SYSROOT}"
-    fi
-  fi
-
-  if [[ -z "${ARM64_SYSROOT}" ]]; then
-    echo "     WARNING: No ARM64 SDK found in searched locations"
-    echo "     Proceeding without explicit -isysroot (clang will use its default)"
-  fi
-
+  
   export ARM64_SYSROOT
 }
 
 # ==============================================================================
-# Cross-Toolchain Setup
+# CFLAGS and LDFLAGS
 # ==============================================================================
 
-# Setup cross-toolchain variables for a target
-# Sets: CROSS_CC, CROSS_AS, CROSS_AR, CROSS_RANLIB, CROSS_NM, CROSS_STRIP, CROSS_LD
-#       CROSS_CFLAGS, CROSS_LDFLAGS, CROSS_ASM, CROSS_MKDLL
-# Usage: setup_cross_toolchain "aarch64-conda-linux-gnu"
-setup_cross_toolchain() {
-  local target="$1"
+# Get native CFLAGS/LDFLAGS for the current platform
+# Sets: NATIVE_CFLAGS, NATIVE_LDFLAGS
+# Usage: setup_native_flags
+setup_cflags_ldflags() {
+  local name="${1}"
+  local native="${2:-${build_platform:-NOTSET}}"
+  local target="${3:-${target_platform}}"
+
+  [[ "${native}" != "linux-"* ]] && [[ "${native}" != "osx-"* ]] && native="nonunix${native#*-}"
+  [[ "${target}" != "linux-"* ]] && [[ "${target}" != "osx-"* ]] && target="nonunix${target#*-}"
   
-  if [[ "${target}" == "arm64-"* ]]; then
-    # macOS: use LLVM tools consistently (GNU tools incompatible with ld64)
-    CROSS_AR=$(find_tool "llvm-ar" true)
-    CROSS_RANLIB=$(find_tool "llvm-ranlib" true)
-    CROSS_NM=$(find_tool "llvm-nm" true)
-    CROSS_STRIP=$(find_tool "llvm-strip" true)
-    CROSS_LD=$(find_tool "ld.lld" true)
+  case "${name}_${native}_${target}" in
+    NATIVE_osx-64_osx-64|NATIVE_linux-64_linux-64|NATIVE_nonunix-64_nonunix-64)
+      # Native build: use environment CFLAGS (set by conda-build for this platform)
+      export "${name}_CFLAGS=${CFLAGS}"
+      export "${name}_LDFLAGS=${LDFLAGS}"
+      ;;
+    CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le|CROSS_osx-64_osx-arm64)
+      # Cross-compiling FOR aarch64/ppc64le
+      if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+        # Cross-platform CI: conda sets proper target CFLAGS
+        export "${name}_CFLAGS=${CFLAGS}"
+        export "${name}_LDFLAGS=${LDFLAGS}"
+      elif [[ "${target}" == "arm-64" ]]; then
+        # Native build creating cross-compilers: use generic ARM64 flags
+        setup_macos_sysroot
+        export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
+        export "${name}_LDFLAGS=-fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+      else
+        # Native build creating cross-compilers: use generic flags (no x86_64 -march/-mtune)
+        export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
+        export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
+      fi
+      ;;
+    NATIVE_osx-64_osx-arm64)
+      # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
+      export "${name}_CFLAGS=-march=core2 -mtune=haswell -mssse3 -ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
+      export "${name}_LDFLAGS=-fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+      ;;
+    NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le)
+      # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
+      export "${name}_CFLAGS=-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem ${BUILD_PREFIX}/include"
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib"
+      ;;
+    CROSS_linux-64_linux-64|CROSS_osx-64_osx-64|CROSS_nonunix-*|*)
+      echo "ERROR: setup_cflags_ldflags used with incorrect arguments"
+      echo "   name:            ${name}"
+      echo "   native platform: ${native}"
+      echo "   target platform: ${target}"
+      exit 1
+      ;;
+  esac
+}
 
-    CROSS_CC=$(find_tool "${target}-clang" true)
-    CROSS_AS="${CROSS_CC}"
-    CROSS_ASM="$(basename "${CROSS_CC}") -c"
+# ==============================================================================
+# Build-Toolchain Setup
+# ==============================================================================
 
-    # Setup sysroot and flags
-    setup_macos_sysroot "${target}" "${CROSS_CC}"
-    if [[ -n "${ARM64_SYSROOT}" ]]; then
-      CROSS_CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem ${BUILD_PREFIX}/include -isysroot ${ARM64_SYSROOT}"
-    else
-      CROSS_CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem ${BUILD_PREFIX}/include"
-    fi
-    CROSS_LDFLAGS="-fuse-ld=lld"
-    CROSS_MKDLL="${CROSS_CC} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-  else
-    # Linux: use target-prefixed GNU tools
-    CROSS_AR=$(find_tool "${target}-ar" true)
-    CROSS_AS=$(find_tool "${target}-as" true)
-    CROSS_CC=$(find_tool "${target}-gcc" true)
-    CROSS_RANLIB=$(find_tool "${target}-ranlib" true)
-    CROSS_NM=$(find_tool "${target}-nm" true)
-    CROSS_STRIP=$(find_tool "${target}-strip" true)
-    CROSS_LD=$(find_tool "${target}-ld" true)
+# Setup BUILD-toolchain variables for a target
+# Sets: BUILD_CC, BUILD_AS, BUILD_AR, BUILD_RANLIB, BUILD_NM, BUILD_STRIP, BUILD_LD
+#       BUILD_CFLAGS, BUILD_LDFLAGS, BUILD_ASM, BUILD_MKDLL, BUILD_MKEXE
+# Usage: setup_native_toolchain "aarch64-conda-linux-gnu"
+setup_toolchain() {
+  local name="${1}"
+  local target="${2}"
 
-    CROSS_ASM=$(basename "${CROSS_AS}")
-    CROSS_CFLAGS="-ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O3 -pipe -isystem ${BUILD_PREFIX}/include"
-    CROSS_LDFLAGS=""
-    CROSS_MKDLL="${CROSS_CC} -shared"
-  fi
+  case "${target}" in
+    *-apple-*)
+       # macOS: use LLVM tools consistently (GNU tools incompatible with ld64)
+       _AR=$(find_tool "llvm-ar" true)
+       _RANLIB=$(find_tool "llvm-ranlib" true)
+       _NM=$(find_tool "llvm-nm" true)
+       _STRIP=$(find_tool "llvm-strip" true)
+       _LD=$(find_tool "ld.lld" true)
+
+       _CC=$(find_tool "${target}-clang" true)
+       _AS="${_CC}"
+       _ASM="$(basename "${_CC}") -c"
+
+       _MKDLL="${_CC} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+       _MKEXE="${_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+      ;;
+    *-linux-*)
+       _AR=$(find_tool "${target}-ar" true)
+       _AS=$(find_tool "${target}-as" true)
+       _CC=$(find_tool "${target}-gcc" true)
+       _RANLIB=$(find_tool "${target}-ranlib" true)
+       _NM=$(find_tool "${target}-nm" true)
+       _STRIP=$(find_tool "${target}-strip" true)
+       _LD=$(find_tool "${target}-ld" true)
+
+       _ASM=$(basename "${_AS}")
+       _MKDLL="${_CC} -shared"
+       # -Wl,-E exports symbols for dlopen (required by ocamlnat)
+       _MKEXE="${_CC} -Wl,-E"
+      ;;
+    *)
+      echo "ERROR: setup_toolchain used with unsupported target: ${target}"
+      exit 1
+      ;;
+  esac
 
   # Export all
-  export CROSS_AR CROSS_AS CROSS_CC CROSS_RANLIB CROSS_NM CROSS_STRIP CROSS_LD
-  export CROSS_CFLAGS CROSS_LDFLAGS CROSS_ASM CROSS_MKDLL
+  export "${name}_AR=${_AR}" "${name}_AS=${_AS}" "${name}_CC=${_CC}" "${name}_RANLIB=${_RANLIB}"
+  export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP}" "${name}_LD=${_LD}"
+  export "${name}_ASM=${_ASM}" "${name}_MKDLL=${_MKDLL}" "${name}_MKEXE=${_MKEXE}"
 }
 
 # ==============================================================================
@@ -191,7 +278,7 @@ setup_cross_toolchain() {
 # Returns a string suitable for prefixing make commands in a subshell
 # Usage: $(get_cross_env_string) make crossopt ...
 get_cross_env_string() {
-  echo "CONDA_OCAML_CC='${CROSS_CC}' CONDA_OCAML_AS='${CROSS_AS}' CONDA_OCAML_AR='${CROSS_AR}' CONDA_OCAML_RANLIB='${CROSS_RANLIB}' CONDA_OCAML_MKDLL='${CROSS_MKDLL}'"
+  echo "CONDA_OCAML_CC='${CROSS_CC}' CONDA_OCAML_AS='${CROSS_AS}' CONDA_OCAML_AR='${CROSS_AR}' CONDA_OCAML_RANLIB='${CROSS_RANLIB}' CONDA_OCAML_MKDLL='${CROSS_MKDLL}' CONDA_OCAML_MKEXE='${CROSS_MKEXE}'"
 }
 
 # Get CONDA_OCAML_* export commands for cross-compilation
@@ -203,12 +290,13 @@ export CONDA_OCAML_AS='${CROSS_AS}'
 export CONDA_OCAML_AR='${CROSS_AR}'
 export CONDA_OCAML_RANLIB='${CROSS_RANLIB}'
 export CONDA_OCAML_MKDLL='${CROSS_MKDLL}'
+export CONDA_OCAML_MKEXE='${CROSS_MKEXE}'
 EOF
 }
 
 # Get default tool basenames for wrapper scripts
 # Usage: get_cross_tool_defaults "aarch64-conda-linux-gnu"
-# Sets: DEFAULT_CC, DEFAULT_AS, DEFAULT_AR, DEFAULT_RANLIB, DEFAULT_MKDLL
+# Sets: DEFAULT_CC, DEFAULT_AS, DEFAULT_AR, DEFAULT_RANLIB, DEFAULT_MKDLL, DEFAULT_MKEXE
 get_cross_tool_defaults() {
   local target="$1"
 
@@ -218,44 +306,49 @@ get_cross_tool_defaults() {
   DEFAULT_RANLIB=$(basename "${CROSS_RANLIB}")
 
   if [[ "${target}" == "arm64-"* ]]; then
+    # macOS: use lld linker and headerpad for install_name_tool compatibility
     DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup"
+    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
   else
+    # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
     DEFAULT_MKDLL="${DEFAULT_CC} -shared"
+    DEFAULT_MKEXE="${DEFAULT_CC} -Wl,-E"
   fi
 }
 
-# ==============================================================================
-# Config Patching
-# ==============================================================================
+# # ==============================================================================
+# # Config Patching
+# # ==============================================================================
 
-# Patch config.generated.ml to use CONDA_OCAML_* environment variables
-# Usage: patch_config_generated_ml "utils/config.generated.ml" "aarch64-conda-linux-gnu" "/path/to/cross/lib/ocaml"
-patch_config_generated_ml() {
-  local config_file="$1"
-  local target="$2"
-  local cross_libdir="$3"
-  
-  local model
-  model=$(get_target_model "${target}")
+# # Patch config.generated.ml to use ocaml-* wrapper scripts
+# # Wrappers expand CONDA_OCAML_* environment variables at runtime, making them
+# # compatible with tools like Dune that use Unix.create_process
+# # Usage: patch_config_generated_ml "utils/config.generated.ml" "aarch64-conda-linux-gnu" "/path/to/cross/lib/ocaml"
+# patch_config_generated_ml() {
+#   local config_file="$1"
+#   local target="$2"
+#   local cross_libdir="$3"
 
-  if [[ "${target}" == "arm64-"* ]]; then
-    sed -i 's#^let asm = .*#let asm = {|$CONDA_OCAML_CC -c|}#' "$config_file"
-    sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup|}#' "$config_file"
-    sed -i 's#^let mkexe = .*#let mkexe = {|$CONDA_OCAML_CC -fuse-ld=lld -Wl,-headerpad_max_install_names|}#' "$config_file"
-  else
-    sed -i 's#^let asm = .*#let asm = {|$CONDA_OCAML_AS|}#' "$config_file"
-    sed -i 's#^let mkdll = .*#let mkdll = {|$CONDA_OCAML_MKDLL|}#' "$config_file"
-    sed -i 's#^let mkexe = .*#let mkexe = {|$CONDA_OCAML_CC -Wl,-E|}#' "$config_file"
-  fi
+#   local model
+#   model=$(get_target_model "${target}")
 
-  sed -i 's#^let c_compiler = .*#let c_compiler = {|$CONDA_OCAML_CC|}#' "$config_file"
-  sed -i 's#^let ar = .*#let ar = {|$CONDA_OCAML_AR|}#' "$config_file"
-  sed -i 's#^let ranlib = .*#let ranlib = {|$CONDA_OCAML_RANLIB|}#' "$config_file"
-  sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${cross_libdir}|}#" "$config_file"
+#   # Use ocaml-* wrapper scripts instead of $CONDA_OCAML_* variable references
+#   # Wrappers are installed to $PREFIX/bin and expand env vars at runtime
+#   sed -i \
+#     -e 's#^let asm = .*#let asm = {|ocaml-as|}#' \
+#     -e 's#^let ar = .*#let ar = {|ocaml-ar|}#' \
+#     -e 's#^let c_compiler = .*#let c_compiler = {|ocaml-cc|}#' \
+#     -e 's#^let ranlib = .*#let ranlib = {|ocaml-ranlib|}#' \
+#     -e 's#^let mkexe = .*#let mkexe = {|ocaml-mkexe|}#' \
+#     -e 's#^let mkdll = .*#let mkdll = {|ocaml-mkdll|}#' \
+#     -e 's#^let mkmaindll = .*#let mkmaindll = {|ocaml-mkdll|}#' \
+#     "$config_file"
 
-  # PowerPC model override
-  [[ -n "${model}" ]] && sed -i "s#^let model = .*#let model = {|${model}|}#" "$config_file"
-}
+#   sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${cross_libdir}|}#" "$config_file"
+
+#   # PowerPC model override
+#   [[ -n "${model}" ]] && sed -i "s#^let model = .*#let model = {|${model}|}#" "$config_file"
+# }
 
 # ==============================================================================
 # Wrapper Script Generation
@@ -289,6 +382,7 @@ export CONDA_OCAML_AS="\${CONDA_OCAML_${target_id}_AS:-${DEFAULT_AS}}"
 export CONDA_OCAML_AR="\${CONDA_OCAML_${target_id}_AR:-${DEFAULT_AR}}"
 export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${target_id}_RANLIB:-${DEFAULT_RANLIB}}"
 export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${target_id}_MKDLL:-${DEFAULT_MKDLL}}"
+export CONDA_OCAML_MKEXE="\${CONDA_OCAML_${target_id}_MKEXE:-${DEFAULT_MKEXE}}"
 exec "\${prefix}/lib/ocaml-cross-compilers/${target}/bin/${tool}.opt" "\$@"
 WRAPPER
   chmod +x "${wrapper_path}"
