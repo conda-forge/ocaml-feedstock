@@ -242,16 +242,6 @@ setup_toolchain() {
   local name="${1}"
   local target="${2}"
 
-  _AR=$(find_tool "${target}-ar" true)
-  _AS=$(find_tool "${target}-as" true)
-  _CC=$(find_tool "${target}-gcc" true)
-  _RANLIB=$(find_tool "${target}-ranlib" true)
-  _NM=$(find_tool "${target}-nm" true)
-  _STRIP=$(find_tool "${target}-strip" true)
-  _LD=$(find_tool "${target}-ld" true)
-
-  _ASM=$(basename "${_AS}")
-  
   case "${target}" in
     *-apple-*)
        # macOS: use LLVM tools consistently (GNU tools incompatible with ld64)
@@ -265,18 +255,38 @@ setup_toolchain() {
        _AS="${_CC}"
        _ASM="$(basename "${_CC}") -c"
 
-       _MKDLL="${_CC} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-       _MKEXE="${_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+       _MKDLL="$(basename "${_CC}") -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+       _MKEXE="$(basename "${_CC}") -fuse-ld=lld -Wl,-headerpad_max_install_names"
       ;;
     *-linux-*)
-       _MKDLL="${_CC} -shared"
+       _AR=$(find_tool "${target}-ar" true)
+       _AS=$(find_tool "${target}-as" true)
+       _CC=$(find_tool "${target}-gcc" true)
+       _RANLIB=$(find_tool "${target}-ranlib" true)
+       _NM=$(find_tool "${target}-nm" true)
+       _STRIP=$(find_tool "${target}-strip" true)
+       _LD=$(find_tool "${target}-ld" true)
+
+       _ASM=$(basename "${_AS}")
+  
+       _MKDLL="$(basename "${_CC}") -shared"
        # -Wl,-E exports symbols for dlopen (required by ocamlnat)
-       _MKEXE="${_CC} -Wl,-E"
+       _MKEXE="$(basename "${_CC}") -Wl,-E"
       ;;
-    *-mingw32-*)
-       _MKDLL="${_CC}"
+    *-mingw32)
+       _AR=$(find_tool "${target}-ar" true)
+       _AS=$(find_tool "${target}-as" true)
+       _CC=$(find_tool "${target}-gcc" true)
+       _RANLIB=$(find_tool "${target}-ranlib" true)
+       _NM=$(find_tool "${target}-nm" true)
+       _STRIP=$(find_tool "${target}-strip" true)
+       _LD=$(find_tool "${target}-ld" true)
+
+       _ASM=$(basename "${_AS}")
+  
+       _MKDLL="$(basename "${_CC}")"
        # -Wl,-E exports symbols for dlopen (required by ocamlnat)
-       _MKEXE="${_CC}"
+       _MKEXE="$(basename "${_CC}")"
       ;;
     *)
       echo "ERROR: setup_toolchain used with unsupported target: ${target}"
