@@ -152,11 +152,6 @@ fi
 # Native, cross-compiler & Full 3-stage cross-compiled target
 # ==============================================================================
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]] || [[ ${FAST_CROSS_PATH_SUCCESS} -eq 0 ]]; then
-  echo ""
-  echo "============================================================"
-  echo "Native, cross-compilers & 3-stage cross-compiled: ${target_platform}"
-  echo "============================================================"
-
   # Stage 1: Build native OCaml
   (
     OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler && mkdir -p "${OCAML_INSTALL_PREFIX}"

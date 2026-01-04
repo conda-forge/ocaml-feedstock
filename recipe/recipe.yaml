@@ -118,7 +118,7 @@ requirements:
         - ${{ m2 }}which
     - if: aarch64 or ppc64le or arm64
       then:
-        - ocaml >=5.3 *_2
+        # - ocaml >=5.3 *_2
         - zstd
     - if: osx
       then:

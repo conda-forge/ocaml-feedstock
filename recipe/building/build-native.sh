@@ -71,7 +71,7 @@ if [[ "${target_platform}" == "osx"* ]]; then
   
   # Needed for freshly built ocaml to find zstd
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  export LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export LDFLAGS="${LDFLAGS:-} -lzstd -fuse-ld=lld -Wl,-headerpad_max_install_names"
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."

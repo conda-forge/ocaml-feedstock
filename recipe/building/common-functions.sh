@@ -75,12 +75,26 @@ find_tool() {
   local required="${2:-false}"
 
   local tool_path
-  tool_path=$(find "${BUILD_PREFIX}"/bin "${PREFIX}"/bin -name "${tool_name}"* -type f -perm /111 2>/dev/null | head -1)
+  if [[ "${build_platform:-${target_platform}}" == "linux-"* ]] || [[ "${build_platform:-${target_platform}}" == "osx-"* ]]; then
+    tool_path=$(find \
+                  "${BUILD_PREFIX}"/bin \
+                  "${PREFIX}"/bin \
+                  \( -name "${tool_name}" -o -name "${tool_name}-[0-9]*" \) \
+                  -type f -perm /111 2>/dev/null | head -1)
+  else
+    tool_path=$(find \
+                  "${_BUILD_PREFIX_}"/Library/bin \
+                  "${_PREFIX_}"/Library/bin \
+                  "${_BUILD_PREFIX_}"/bin \
+                  "${_PREFIX_}"/bin \
+                  \( -name "${tool_name}" -o -name "${tool_name}.exe" \) \
+                  -type f -perm /111 2>/dev/null | head -1)
+  fi
 
   if [[ -n "${tool_path}" ]]; then
     echo "${tool_path}"
   elif [[ "${required}" == "true" ]]; then
-    echo "ERROR: ${tool_name} not found - required on macOS (GNU format incompatible with ld64)" >&2
+    echo "ERROR: ${tool_name} not found" >&2
     echo "Searched in: ${BUILD_PREFIX} ${PREFIX}" >&2
     exit 1
   else
