@@ -326,43 +326,9 @@ get_cross_tool_defaults() {
   else
     # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
     DEFAULT_MKDLL="${DEFAULT_CC} -shared"
-    DEFAULT_MKEXE="${DEFAULT_CC} -Wl,-E"
+    DEFAULT_MKEXE="${DEFAULT_CC} -Wl,-E -ldl"
   fi
 }
-
-# # ==============================================================================
-# # Config Patching
-# # ==============================================================================
-
-# # Patch config.generated.ml to use ocaml-* wrapper scripts
-# # Wrappers expand CONDA_OCAML_* environment variables at runtime, making them
-# # compatible with tools like Dune that use Unix.create_process
-# # Usage: patch_config_generated_ml "utils/config.generated.ml" "aarch64-conda-linux-gnu" "/path/to/cross/lib/ocaml"
-# patch_config_generated_ml() {
-#   local config_file="$1"
-#   local target="$2"
-#   local cross_libdir="$3"
-
-#   local model
-#   model=$(get_target_model "${target}")
-
-#   # Use ocaml-* wrapper scripts instead of $CONDA_OCAML_* variable references
-#   # Wrappers are installed to $PREFIX/bin and expand env vars at runtime
-#   sed -i \
-#     -e 's#^let asm = .*#let asm = {|ocaml-as|}#' \
-#     -e 's#^let ar = .*#let ar = {|ocaml-ar|}#' \
-#     -e 's#^let c_compiler = .*#let c_compiler = {|ocaml-cc|}#' \
-#     -e 's#^let ranlib = .*#let ranlib = {|ocaml-ranlib|}#' \
-#     -e 's#^let mkexe = .*#let mkexe = {|ocaml-mkexe|}#' \
-#     -e 's#^let mkdll = .*#let mkdll = {|ocaml-mkdll|}#' \
-#     -e 's#^let mkmaindll = .*#let mkmaindll = {|ocaml-mkdll|}#' \
-#     "$config_file"
-
-#   sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${cross_libdir}|}#" "$config_file"
-
-#   # PowerPC model override
-#   [[ -n "${model}" ]] && sed -i "s#^let model = .*#let model = {|${model}|}#" "$config_file"
-# }
 
 # ==============================================================================
 # Wrapper Script Generation

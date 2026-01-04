@@ -54,7 +54,7 @@ NATIVE_AS=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-as${EXE}" true)
 NATIVE_LD=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-ld${EXE}" true)
 NATIVE_RANLIB=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-ranlib${EXE}" true)
 
-NATIVE_CC="${CC_FOR_BUILD}"
+NATIVE_CC="${CC_FOR_BUILD:-${CC}}"
 NATIVE_ASM=$(basename "${NATIVE_AS}")
 
 setup_cflags_ldflags "NATIVE" "${build_platform}" "${target_platform}"
