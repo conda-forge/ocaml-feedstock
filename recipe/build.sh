@@ -49,6 +49,9 @@ MAKE=(make)
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
+  --enable-frame-pointers
+  --enable-installing-source-artifacts
+  --enable-installing-bytecode-programs
 
   # This is needed to preset the install path in binaries and facilitate CONDA relocation
   --with-target-bindir="${PREFIX}"/bin

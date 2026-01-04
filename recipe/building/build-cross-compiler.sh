@@ -53,12 +53,6 @@ echo "  Native OCaml (source):    ${OCAML_PREFIX}"
 echo "  Cross install (dest):     ${OCAML_INSTALL_PREFIX}"
 echo "  Native ocamlopt:          ${OCAML_PREFIX}/bin/ocamlopt"
 
-CONFIG_ARGS+=(
-  --enable-frame-pointers
-  --enable-installing-source-artifacts
-  --enable-installing-bytecode-programs
-)
-  
 for target in "${CROSS_TARGETS[@]}"; do
   echo ""
   echo "  ------------------------------------------------------------"

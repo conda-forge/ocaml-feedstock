@@ -49,40 +49,24 @@ echo "  Install:       ${OCAML_INSTALL_PREFIX}"
 
 # Native toolchain - simplified basenames (hardcoded in binaries)
 # These use CONDA_TOOLCHAIN_BUILD which is set by compiler activation
-NATIVE_AR=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-ar${EXE}" true)
-NATIVE_AS=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-as${EXE}" true)
-NATIVE_LD=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-ld${EXE}" true)
-NATIVE_RANLIB=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-ranlib${EXE}" true)
-
-NATIVE_CC="${CC_FOR_BUILD:-${CC}}"
-NATIVE_ASM=$(basename "${NATIVE_AS}")
-
-setup_cflags_ldflags "NATIVE" "${build_platform}" "${target_platform}"
+setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
+setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
 
 # Platform-specific overrides
 if [[ "${target_platform}" == "osx"* ]]; then
-  # macOS: clang integrated assembler - MUST use LLVM ar/ranlib - GNU ar format incompatible with ld64
-  NATIVE_AS="${NATIVE_CC}"
-  NATIVE_ASM="$(basename "${NATIVE_CC}") -c"
-  
-  NATIVE_AR=$(find_tool "llvm-ar" true)
-  NATIVE_LD=$(find_tool "ld.lld" true)
-  NATIVE_RANLIB=$(find_tool "llvm-ranlib" true)
-  
   # Needed for freshly built ocaml to find zstd
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  export LDFLAGS="${LDFLAGS:-} -lzstd -fuse-ld=lld -Wl,-headerpad_max_install_names"
+  export LDFLAGS="${LDFLAGS:-} -lzstd"
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
 
-  NATIVE_CC=$(find_tool "x86_64-w64-mingw32-gcc" true)
   NATIVE_WINDRES=$(find_tool "x86_64-w64-mingw32-windres" true)
   [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${PREFIX}/Library/bin/windres.exe"
 
   # Set UTF-8 codepage
   export PYTHONUTF8=1
-  # Needed find zstd
+  # Needed to find zstd
   export LDFLAGS="-L${_PREFIX_}/Library/lib ${LDFLAGS:-}"
 fi
 
@@ -106,17 +90,8 @@ export CONDA_OCAML_CC=$(basename "${NATIVE_CC}")
 export CONDA_OCAML_RANLIB=$(basename "${NATIVE_RANLIB}")
 # Special case, already a basename
 export CONDA_OCAML_AS="${NATIVE_ASM}"
-
-case "${target_platform}" in
-  linux*)
-    export CONDA_OCAML_MKEXE="${CONDA_OCAML_CC} -Wl,-E"
-    export CONDA_OCAML_MKDLL="${CONDA_OCAML_CC} -shared"
-    ;;
-  osx*)
-    export CONDA_OCAML_MKEXE="${CONDA_OCAML_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
-    export CONDA_OCAML_MKDLL="${CONDA_OCAML_CC} -shared -fuse-ld=lld -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-    ;;
-esac
+export CONDA_OCAML_MKEXE="${NATIVE_MKEXE}"
+export CONDA_OCAML_MKDLL="${NATIVE_MKDLL}"
 
 # ============================================================================
 # Export variables for downstream scripts
@@ -148,9 +123,6 @@ EOF
 #  --enable-native-toplevel
 CONFIG_ARGS+=(
   -prefix "${OCAML_INSTALL_PREFIX}"
-  --enable-frame-pointers
-  --enable-installing-source-artifacts
-  --enable-installing-bytecode-programs
   --mandir="${OCAML_INSTALL_PREFIX}"/share/man
 )
 
