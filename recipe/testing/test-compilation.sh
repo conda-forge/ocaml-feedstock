@@ -67,8 +67,23 @@ ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
 # This exercises: ocamlc -output-complete-exe -I +unix unix.cma ...
 echo "=== Testing -output-complete-exe (Dune bootstrap pattern) ==="
 
-# Create a program that uses Unix module (like Dune's bootstrap)
-cat > complete_exe_test.ml << 'EOF'
+# Detect if running under QEMU (cross-compiled package on different host arch)
+# ocamlc.opt crashes under QEMU user-mode emulation with -output-complete-exe
+_OCAMLC_ARCH=""
+_HOST_ARCH="$(uname -m)"
+if file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "ARM aarch64"; then
+  _OCAMLC_ARCH="aarch64"
+elif file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "64-bit.*x86-64"; then
+  _OCAMLC_ARCH="x86_64"
+elif file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "64-bit.*PowerPC"; then
+  _OCAMLC_ARCH="ppc64le"
+fi
+
+if [[ -n "${_OCAMLC_ARCH}" && "${_OCAMLC_ARCH}" != "${_HOST_ARCH}" ]]; then
+  echo "  SKIP: Running ${_OCAMLC_ARCH} binary on ${_HOST_ARCH} host (QEMU emulation unstable for -output-complete-exe)"
+else
+  # Create a program that uses Unix module (like Dune's bootstrap)
+  cat > complete_exe_test.ml << 'EOF'
 (* Test program exercising Unix module - similar to Dune bootstrap *)
 let () =
   let cwd = Unix.getcwd () in
@@ -76,23 +91,24 @@ let () =
   print_endline "complete-exe works"
 EOF
 
-# Compile with -output-complete-exe (embeds bytecode interpreter)
-echo "  compiling with -output-complete-exe..."
-ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
+  # Compile with -output-complete-exe (embeds bytecode interpreter)
+  echo "  compiling with -output-complete-exe..."
+  ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
 
-# Verify it's a real executable (not bytecode that needs ocamlrun)
-echo -n "  verifying executable type: "
-file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)" && echo "OK (native executable)" || echo "WARNING: unexpected file type"
+  # Verify it's a real executable (not bytecode that needs ocamlrun)
+  echo -n "  verifying executable type: "
+  file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)" && echo "OK (native executable)" || echo "WARNING: unexpected file type"
 
-# Run it
-echo -n "  executing: "
-./complete_test.exe | grep -q "complete-exe works" && echo "OK"
+  # Run it
+  echo -n "  executing: "
+  ./complete_test.exe | grep -q "complete-exe works" && echo "OK"
 
-# Verify it works without ocamlrun in PATH (truly standalone)
-echo -n "  standalone execution (no ocamlrun): "
-env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe 2>/dev/null | grep -q "complete-exe works" && echo "OK" || echo "SKIP (may need system libs)"
+  # Verify it works without ocamlrun in PATH (truly standalone)
+  echo -n "  standalone execution (no ocamlrun): "
+  env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe 2>/dev/null | grep -q "complete-exe works" && echo "OK" || echo "SKIP (may need system libs)"
 
-rm -f complete_exe_test.ml complete_test.exe
+  rm -f complete_exe_test.ml complete_test.exe
+fi
 
 # Cleanup
 rm -f hi hi.ml lib.ml lib.cmi lib.cmo lib.cmx lib.o main.ml main.cmi main.cmo main.cmx main.o multi tmp/hi

@@ -122,7 +122,6 @@ EOF
 #  --enable-native-toplevel
 CONFIG_ARGS+=(
   -prefix "${OCAML_INSTALL_PREFIX}"
-  --enable-frame-pointers
   --mandir="${OCAML_INSTALL_PREFIX}"/share/man
 )
 
@@ -147,7 +146,10 @@ CONFIG_ARGS+=(
 )
 
 if is_unix; then
-  CONFIG_ARGS+=(--with-target-bindir="${PREFIX}"/bin)
+  CONFIG_ARGS+=(
+    --with-target-bindir="${PREFIX}"/bin
+    --enable-frame-pointers
+  )
 else
   CONFIG_ARGS+=(
     --with-flexdll

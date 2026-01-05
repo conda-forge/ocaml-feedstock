@@ -123,6 +123,8 @@ EOF
   # PKG_CONFIG=false forces simple "-lzstd" instead of "-L/long/path -lzstd"
   # Do NOT pass CC here - configure needs BUILD compiler
   # ac_cv_func_getentropy=no: conda-forge uses glibc 2.17 sysroot which lacks getentropy
+  # CRITICAL: Override CFLAGS/LDFLAGS - conda-build sets them for TARGET (ppc64le)
+  # but configure needs BUILD flags (x86_64) to compile the cross-compiler binary
   run_logged "cross-configure" ${CONFIGURE[@]} \
     -prefix="${OCAML_CROSS_PREFIX}" \
     --host="${build_alias}" \
@@ -132,12 +134,14 @@ EOF
     AR="${CROSS_AR}" \
     AS="${NATIVE_AS}" \
     CC="${NATIVE_CC}" \
+    CFLAGS="${NATIVE_CFLAGS}" \
+    LD="${NATIVE_LD}" \
+    LDFLAGS="${NATIVE_LDFLAGS}" \
     NM="${CROSS_NM}" \
     RANLIB="${CROSS_RANLIB}" \
     STRIP="${CROSS_STRIP}" \
     ac_cv_func_getentropy=no \
     ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
-    # LD="${NATIVE_LD}" \
 
   # ========================================================================
   # Patch config.generated.ml
