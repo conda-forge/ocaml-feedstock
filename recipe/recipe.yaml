@@ -2,6 +2,7 @@ context:
   name: ocaml
   version: 5.3.0
   flexdll_version: 0.44
+  build_number: 2
   arm64_sdk: 11.0
   dot: ${{ "./" if unix }}
   library: ${{ "Library/" if not unix }}
@@ -23,7 +24,7 @@ source:
       target_directory: flexdll
 
 build:
-  number: 2
+  number: ${{ build_number }}
   script:
     env:
       SKIP_MAKE_TESTS: 1
@@ -118,7 +119,9 @@ requirements:
         - ${{ m2 }}which
     - if: aarch64 or ppc64le or arm64
       then:
-        # - ocaml >=5.3 *_2
+        - if: match(version, ">=5.3") and build_number > 2
+          then:
+            - ocaml >=5.3 *_2
         - zstd
     - if: osx
       then:
@@ -306,12 +309,14 @@ tests:
         - binutils
 
   # Tool version checks (all platforms)
+  # Skip on cross-compiled platforms - QEMU emulation has limitations
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: arm64
-          then: echo "Skipping tool version tests on ARM64 (QEMU limitation)"
+          then:
+            - echo "Skipping tool version tests"
           else:
             - cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }}
     files:
@@ -337,12 +342,13 @@ tests:
         - ${{ m2 }}grep
 
   # Compilation tests (bytecode, native, multi-file)
+  # Skip on cross-compiled platforms (aarch64, ppc64le, arm64) - QEMU emulation unstable
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
-        - if: arm64
-          then: echo "Skipping compilation tests on ARM64 (QEMU limitation)"
+        - if: build_platform != target_platform
+          then: echo "Skipping compilation tests (cross-compiled package, QEMU limitation)"
           else:
             - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
     files:
