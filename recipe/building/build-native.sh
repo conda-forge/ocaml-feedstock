@@ -56,7 +56,6 @@ setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_
 if [[ "${target_platform}" == "osx"* ]]; then
   # Needed for freshly built ocaml to find zstd
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  export NATIVE_LDFLAGS="${NATIVE_LDFLAGS:-} -lzstd"
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
@@ -143,6 +142,7 @@ CONFIG_ARGS+=(
   LD="${NATIVE_LD}"
   LDFLAGS="${NATIVE_LDFLAGS}"
   RANLIB="${NATIVE_RANLIB}"
+  ZSTD_LIBS="-lzstd"
   
   host_alias="${build_alias:-${host_alias}}"
 )
