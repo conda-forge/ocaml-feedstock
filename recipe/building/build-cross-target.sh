@@ -146,10 +146,6 @@ CONFIG_ARGS+=(
   LDFLAGS="${CROSS_LDFLAGS}"
 )
 
-if [[ "${PLATFORM_TYPE}" == "linux" ]]; then
-  CONFIG_ARGS+=(AS="${CROSS_AS}")
-fi
-
 if [[ "${DISABLE_GETENTROPY}" == "1" ]]; then
   CONFIG_ARGS+=(ac_cv_func_getentropy=no)
 fi
@@ -195,31 +191,32 @@ apply_cross_patches
 echo "  [3/5] Building crosscompiledopt ==="
 
 (
-  # CONDA_OCAML_* already exported above
 
   CROSSCOMPILEDOPT_ARGS=(
     ARCH="${CROSS_ARCH}"
     CAMLOPT="${CROSS_OCAMLOPT}"
-    AS="${CROSS_AS}"
-    ASPP="${CROSS_CC} -c"
-    CC="${CROSS_CC}"
     CROSS_CC="${CROSS_CC}"
     CROSS_AR="${CROSS_AR}"
     CROSS_MKLIB="${CROSS_OCAMLMKLIB}"
-    SAK_AR="${NATIVE_AR}"
-    SAK_CC="${NATIVE_CC}"
-    SAK_CFLAGS="${NATIVE_CFLAGS}"
     ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
     LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
     OCAMLLIB="${OCAMLLIB}"
+    LDFLAGS="${CROSS_LDFLAGS}"
+    
+    CONDA_OCAML_AS="${CROSS_AS}"
+    CONDA_OCAML_CC="${CROSS_CC}"
+
+    AS="${CROSS_AS}"
+    ASPP="${CROSS_CC} -c"
+    CC="${CROSS_CC}"
+    
+    SAK_AR="${NATIVE_AR}"
+    SAK_CC="${NATIVE_CC}"
+    SAK_CFLAGS="${NATIVE_CFLAGS}"
+    SAK_LDFLAGS="${NATIVE_LDFLAGS}"
   )
 
-  if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
-    CROSSCOMPILEDOPT_ARGS+=(
-      LDFLAGS="${CROSS_LDFLAGS}"
-      SAK_LDFLAGS="${NATIVE_LDFLAGS}"
-    )
-  else
+  if [[ "${PLATFORM_TYPE}" == "linux" ]]; then
     CROSSCOMPILEDOPT_ARGS+=(CPPFLAGS="-D_DEFAULT_SOURCE")
   fi
 

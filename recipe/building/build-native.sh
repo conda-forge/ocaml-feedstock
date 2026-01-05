@@ -60,7 +60,7 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
 
-  NATIVE_WINDRES=$(find_tool "x86_64-w64-mingw32-windres" true)
+  NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-windres" true)
   [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${PREFIX}/Library/bin/windres.exe"
 
   # Set UTF-8 codepage
@@ -133,6 +133,8 @@ else
   CONFIG_ARGS+=(--disable-ocamltest)
 fi
 
+env
+
 # Add toolchain to configure args
 CONFIG_ARGS+=(
   AR="${NATIVE_AR}"
@@ -143,7 +145,7 @@ CONFIG_ARGS+=(
   LDFLAGS="${NATIVE_LDFLAGS}"
   RANLIB="${NATIVE_RANLIB}"
   
-  host_alias="${build_alias:-${host_alias}}"
+  host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
 )
 
 if [[ "${target_platform}" == "linux"* ]] || [[ "${target_platform}" == "osx"* ]]; then
@@ -214,8 +216,8 @@ sed -Ei 's#^(CC|CPP|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"   # Re
 
 if [[ "${target_platform}" == "osx"* ]]; then
   # macOS: Add -headerpad_max_install_names to ALL linker flags
-  sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
-  sed -i 's|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
+  sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names -lzstd|' "${config_file}"
+  sed -i 's|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names -lzstd|' "${config_file}"
   sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${BUILD_PREFIX}/lib -L${PREFIX}/lib -lzstd|" "${config_file}"
 elif [[ "${target_platform}" != "linux"* ]]; then
   # Windows: Fix flexlink toolchain detection

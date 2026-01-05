@@ -130,13 +130,13 @@ EOF
     --enable-frame-pointers \
     "${CONFIG_ARGS[@]}" \
     AR="${CROSS_AR}" \
+    AS="${NATIVE_AS}" \
     CC="${NATIVE_CC}" \
     NM="${CROSS_NM}" \
     RANLIB="${CROSS_RANLIB}" \
     STRIP="${CROSS_STRIP}" \
     ac_cv_func_getentropy=no \
     ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
-    # AS="${NATIVE_AS}" \
     # LD="${NATIVE_LD}" \
 
   # ========================================================================
