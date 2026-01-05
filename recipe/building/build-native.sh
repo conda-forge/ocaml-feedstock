@@ -216,7 +216,7 @@ if [[ "${target_platform}" == "osx"* ]]; then
   # macOS: Add -headerpad_max_install_names to ALL linker flags
   sed -i 's|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
   sed -i 's|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|' "${config_file}"
-  sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${BUILD_PREFIX}/lib -L${PREFIX}/lib -lzstd|"
+  sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${BUILD_PREFIX}/lib -L${PREFIX}/lib -lzstd|" "${config_file}"
 elif [[ "${target_platform}" != "linux"* ]]; then
   # Windows: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
