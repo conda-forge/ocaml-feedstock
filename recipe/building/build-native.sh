@@ -133,8 +133,6 @@ else
   CONFIG_ARGS+=(--disable-ocamltest)
 fi
 
-env
-
 # Add toolchain to configure args
 CONFIG_ARGS+=(
   AR="${NATIVE_AR}"
@@ -148,7 +146,7 @@ CONFIG_ARGS+=(
   host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
 )
 
-if [[ "${target_platform}" == "linux"* ]] || [[ "${target_platform}" == "osx"* ]]; then
+if is_unix; then
   CONFIG_ARGS+=(--with-target-bindir="${PREFIX}"/bin)
 else
   CONFIG_ARGS+=(
@@ -164,10 +162,12 @@ fi
 # Install ocaml-* wrapper scripts BEFORE build (needed during compilation)
 # ============================================================================
 
-echo "  Installing ocaml-* wrapper scripts to BUILD_PREFIX..."
-for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
-  install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${BUILD_PREFIX}/bin/${wrapper}"
-done
+if is_unix; then
+  echo "  Installing ocaml-* wrapper scripts to BUILD_PREFIX..."
+  for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+    install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${BUILD_PREFIX}/bin/${wrapper}"
+  done
+fi
 
 # ============================================================================
 # Configure
@@ -186,7 +186,7 @@ echo "  [2/4] Patching config for ocaml-* wrapper scripts"
 config_file="utils/config.generated.ml"
 # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
 sed -i 's#-L[^ ]*##g' "$config_file"
-if [[ "${target_platform}" == "linux"* ]] || [[ "${target_platform}" == "osx"* ]]; then
+if is_unix; then
   # Unix: Use ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
   # This allows tools like Dune to invoke the compiler via Unix.create_process
   # (which doesn't expand shell variables) while still honoring runtime overrides
@@ -254,7 +254,7 @@ echo "  [4/4] Installing native compiler"
 run_logged "install" "${MAKE[@]}"  install
 
 # Install ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
-if [[ "${target_platform}" == "linux"* ]] || [[ "${target_platform}" == "osx"* ]]; then
+if is_unix; then
   echo "  - Installing ocaml-* wrapper scripts..."
   for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"

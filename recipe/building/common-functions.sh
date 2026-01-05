@@ -1,23 +1,16 @@
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
-# Logging wrapper - captures stdout/stderr to log files for debugging
-run_logged_() {
-  local logname="$1"
-  shift
-  local logfile="${LOG_DIR}/${logname}.log"
-
-  (IFS=' '; echo "Running: $*")
-  if "$@" >> "${logfile}" 2>&1; then
-    return 0
-  else
-    local rc=$?
-    echo "FAILED (exit code ${rc}):"
-    cat "${logfile}"
-    return ${rc}
-  fi
+# Nagging unix test
+is_unix() {
+  [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]
 }
 
+is_build_unix() {
+  [[ "${build_platform:-${target_platform}}" == "linux-"* || "${build_platform:-${target_platform}}" == "osx-"* ]]
+}
+
+# Logging wrapper - captures stdout/stderr to log files for debugging
 run_logged() {
   local logname="$1"
   shift
@@ -75,7 +68,7 @@ find_tool() {
   local required="${2:-false}"
 
   local tool_path
-  if [[ "${build_platform:-${target_platform}}" == "linux-"* ]] || [[ "${build_platform:-${target_platform}}" == "osx-"* ]]; then
+  if is_build_unix; then
     tool_path=$(find \
                   "${BUILD_PREFIX}"/bin \
                   "${PREFIX}"/bin \

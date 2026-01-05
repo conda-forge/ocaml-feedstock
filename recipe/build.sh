@@ -39,7 +39,6 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
 fi
 
 source "${RECIPE_DIR}"/building/common-functions.sh
-
 mkdir -p "${SRC_DIR}"/_logs && export LOG_DIR="${SRC_DIR}"/_logs
 
 # Enable dry-run and other options
@@ -59,7 +58,7 @@ CONFIG_ARGS=(
 )
 
 # Platform detection
-if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+if is_unix; then
   EXE=""
   SH_EXT="sh"
 else
@@ -135,7 +134,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
 
         # Clean up any partial build artifacts
         make distclean >/dev/null 2>&1 || true
-        for var in $(compgen -v | grep -E '^(CONDA_OCAML_|NATIVE_|CROSS_)'); do
+        for var in $(compgen -v | grep -E '^(CONDA_OCAML_|NATIVE_|CROSS_|OCAML_|OCAMLLIB)'); do
           unset "$var"
         done
       fi
@@ -223,7 +222,7 @@ EOF
 done
 
 # non-Unix: replace symlinks with copies
-if [[ "${target_platform}" != "linux-"* ]] && [[ "${target_platform}" != "osx-"* ]]; then
+if ! is_unix; then
   for bin in "${OCAML_INSTALL_PREFIX}"/bin/*; do
     if [[ -L "$bin" ]]; then
       target=$(readlink "$bin")
@@ -241,7 +240,7 @@ for bin in "${OCAML_INSTALL_PREFIX}"/bin/* "${OCAML_INSTALL_PREFIX}"/lib/ocaml-c
 
   # Check for ocamlrun reference (need 350 bytes for long conda placeholder paths)
   if head -c 350 "$bin" 2>/dev/null | grep -q 'ocamlrun'; then
-    if [[ "${target_platform}" == "linux-"* ]] || [[ "${target_platform}" == "osx-"* ]]; then
+    if is_unix; then
       fix_ocamlrun_shebang "$bin" "${SRC_DIR}"/_logs/shebang.log 2>&1 || { cat "${SRC_DIR}"/_logs/shebang.log; exit 1; }
     fi
     continue
