@@ -267,17 +267,29 @@ echo "=== Installing activation scripts ==="
     source "${SRC_DIR}/_target_compiler_${target_platform}_env.sh"
   fi
   
+  # Helper: convert "fullpath/cmd flags" to "cmd flags" (basename first word only)
+  _basename_cmd() {
+    local cmd="$1"
+    local first="${cmd%% *}"
+    local rest="${cmd#* }"
+    if [[ "$rest" == "$cmd" ]]; then
+      basename "$first"
+    else
+      echo "$(basename "$first") $rest"
+    fi
+  }
+
   for CHANGE in "activate" "deactivate"; do
     mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
     _SCRIPT="${PREFIX}/etc/conda/${CHANGE}.d/${PKG_NAME}_${CHANGE}.${SH_EXT}"
     cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${_SCRIPT}" 2>/dev/null || continue
-    # Replace @XX@ placeholders with actual build-time tools
-    sed -i "s|@AR@|${CONDA_OCAML_AR}|g" "${_SCRIPT}"
-    sed -i "s|@AS@|${CONDA_OCAML_AS}|g" "${_SCRIPT}"
-    sed -i "s|@CC@|${CONDA_OCAML_CC}|g" "${_SCRIPT}"
-    sed -i "s|@RANLIB@|${CONDA_OCAML_RANLIB}|g" "${_SCRIPT}"
-    sed -i "s|@MKEXE@|${CONDA_OCAML_MKEXE}|g" "${_SCRIPT}"
-    sed -i "s|@MKDLL@|${CONDA_OCAML_MKDLL}|g" "${_SCRIPT}"
+    # Replace @XX@ placeholders with runtime-safe basenames (not full build paths)
+    sed -i "s|@AR@|$(basename "${CONDA_OCAML_AR}")|g" "${_SCRIPT}"
+    sed -i "s|@AS@|$(basename "${CONDA_OCAML_AS}")|g" "${_SCRIPT}"
+    sed -i "s|@CC@|$(basename "${CONDA_OCAML_CC}")|g" "${_SCRIPT}"
+    sed -i "s|@RANLIB@|$(basename "${CONDA_OCAML_RANLIB}")|g" "${_SCRIPT}"
+    sed -i "s|@MKEXE@|$(_basename_cmd "${CONDA_OCAML_MKEXE}")|g" "${_SCRIPT}"
+    sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
   done
 )
 

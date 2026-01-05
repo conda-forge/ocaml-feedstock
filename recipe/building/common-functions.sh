@@ -242,12 +242,12 @@ setup_toolchain() {
     *-apple-*)
        # macOS: use LLVM tools consistently (GNU tools incompatible with ld64)
        _AR=$(find_tool "llvm-ar" true)
-       _RANLIB=$(find_tool "llvm-ranlib" true)
-       _NM=$(find_tool "llvm-nm" true)
-       _STRIP=$(find_tool "llvm-strip" true)
-       _LD=$(find_tool "ld.lld" true)
-
        _CC=$(find_tool "${target}-clang" true)
+       _LD=$(find_tool "ld.lld" true)
+       _NM=$(find_tool "llvm-nm" true)
+       _RANLIB=$(find_tool "llvm-ranlib" true)
+       _STRIP=$(find_tool "llvm-strip" true)
+
        _AS="${_CC}"
        _ASM="$(basename "${_CC}") -c"
 
@@ -258,25 +258,26 @@ setup_toolchain() {
        _AR=$(find_tool "${target}-ar" true)
        _AS=$(find_tool "${target}-as" true)
        _CC=$(find_tool "${target}-gcc" true)
-       _RANLIB=$(find_tool "${target}-ranlib" true)
-       _NM=$(find_tool "${target}-nm" true)
-       _STRIP=$(find_tool "${target}-strip" true)
        _LD=$(find_tool "${target}-ld" true)
+       _NM=$(find_tool "${target}-nm" true)
+       _RANLIB=$(find_tool "${target}-ranlib" true)
+       _STRIP=$(find_tool "${target}-strip" true)
 
        _ASM=$(basename "${_AS}")
   
        _MKDLL="$(basename "${_CC}") -shared"
        # -Wl,-E exports symbols for dlopen (required by ocamlnat)
-       _MKEXE="$(basename "${_CC}") -Wl,-E"
+       # -ldl required on glibc 2.17 (conda-forge sysroot) for dlopen/dlclose/dlsym
+       _MKEXE="$(basename "${_CC}") -Wl,-E -ldl"
       ;;
     *-mingw32)
        _AR=$(find_tool "${target}-ar" true)
        _AS=$(find_tool "${target}-as" true)
        _CC=$(find_tool "${target}-gcc" true)
-       _RANLIB=$(find_tool "${target}-ranlib" true)
-       _NM=$(find_tool "${target}-nm" true)
-       _STRIP=$(find_tool "${target}-strip" true)
        _LD=$(find_tool "${target}-ld" true)
+       _NM=$(find_tool "${target}-nm" true)
+       _RANLIB=$(find_tool "${target}-ranlib" true)
+       _STRIP=$(find_tool "${target}-strip" true)
 
        _ASM=$(basename "${_AS}")
   

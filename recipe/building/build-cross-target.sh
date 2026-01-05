@@ -92,8 +92,8 @@ export CONDA_OCAML_AR="${CROSS_AR}"
 export CONDA_OCAML_AS="${CROSS_AS}"
 export CONDA_OCAML_CC="${CROSS_CC}"
 export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
-export CONDA_OCAML_MKEXE="${CROSS_MKEXE}"
-export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+export CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
+export CONDA_OCAML_MKDLL="${CROSS_MKDLL:-}"
 EOF
 
 # ============================================================================
@@ -205,6 +205,8 @@ echo "  [3/5] Building crosscompiledopt ==="
     
     CONDA_OCAML_AS="${CROSS_AS}"
     CONDA_OCAML_CC="${CROSS_CC}"
+    CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
+    CONDA_OCAML_MKDLL="${CROSS_MKDLL:-}"
 
     AS="${CROSS_AS}"
     ASPP="${CROSS_CC} -c"
@@ -217,7 +219,12 @@ echo "  [3/5] Building crosscompiledopt ==="
   )
 
   if [[ "${PLATFORM_TYPE}" == "linux" ]]; then
-    CROSSCOMPILEDOPT_ARGS+=(CPPFLAGS="-D_DEFAULT_SOURCE")
+    CROSSCOMPILEDOPT_ARGS+=(
+      CPPFLAGS="-D_DEFAULT_SOURCE"
+      # glibc 2.17 (conda-forge sysroot) requires -ldl for dlopen/dlclose/dlsym
+      NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd"
+      BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd"
+    )
   fi
 
   run_logged "crosscompiledopt" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" -j"${CPU_COUNT}"
@@ -234,8 +241,6 @@ sed -i "s#${BUILD_PREFIX}/lib/ocaml#${OCAML_INSTALL_PREFIX}/lib/ocaml#g" runtime
 sed -i "s#${build_alias}#${host_alias}#g" runtime/build_config.h
 
 (
-  # CONDA_OCAML_* already exported above
-
   CROSSCOMPILEDRUNTIME_ARGS=(
     ARCH="${CROSS_ARCH}"
     CAMLOPT="${CROSS_OCAMLOPT}"
@@ -252,6 +257,10 @@ sed -i "s#${build_alias}#${host_alias}#g" runtime/build_config.h
     ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
     LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
     OCAMLLIB="${OCAMLLIB}"
+    CONDA_OCAML_AS="${CROSS_AS}"
+    CONDA_OCAML_CC="${CROSS_CC}"
+    CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
+    CONDA_OCAML_MKDLL="${CROSS_MKDLL:-}"
   )
 
   if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
