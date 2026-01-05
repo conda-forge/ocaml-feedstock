@@ -56,7 +56,7 @@ setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_
 if [[ "${target_platform}" == "osx"* ]]; then
   # Needed for freshly built ocaml to find zstd
   export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  export LDFLAGS="${LDFLAGS:-} -lzstd"
+  export NATIVE_LDFLAGS="${NATIVE_LDFLAGS:-} -lzstd"
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
@@ -67,7 +67,7 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   # Set UTF-8 codepage
   export PYTHONUTF8=1
   # Needed to find zstd
-  export LDFLAGS="-L${_PREFIX_}/Library/lib ${LDFLAGS:-}"
+  export NATIVE_LDFLAGS="-L${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
 fi
 
 echo "  NATIVE_AR:      ${NATIVE_AR}"
@@ -123,6 +123,7 @@ EOF
 #  --enable-native-toplevel
 CONFIG_ARGS+=(
   -prefix "${OCAML_INSTALL_PREFIX}"
+  --enable-frame-pointers
   --mandir="${OCAML_INSTALL_PREFIX}"/share/man
 )
 

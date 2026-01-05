@@ -127,7 +127,10 @@ EOF
     -prefix="${OCAML_CROSS_PREFIX}" \
     --host="${build_alias}" \
     --target="${target}" \
+    --enable-frame-pointers
+
     "${CONFIG_ARGS[@]}" \
+
     AR="${CROSS_AR}" \
     CC="${NATIVE_CC}" \
     NM="${CROSS_NM}" \

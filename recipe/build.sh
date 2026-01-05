@@ -49,7 +49,6 @@ MAKE=(make)
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
-  --enable-frame-pointers
   --enable-installing-source-artifacts
   --enable-installing-bytecode-programs
 

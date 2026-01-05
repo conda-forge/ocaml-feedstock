@@ -187,8 +187,8 @@ setup_cflags_ldflags() {
   local native="${2:-${build_platform:-NOTSET}}"
   local target="${3:-${target_platform}}"
 
-  [[ "${native}" != "linux-"* ]] && [[ "${native}" != "osx-"* ]] && native="nonunix${native#*-}"
-  [[ "${target}" != "linux-"* ]] && [[ "${target}" != "osx-"* ]] && target="nonunix${target#*-}"
+  [[ "${native}" != "linux-"* ]] && [[ "${native}" != "osx-"* ]] && native="nonunix-${native#*-}"
+  [[ "${target}" != "linux-"* ]] && [[ "${target}" != "osx-"* ]] && target="nonunix-${target#*-}"
   
   case "${name}_${native}_${target}" in
     NATIVE_osx-64_osx-64|NATIVE_linux-64_linux-64|NATIVE_nonunix-64_nonunix-64)
