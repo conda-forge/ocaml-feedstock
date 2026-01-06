@@ -170,6 +170,17 @@ if is_unix; then
   for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${BUILD_PREFIX}/bin/${wrapper}"
   done
+  # Debug: verify wrappers installed and environment set
+  echo "  Wrapper scripts installed:"
+  ls -la "${BUILD_PREFIX}/bin/ocaml-"* 2>/dev/null || echo "    (none found!)"
+  echo "  CONDA_OCAML_* environment:"
+  echo "    CONDA_OCAML_AS=${CONDA_OCAML_AS:-<unset>}"
+  echo "    CONDA_OCAML_CC=${CONDA_OCAML_CC:-<unset>}"
+  echo "    CONDA_OCAML_AR=${CONDA_OCAML_AR:-<unset>}"
+  echo "    CONDA_OCAML_RANLIB=${CONDA_OCAML_RANLIB:-<unset>}"
+  echo "    CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<unset>}"
+  echo "    CONDA_OCAML_MKDLL=${CONDA_OCAML_MKDLL:-<unset>}"
+  echo "  PATH includes BUILD_PREFIX/bin: $(echo "$PATH" | grep -q "${BUILD_PREFIX}/bin" && echo "yes" || echo "NO!")"
 fi
 
 # ============================================================================
@@ -207,12 +218,13 @@ if is_unix; then
   sed -i 's/^let mkdll = .*/let mkdll = {|ocaml-mkdll|}/' "$config_file"
   sed -i 's/^let mkmaindll = .*/let mkmaindll = {|ocaml-mkdll|}/' "$config_file"
 else
-  # non_unix: Use %CONDA_OCAML_*% environment variable references
-  # Windows cmd.exe expands %VAR% directly, so wrappers not needed
-  sed -i 's/^let asm = .*/let asm = {|%CONDA_OCAML_ASM%|}/' "$config_file"
-  sed -i 's/^let c_compiler = .*/let c_compiler = {|%CONDA_OCAML_CC%|}/' "$config_file"
-  sed -i 's/^let ar = .*/let ar = {|%CONDA_OCAML_AR%|}/' "$config_file"
-  sed -i 's/^let ranlib = .*/let ranlib = {|%CONDA_OCAML_RANLIB%|}/' "$config_file"
+  # Windows: Embed actual tool basenames directly
+  # %CONDA_OCAML_*% doesn't work because CreateProcess doesn't expand %VAR%
+  # (only cmd.exe does). Use the tool basenames we already computed.
+  sed -i "s/^let asm = .*/let asm = {|${CONDA_OCAML_AS}|}/" "$config_file"
+  sed -i "s/^let c_compiler = .*/let c_compiler = {|${CONDA_OCAML_CC}|}/" "$config_file"
+  sed -i "s/^let ar = .*/let ar = {|${CONDA_OCAML_AR}|}/" "$config_file"
+  sed -i "s/^let ranlib = .*/let ranlib = {|${CONDA_OCAML_RANLIB}|}/" "$config_file"
 fi
 
 # Clean up Makefile.config - remove embedded paths that cause issues
