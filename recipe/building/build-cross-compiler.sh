@@ -24,6 +24,12 @@ fi
 : "${OCAML_PREFIX:=${PREFIX}}"
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
+# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# The native compiler was linked against PREFIX/lib, need it in runtime search path
+if [[ "${target_platform}" == "osx"* ]]; then
+  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+fi
+
 # Define cross targets based on build platform
 declare -a CROSS_TARGETS
 case "${target_platform}" in

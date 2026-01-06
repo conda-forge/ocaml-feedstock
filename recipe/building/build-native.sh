@@ -54,11 +54,16 @@ setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_
 
 # Platform-specific overrides
 if [[ "${target_platform}" == "osx"* ]]; then
-  # For native compiler (Stage 1), use BUILD_PREFIX only
-  # The native compiler runs on BUILD machine, needs BUILD-arch libraries
-  # PREFIX contains target-arch libraries which are incompatible during cross-compilation
-  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+  # macOS: Set library paths for zstd at compile-time and runtime
+  # Cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
+  # Native build: PREFIX has x86_64 libs (same arch)
+  if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+  else
+    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+  fi
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
@@ -246,20 +251,24 @@ if [[ "${target_platform}" == "osx"* ]]; then
   echo "    NATIVECCLINKOPTS:  $(grep -E '^NATIVECCLINKOPTS=' "${config_file}" || echo '(not found)')"
   echo "    NATIVECCLIBS:      $(grep -E '^NATIVECCLIBS=' "${config_file}" || echo '(not found)')"
 
-  # For the native compiler (Stage 1), we ONLY want BUILD_PREFIX libraries
-  # because the native compiler runs on the BUILD machine (x86_64 for cross-compilation)
-  # PREFIX contains target-arch libraries (ARM64) which are incompatible
-  #
-  # OC_LDFLAGS may not exist - append or create
-  if grep -q '^OC_LDFLAGS=' "${config_file}"; then
-    sed -i "s|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
+  # For cross-compilation, use BUILD_PREFIX (has x86_64 libs for native compiler)
+  # For native build (osx-64), use PREFIX (same arch, normal behavior)
+  if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+    _LIB_PREFIX="${BUILD_PREFIX}"
   else
-    echo "OC_LDFLAGS=-Wl,-L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
+    _LIB_PREFIX="${PREFIX}"
   fi
 
-  # These should exist - append to them (use BUILD_PREFIX only for native compiler)
-  sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
-  sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${BUILD_PREFIX}/lib -lzstd|" "${config_file}"
+  # OC_LDFLAGS may not exist - append or create
+  if grep -q '^OC_LDFLAGS=' "${config_file}"; then
+    sed -i "s|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
+  else
+    echo "OC_LDFLAGS=-Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
+  fi
+
+  # These should exist - append to them
+  sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
+  sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
 
   echo "  macOS Makefile.config after fix:"
   echo "    OC_LDFLAGS:        $(grep -E '^OC_LDFLAGS=' "${config_file}" || echo '(not found)')"
