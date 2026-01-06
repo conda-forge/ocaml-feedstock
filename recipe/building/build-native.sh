@@ -187,8 +187,14 @@ run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_IN
 echo "  [2/4] Patching config for ocaml-* wrapper scripts"
 
 config_file="utils/config.generated.ml"
+
+# Debug: Check native_compiler exists before patching
+echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config_file" | head -1 || echo '(not found)')"
+
 # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
-sed -i 's#-L[^ ]*##g' "$config_file"
+# Use more specific pattern to avoid affecting other content
+sed -i 's#\(bytecomp_c_libraries.*\)-L[^ ]*#\1#g' "$config_file"
+
 if is_unix; then
   # Unix: Use ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
   # This allows tools like Dune to invoke the compiler via Unix.create_process
