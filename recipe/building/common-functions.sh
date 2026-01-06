@@ -208,8 +208,9 @@ setup_cflags_ldflags() {
       ;;
     NATIVE_osx-64_osx-arm64)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
+      # MUST include -L${BUILD_PREFIX}/lib for zstd - PREFIX has ARM64 libs!
       export "${name}_CFLAGS=-march=core2 -mtune=haswell -mssse3 -ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
-      export "${name}_LDFLAGS=-fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+      export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       ;;
     NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
