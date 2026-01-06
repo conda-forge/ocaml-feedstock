@@ -34,7 +34,6 @@ if not defined CONDA_OCAML_MKDLL (
 echo   CONDA_OCAML_CC = %CONDA_OCAML_CC%
 echo   CONDA_OCAML_AS = %CONDA_OCAML_AS%
 echo   CONDA_OCAML_AR = %CONDA_OCAML_AR%
-echo   CONDA_OCAML_MKDLL = %CONDA_OCAML_MKDLL%
 echo PASS: All CONDA_OCAML_* variables are set
 echo.
 

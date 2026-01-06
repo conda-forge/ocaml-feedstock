@@ -60,10 +60,6 @@ if [[ "${target_platform}" == "osx"* ]]; then
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
     export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
     export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
-    # CRITICAL: conda-build sets LDFLAGS with -L$PREFIX/lib (ARM64 libs!)
-    # Strip -L$PREFIX paths and use only BUILD_PREFIX for native compiler
-    export LDFLAGS="${LDFLAGS//-L${PREFIX}\/lib/}"
-    export LDFLAGS="-L${BUILD_PREFIX}/lib ${LDFLAGS}"
   else
     export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
     export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
