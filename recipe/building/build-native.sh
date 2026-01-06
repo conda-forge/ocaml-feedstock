@@ -243,6 +243,11 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   sed -i 's/\$(addprefix -link ,\$(OC_LDFLAGS))/\$(if \$(strip \$(OC_LDFLAGS)),\$(addprefix -link ,\$(OC_LDFLAGS)),)/g' "$config_file"
   sed -i 's/\$(addprefix -link ,\$(OC_DLL_LDFLAGS))/\$(if \$(strip \$(OC_DLL_LDFLAGS)),\$(addprefix -link ,\$(OC_DLL_LDFLAGS)),)/g' "$config_file"
 
+  # Remove trailing "-link " garbage from MKEXE/MKDLL lines
+  # Configure generates "... $(addprefix...) -link " but when OC_LDFLAGS is empty,
+  # this trailing "-link" causes "flexlink ... -link -o output" which passes -o to linker!
+  sed -i 's/^\(MK[A-Z]*=.*\)[[:space:]]*-link[[:space:]]*$/\1/' "$config_file"
+
   # Debug: Show MKEXE after fix
   echo "  Windows Makefile.config after fix:"
   echo "    MKEXE:         $(grep -E '^MKEXE=' "$config_file" || echo '(not found)')"
