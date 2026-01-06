@@ -225,10 +225,26 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   # Windows: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
   sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
+
+  # Debug: Show relevant Windows config before fix
+  echo "  Windows Makefile.config before fix:"
+  echo "    TOOLCHAIN:     $(grep -E '^TOOLCHAIN=' "$config_file" || echo '(not found)')"
+  echo "    FLEXDLL_CHAIN: $(grep -E '^FLEXDLL_CHAIN=' "$config_file" || echo '(not found)')"
+  echo "    MKEXE:         $(grep -E '^MKEXE=' "$config_file" || echo '(not found)')"
+  echo "    MKDLL:         $(grep -E '^MKDLL=' "$config_file" || echo '(not found)')"
+  echo "    OC_LDFLAGS:    $(grep -E '^OC_LDFLAGS=' "$config_file" || echo '(not found)')"
+  echo "    OUTPUTEXE:     $(grep -E '^OUTPUTEXE=' "$config_file" || echo '(not found)')"
+
   # Fix $(addprefix -link ,$(OC_LDFLAGS)) generating garbage when empty
   # Use $(if $(strip ...)) to guard against empty/whitespace-only values
-  sed -i 's/\$(addprefix -link ,\$(OC_LDFLAGS))/$(if $(strip $(OC_LDFLAGS)),$(addprefix -link ,$(OC_LDFLAGS)),)/g' "$config_file"
-  sed -i 's/\$(addprefix -link ,\$(OC_DLL_LDFLAGS))/$(if $(strip $(OC_DLL_LDFLAGS)),$(addprefix -link ,$(OC_DLL_LDFLAGS)),)/g' "$config_file"
+  # NOTE: All $() must be escaped or bash interprets them as command substitution
+  sed -i 's/\$(addprefix -link ,\$(OC_LDFLAGS))/\$(if \$(strip \$(OC_LDFLAGS)),\$(addprefix -link ,\$(OC_LDFLAGS)),)/g' "$config_file"
+  sed -i 's/\$(addprefix -link ,\$(OC_DLL_LDFLAGS))/\$(if \$(strip \$(OC_DLL_LDFLAGS)),\$(addprefix -link ,\$(OC_DLL_LDFLAGS)),)/g' "$config_file"
+
+  # Debug: Show MKEXE after fix
+  echo "  Windows Makefile.config after fix:"
+  echo "    MKEXE:         $(grep -E '^MKEXE=' "$config_file" || echo '(not found)')"
+  echo "    MKDLL:         $(grep -E '^MKDLL=' "$config_file" || echo '(not found)')"
 fi
 
 # ============================================================================
