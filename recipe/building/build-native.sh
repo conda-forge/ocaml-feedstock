@@ -218,11 +218,28 @@ sed -i  's#-L[^ ]*##g' "${config_file}"                                     # Re
 sed -Ei 's#^(CC|CPP|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"   # Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
 
 if [[ "${target_platform}" == "osx"* ]]; then
-  # macOS: Add -headerpad_max_install_names to ALL linker flags
+  # macOS: Add -headerpad_max_install_names and zstd to linker flags
   # NOTE: Must use double quotes so ${PREFIX} and ${BUILD_PREFIX} are expanded by bash
-  sed -i "s|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names -lzstd|" "${config_file}"
-  sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names -lzstd|" "${config_file}"
+  echo "  macOS Makefile.config before fix:"
+  echo "    OC_LDFLAGS:        $(grep -E '^OC_LDFLAGS=' "${config_file}" || echo '(not found)')"
+  echo "    NATIVECCLINKOPTS:  $(grep -E '^NATIVECCLINKOPTS=' "${config_file}" || echo '(not found)')"
+  echo "    NATIVECCLIBS:      $(grep -E '^NATIVECCLIBS=' "${config_file}" || echo '(not found)')"
+
+  # OC_LDFLAGS may not exist - append or create
+  if grep -q '^OC_LDFLAGS=' "${config_file}"; then
+    sed -i "s|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
+  else
+    echo "OC_LDFLAGS=-Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
+  fi
+
+  # These should exist - append to them
+  sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
   sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${BUILD_PREFIX}/lib -L${PREFIX}/lib -lzstd|" "${config_file}"
+
+  echo "  macOS Makefile.config after fix:"
+  echo "    OC_LDFLAGS:        $(grep -E '^OC_LDFLAGS=' "${config_file}" || echo '(not found)')"
+  echo "    NATIVECCLINKOPTS:  $(grep -E '^NATIVECCLINKOPTS=' "${config_file}" || echo '(not found)')"
+  echo "    NATIVECCLIBS:      $(grep -E '^NATIVECCLIBS=' "${config_file}" || echo '(not found)')"
 elif [[ "${target_platform}" != "linux"* ]]; then
   # Windows: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
