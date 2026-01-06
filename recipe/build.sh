@@ -38,18 +38,17 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
   fi
 fi
 
-# Platform detection
+source "${RECIPE_DIR}"/building/common-functions.sh
+
+# Platform detection (must be after sourcing common-functions.sh for is_unix)
 if is_unix; then
   EXE=""
   SH_EXT="sh"
 else
   EXE=".exe"
   SH_EXT="bat"
-  
-  SRC_DIR="${_SRC_DIR_}"
 fi
 
-source "${RECIPE_DIR}"/building/common-functions.sh
 mkdir -p "${SRC_DIR}"/_logs && export LOG_DIR="${SRC_DIR}"/_logs
 
 # Enable dry-run and other options
@@ -202,12 +201,7 @@ if is_unix; then
   fi
 else
   # Windows: cp -r is more reliable than tar with Windows paths
-  if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-    cp -r "${SRC_DIR}/_target_compiler/"* "${OCAML_INSTALL_PREFIX}/"
-  else
-    cp -r "${SRC_DIR}/_native_compiler/"* "${OCAML_INSTALL_PREFIX}/"
-    # No cross-compilers on Windows
-  fi
+  cp -r "${SRC_DIR}/_native_compiler/"* "${OCAML_INSTALL_PREFIX}/"
 fi
 
 # ==============================================================================
