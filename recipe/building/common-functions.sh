@@ -189,21 +189,29 @@ setup_cflags_ldflags() {
       export "${name}_CFLAGS=${CFLAGS:-}"
       export "${name}_LDFLAGS=${LDFLAGS:-}"
       ;;
-    CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le|CROSS_osx-64_osx-arm64)
-      # Cross-compiling FOR aarch64/ppc64le
+    CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le)
+      # Cross-compiling FOR Linux aarch64/ppc64le
       if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
         # Cross-platform CI: conda sets proper target CFLAGS
         export "${name}_CFLAGS=${CFLAGS}"
         export "${name}_LDFLAGS=${LDFLAGS}"
-      elif [[ "${target}" == "arm-64" ]]; then
-        # Native build creating cross-compilers: use generic ARM64 flags
-        setup_macos_sysroot
-        export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
-        export "${name}_LDFLAGS=-fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       else
         # Native build creating cross-compilers: use generic flags (no x86_64 -march/-mtune)
         export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
         export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
+      fi
+      ;;
+    CROSS_osx-64_osx-arm64)
+      # Cross-compiling FOR macOS ARM64 (on osx-64)
+      if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+        # Cross-platform CI: conda sets proper target CFLAGS
+        export "${name}_CFLAGS=${CFLAGS}"
+        export "${name}_LDFLAGS=${LDFLAGS}"
+      else
+        # Native osx-64 build creating arm64 cross-compiler: use macOS-compatible flags
+        setup_macos_sysroot
+        export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
+        export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       fi
       ;;
     NATIVE_osx-64_osx-arm64)
