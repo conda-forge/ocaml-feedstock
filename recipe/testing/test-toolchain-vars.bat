@@ -26,14 +26,15 @@ if not defined CONDA_OCAML_AR (
     echo FAIL: CONDA_OCAML_AR is not set after activation
     exit /b 1
 )
-if not defined CONDA_OCAML_MKDLL (
-    echo FAIL: CONDA_OCAML_MKDLL is not set after activation
+if not defined CONDA_OCAML_RANLIB (
+    echo FAIL: CONDA_OCAML_RANLIB is not set after activation
     exit /b 1
 )
 
-echo   CONDA_OCAML_CC = %CONDA_OCAML_CC%
-echo   CONDA_OCAML_AS = %CONDA_OCAML_AS%
-echo   CONDA_OCAML_AR = %CONDA_OCAML_AR%
+echo   CONDA_OCAML_CC     = %CONDA_OCAML_CC%
+echo   CONDA_OCAML_AS     = %CONDA_OCAML_AS%
+echo   CONDA_OCAML_AR     = %CONDA_OCAML_AR%
+echo   CONDA_OCAML_RANLIB = %CONDA_OCAML_RANLIB%
 echo PASS: All CONDA_OCAML_* variables are set
 echo.
 

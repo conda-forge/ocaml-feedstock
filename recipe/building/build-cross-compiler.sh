@@ -25,9 +25,17 @@ fi
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
 # macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
-# The native compiler was linked against PREFIX/lib, need it in runtime search path
+# The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
+# Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
+# Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
 if [[ "${target_platform}" == "osx"* ]]; then
-  export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+  else
+    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+  fi
 fi
 
 # Define cross targets based on build platform
