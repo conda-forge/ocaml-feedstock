@@ -92,7 +92,9 @@ CROSS_OTHERLIBS_OVERRIDES = $(CROSS_OVERRIDES)
 
 # NATIVE_AS/NATIVE_CC: Passed from build-cross-compiler.sh, saved before CONDA_OCAML_* override
 # These are the native (BUILD machine) assembler/compiler for building native tools
+# NATIVE_ASM is the assembler command (e.g., "clang -c" on macOS, "as" on Linux)
 NATIVE_AS ?= as
+NATIVE_ASM ?= $(NATIVE_AS)
 NATIVE_CC ?= $(CC)
 
 # NATIVE_OVERRIDES: For building NATIVE tools (ocamlc.opt, ocamlopt.opt, profiling.cmx)
@@ -100,10 +102,11 @@ NATIVE_CC ?= $(CC)
 # Does NOT include CC/AR overrides - uses defaults from Makefile.config (BUILD compiler)
 # CRITICAL: Override CONDA_OCAML_AS/CC to native values - the env var is set to cross-AS
 # by build-cross-compiler.sh, but native ocamlopt needs native assembler
+# Use NATIVE_ASM (not NATIVE_AS) because macOS needs "clang -c" not just "clang"
 NATIVE_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
   BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
   CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)" \
-  CONDA_OCAML_AS=$(NATIVE_AS) CONDA_OCAML_CC=$(NATIVE_CC)
+  CONDA_OCAML_AS=$(NATIVE_ASM) CONDA_OCAML_CC=$(NATIVE_CC)
 
 # NATIVE_COMPILER_OVERRIDES: For building native compilers with native tools
 # CRITICAL: Does NOT include CC="$(CROSS_CC)" - we need BUILD CC for native tools

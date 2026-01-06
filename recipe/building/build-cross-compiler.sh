@@ -179,11 +179,12 @@ EOF
     # NOTE: CC/AS/AR/RANLIB are CROSS tools (for compiling ARM64/PPC64 stdlib)
     # BUT: MKEXE must stay NATIVE (for linking the x86_64 cross-compiler binary)
     # CONDA_OCAML_MKEXE inherits native value from _native_env.sh - DO NOT override!
-    CONDA_OCAML_AS="${CROSS_AS}"
-    CONDA_OCAML_CC="${CROSS_CC}"
-    CONDA_OCAML_AR="${CROSS_AR}"
-    CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
-    CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+    # CRITICAL: Must EXPORT these so ocaml-* wrapper scripts see them
+    export CONDA_OCAML_AS="${CROSS_AS}"
+    export CONDA_OCAML_CC="${CROSS_CC}"
+    export CONDA_OCAML_AR="${CROSS_AR}"
+    export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
+    export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
     # CONDA_OCAML_MKEXE intentionally NOT set - use native linker for cross-compiler binary
 
     # Ensure cross-tools are findable in PATH
@@ -214,6 +215,13 @@ EOF
       SAK_CC="${NATIVE_CC}"
       SAK_CFLAGS="${NATIVE_CFLAGS}"
       SAK_LDFLAGS="${NATIVE_LDFLAGS}"
+
+      # NATIVE_AS/ASM/CC for building native tools (profiling.cmx, ocamlopt.opt internals)
+      # Makefile.cross defaults to "as" and $(CC) which are wrong during cross-compilation
+      # NATIVE_ASM includes "-c" flag for macOS clang (required for assembly-only)
+      NATIVE_AS="${NATIVE_AS}"
+      NATIVE_ASM="${NATIVE_ASM}"
+      NATIVE_CC="${NATIVE_CC}"
     )
 
     run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}"
