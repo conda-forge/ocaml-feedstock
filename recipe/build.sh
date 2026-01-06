@@ -38,6 +38,17 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
   fi
 fi
 
+# Platform detection
+if is_unix; then
+  EXE=""
+  SH_EXT="sh"
+else
+  EXE=".exe"
+  SH_EXT="bat"
+  
+  SRC_DIR="${_SRC_DIR_}"
+fi
+
 source "${RECIPE_DIR}"/building/common-functions.sh
 mkdir -p "${SRC_DIR}"/_logs && export LOG_DIR="${SRC_DIR}"/_logs
 
@@ -56,15 +67,6 @@ CONFIG_ARGS=(
 
   PKG_CONFIG=false
 )
-
-# Platform detection
-if is_unix; then
-  EXE=""
-  SH_EXT="sh"
-else
-  EXE=".exe"
-  SH_EXT="bat"
-fi
 
 
 FAST_CROSS_PATH_SUCCESS=0
@@ -189,11 +191,23 @@ echo "=== Transferring builds to PREFIX ==="
 
 OCAML_INSTALL_PREFIX="${PREFIX}"
 
-if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-  tar -C "${SRC_DIR}/_target_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+# Windows: Use cp -r instead of tar to avoid path escaping issues
+# The tar command on Windows has issues with paths containing backslashes
+if is_unix; then
+  if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+    tar -C "${SRC_DIR}/_target_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+  else
+    tar -C "${SRC_DIR}/_native_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+    tar -C "${SRC_DIR}/_xcross_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+  fi
 else
-  tar -C "${SRC_DIR}/_native_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
-  tar -C "${SRC_DIR}/_xcross_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+  # Windows: cp -r is more reliable than tar with Windows paths
+  if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+    cp -r "${SRC_DIR}/_target_compiler/"* "${OCAML_INSTALL_PREFIX}/"
+  else
+    cp -r "${SRC_DIR}/_native_compiler/"* "${OCAML_INSTALL_PREFIX}/"
+    # No cross-compilers on Windows
+  fi
 fi
 
 # ==============================================================================
