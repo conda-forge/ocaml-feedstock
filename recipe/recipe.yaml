@@ -136,6 +136,14 @@ requirements:
 tests:
   - package_contents:
       bin:
+        - if: unix
+          then:
+            - conda-ocaml-ar
+            - conda-ocaml-as
+            - conda-ocaml-cc
+            - conda-ocaml-mkdll
+            - conda-ocaml-mkexe
+            - conda-ocaml-ranlib
         - ocaml
         - ocamlc
         - ocamlc.byte

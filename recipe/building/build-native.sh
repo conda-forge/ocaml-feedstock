@@ -244,13 +244,6 @@ sed -i  's#-L[^ ]*##g' "${config_file}"                                     # Re
 sed -Ei 's#^(CC|CPP|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"   # Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
 
 if [[ "${target_platform}" == "osx"* ]]; then
-  # macOS: Add -headerpad_max_install_names and zstd to linker flags
-  # NOTE: Must use double quotes so ${PREFIX} and ${BUILD_PREFIX} are expanded by bash
-  echo "  macOS Makefile.config before fix:"
-  echo "    OC_LDFLAGS:        $(grep -E '^OC_LDFLAGS=' "${config_file}" || echo '(not found)')"
-  echo "    NATIVECCLINKOPTS:  $(grep -E '^NATIVECCLINKOPTS=' "${config_file}" || echo '(not found)')"
-  echo "    NATIVECCLIBS:      $(grep -E '^NATIVECCLIBS=' "${config_file}" || echo '(not found)')"
-
   # For cross-compilation, use BUILD_PREFIX (has x86_64 libs for native compiler)
   # For native build (osx-64), use PREFIX (same arch, normal behavior)
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
@@ -273,25 +266,10 @@ if [[ "${target_platform}" == "osx"* ]]; then
   # Use @loader_path for relocatable rpath (survives conda relocation)
   # Note: Don't use -L${PREFIX}/lib here - conda-ocaml-mkexe wrapper adds it at runtime
   sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
-
-  echo "  macOS Makefile.config after fix:"
-  echo "    OC_LDFLAGS:        $(grep -E '^OC_LDFLAGS=' "${config_file}" || echo '(not found)')"
-  echo "    NATIVECCLINKOPTS:  $(grep -E '^NATIVECCLINKOPTS=' "${config_file}" || echo '(not found)')"
-  echo "    NATIVECCLIBS:      $(grep -E '^NATIVECCLIBS=' "${config_file}" || echo '(not found)')"
-  echo "    BYTECCLIBS:        $(grep -E '^BYTECCLIBS=' "${config_file}" || echo '(not found)')"
 elif [[ "${target_platform}" != "linux"* ]]; then
   # Windows: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
   sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
-
-  # Debug: Show relevant Windows config before fix
-  echo "  Windows Makefile.config before fix:"
-  echo "    TOOLCHAIN:     $(grep -E '^TOOLCHAIN=' "$config_file" || echo '(not found)')"
-  echo "    FLEXDLL_CHAIN: $(grep -E '^FLEXDLL_CHAIN=' "$config_file" || echo '(not found)')"
-  echo "    MKEXE:         $(grep -E '^MKEXE=' "$config_file" || echo '(not found)')"
-  echo "    MKDLL:         $(grep -E '^MKDLL=' "$config_file" || echo '(not found)')"
-  echo "    OC_LDFLAGS:    $(grep -E '^OC_LDFLAGS=' "$config_file" || echo '(not found)')"
-  echo "    OUTPUTEXE:     $(grep -E '^OUTPUTEXE=' "$config_file" || echo '(not found)')"
 
   # Fix $(addprefix -link ,$(OC_LDFLAGS)) generating garbage when empty
   # Use $(if $(strip ...)) to guard against empty/whitespace-only values
@@ -303,11 +281,6 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   # Configure generates "... $(addprefix...) -link " but when OC_LDFLAGS is empty,
   # this trailing "-link" causes "flexlink ... -link -o output" which passes -o to linker!
   sed -i 's/^\(MK[A-Z]*=.*\)[[:space:]]*-link[[:space:]]*$/\1/' "$config_file"
-
-  # Debug: Show MKEXE after fix
-  echo "  Windows Makefile.config after fix:"
-  echo "    MKEXE:         $(grep -E '^MKEXE=' "$config_file" || echo '(not found)')"
-  echo "    MKDLL:         $(grep -E '^MKDLL=' "$config_file" || echo '(not found)')"
 fi
 
 # ============================================================================
@@ -341,9 +314,6 @@ if is_unix; then
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
   done
 fi
-
-# # Save build config for cross-compiler builds
-# cp runtime/build_config.h "${SRC_DIR}"
 
 # Clean up for potential cross-compiler builds
 run_logged "distclean" "${MAKE[@]}"  distclean
