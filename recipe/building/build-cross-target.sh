@@ -65,6 +65,25 @@ if [[ -z ${NATIVE_CC:-} ]]; then
   setup_cflags_ldflags "NATIVE" "${build_platform}" "${target_platform}"
 fi
 
+# Ensure CROSS_ASM/NATIVE_ASM are set (fallback for fast path or when setup_toolchain skipped)
+if [[ -z "${CROSS_ASM:-}" ]]; then
+  if [[ "${target_platform}" == "osx-"* ]]; then
+    CROSS_ASM="$(basename "${CROSS_CC}") -c"
+  else
+    CROSS_ASM="$(basename "${CROSS_AS}")"
+  fi
+  export CROSS_ASM
+fi
+
+if [[ -z "${NATIVE_ASM:-}" ]]; then
+  if [[ "${build_platform}" == "osx-"* ]]; then
+    NATIVE_ASM="$(basename "${NATIVE_CC}") -c"
+  else
+    NATIVE_ASM="$(basename "${NATIVE_AS}")"
+  fi
+  export NATIVE_ASM
+fi
+
 # macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
 # (Stage 3 runs native compiler binaries from Stage 1 which are linked against BUILD_PREFIX)
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
@@ -86,9 +105,11 @@ echo "  Install prefix:       ${OCAML_INSTALL_PREFIX}"
 echo "  NATIVE_CC:            ${NATIVE_CC}"
 echo "  NATIVE_AR:            ${NATIVE_AR}"
 echo "  NATIVE_AS:            ${NATIVE_AS}"
+echo "  NATIVE_ASM:           ${NATIVE_ASM}"
 echo "  CROSS_CC:             ${CROSS_CC}"
 echo "  CROSS_AR:             ${CROSS_AR}"
 echo "  CROSS_AS:             ${CROSS_AS}"
+echo "  CROSS_ASM:            ${CROSS_ASM}"
 
 # ============================================================================
 # Export variables for downstream scripts
@@ -96,7 +117,7 @@ echo "  CROSS_AS:             ${CROSS_AS}"
 cat > "${SRC_DIR}/_target_compiler_${target_platform}_env.sh" << EOF
 # CONDA_OCAML_* for runtime
 export CONDA_OCAML_AR="${CROSS_AR}"
-export CONDA_OCAML_AS="${CROSS_AS}"
+export CONDA_OCAML_AS="${CROSS_ASM}"
 export CONDA_OCAML_CC="${CROSS_CC}"
 export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
 export CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
