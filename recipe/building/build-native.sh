@@ -270,7 +270,8 @@ if [[ "${target_platform}" == "osx"* ]]; then
   sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
   sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
   # Fix BYTECCLIBS for -output-complete-exe (links libcamlrun.a which contains zstd.o)
-  sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
+  # Add both -L for link-time and -Wl,-rpath for runtime library loading
+  sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -L${_LIB_PREFIX}/lib -Wl,-rpath,${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
 
   echo "  macOS Makefile.config after fix:"
   echo "    OC_LDFLAGS:        $(grep -E '^OC_LDFLAGS=' "${config_file}" || echo '(not found)')"
