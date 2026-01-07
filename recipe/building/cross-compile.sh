@@ -77,7 +77,7 @@ export PATH="${BUILD_PREFIX}/bin:${PATH}"
 # as the cross-compiler to prevent "inconsistent assumptions" errors.
 # The cross-compiler package now includes both bytecode (.cmo) and native (.cmx) files.
 # This matches the approach in archives/cross-compile.sh:277
-export OCAMLLIB="${BUILD_PREFIX}/ocaml-cross-compilers/${_host_alias}/lib/ocaml"
+export OCAMLLIB="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${_host_alias}/lib/ocaml"
 echo "DEBUG: OCAMLLIB=${OCAMLLIB}"
 ls -la "${OCAMLLIB}/"*.cmo 2>/dev/null | head -5 || echo "WARNING: No .cmo files in OCAMLLIB"
 
@@ -97,17 +97,34 @@ if [[ "${_PLATFORM_TYPE}" == "linux" ]]; then
   _CONFIG_ARGS+=(AS="${_AS}")
 fi
 
+# Install ocaml-* wrapper scripts to BUILD_PREFIX (needed during build)
+echo "Installing ocaml-* wrapper scripts to BUILD_PREFIX..."
+for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+  install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${BUILD_PREFIX}/bin/${wrapper}"
+done
+
+# Define CONDA_OCAML_* variables for wrapper scripts
+export CONDA_OCAML_AS="${_AS}"
+export CONDA_OCAML_CC="${_CC}"
+export CONDA_OCAML_AR="${_AR}"
+export CONDA_OCAML_RANLIB="${_RANLIB}"
+export CONDA_OCAML_MKEXE="${_CC}"
+export CONDA_OCAML_MKDLL="${_CC} -shared"
+
 # CRITICAL: Configure with PREFIX (target install location), not OCAML_PREFIX (BUILD_PREFIX)
 # We want to install cross-compiled binaries to PREFIX, not overwrite BUILD_PREFIX native tools
-run_logged "stage3_configure" ./configure -prefix="${PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
+# PKG_CONFIG=false forces simple "-lzstd" instead of "-L/long/path -lzstd"
+PKG_CONFIG=false run_logged "stage3_configure" ./configure -prefix="${PREFIX}" "${CONFIG_ARGS[@]}" "${_CONFIG_ARGS[@]}" ${_GETENTROPY_ARGS[@]+"${_GETENTROPY_ARGS[@]}"}
 
 # Apply Makefile.cross patches
 apply_cross_patches
 
-# Patch config.generated.ml and Makefile.config for cross-compilation
+# Patch Makefile.config for cross-compilation (add -ldl if needed)
 source "${RECIPE_DIR}/building/patch-config-generated.sh"
-patch_config_generated "utils/config.generated.ml" "${_PLATFORM_TYPE}" "${_MODEL:-}"
 patch_makefile_config "${_PLATFORM_TYPE}"
+
+# Patch config.generated.ml to use CONDA_OCAML_* env vars (expanded at runtime)
+patch_config_generated "utils/config.generated.ml" "${_PLATFORM_TYPE}" "${_MODEL:-}"
 
 # Common cross-compilation make args (shared between crosscompiledopt and crosscompiledruntime)
 _CROSS_MAKE_ARGS=(
@@ -232,6 +249,12 @@ for bin in "${OCAML_INSTALL_PREFIX}"/bin/*; do
     sed -i "s#exec '\([^']*\)'#exec \1#" "$bin"
     sed -i "s#exec ${OCAML_INSTALL_PREFIX}/bin#exec \$(dirname \"\$0\")#" "$bin"
   fi
+done
+
+# Install ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
+echo "Installing ocaml-* wrapper scripts..."
+for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+  install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
 done
 
 echo "Cross-compilation complete for ${_host_alias}"
