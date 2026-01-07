@@ -340,7 +340,9 @@ get_cross_tool_defaults() {
   local target="$1"
 
   DEFAULT_CC=$(basename "${CROSS_CC}")
-  DEFAULT_AS=$(basename "${CROSS_AS}")
+  # CRITICAL: Use CROSS_ASM (not CROSS_AS) - on macOS, ASM includes "-c" flag
+  # Without -c, clang tries to link instead of just assembling
+  DEFAULT_AS="${CROSS_ASM}"
   DEFAULT_AR=$(basename "${CROSS_AR}")
   DEFAULT_RANLIB=$(basename "${CROSS_RANLIB}")
 

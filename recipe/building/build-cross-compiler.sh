@@ -194,7 +194,9 @@ EOF
     # BUT: MKEXE must stay NATIVE (for linking the x86_64 cross-compiler binary)
     # CONDA_OCAML_MKEXE inherits native value from _native_env.sh - DO NOT override!
     # CRITICAL: Must EXPORT these so ocaml-* wrapper scripts see them
-    export CONDA_OCAML_AS="${CROSS_AS}"
+    # CRITICAL: Use CROSS_ASM (not CROSS_AS) - on macOS, ASM includes "-c" flag
+    # Without -c, clang tries to link, causing "symbol(s) not found" linker errors
+    export CONDA_OCAML_AS="${CROSS_ASM}"
     export CONDA_OCAML_CC="${CROSS_CC}"
     export CONDA_OCAML_AR="${CROSS_AR}"
     export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
