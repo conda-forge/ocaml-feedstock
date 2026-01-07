@@ -269,6 +269,9 @@ echo "=== Installing activation scripts ==="
 
 # Use basenames so scripts work regardless of install location
 (
+  # Set OCAML_PREFIX for env script (uses ${OCAML_PREFIX}/bin for PATH)
+  export OCAML_PREFIX="${PREFIX}"
+
   if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
     source "${SRC_DIR}/_native_compiler_env.sh"
   else

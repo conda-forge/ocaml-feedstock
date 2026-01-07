@@ -122,6 +122,10 @@ export CONDA_OCAML_CC="${CONDA_OCAML_CC}"
 export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-}"
+
+# Add native compiler to PATH for cross-compiler builds
+# Use \${OCAML_PREFIX} so it's evaluated when sourced, not when created
+export PATH="\${OCAML_PREFIX}/bin:\${PATH}"
 EOF
 
 # ============================================================================

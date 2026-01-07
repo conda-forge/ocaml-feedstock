@@ -44,16 +44,11 @@ run_logged() {
   fi
 }
 
-# Apply Makefile.cross and platform-specific patches
+# Apply Makefile and Makefile.cross patches for conda-forge cross-compilation
 # Requires: NEEDS_DL variable to be set (1 = add -ldl)
 apply_cross_patches() {
-  cp "${RECIPE_DIR}"/building/Makefile.cross .
+  # Patch main Makefile (checkstack fix + BUILD!=HOST condition)
   patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch > /dev/null 2>&1 || true
-
-  # Fix dynlink "inconsistent assumptions" error:
-  # Use otherlibrariesopt-cross target which calls dynlink-allopt with proper CAMLOPT/BEST_OCAMLOPT
-  sed -i 's/otherlibrariesopt ocamltoolsopt/otherlibrariesopt-cross ocamltoolsopt/g' Makefile.cross
-  sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL}" == "1" ]]; then
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
@@ -197,8 +192,11 @@ setup_cflags_ldflags() {
         export "${name}_LDFLAGS=${LDFLAGS}"
       else
         # Native build creating cross-compilers: use generic flags (no x86_64 -march/-mtune)
-        export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
-        export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
+        # CRITICAL: Do NOT include -L${PREFIX}/lib - PREFIX has x86_64 libs which cross-linker can't use!
+        # Cross-linker needs TARGET libs which aren't available locally on native builds.
+        # ZSTD_LIBS is passed explicitly to make with BUILD_PREFIX path for zstd linking.
+        export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe"
+        export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now"
       fi
       ;;
     CROSS_osx-64_osx-arm64)

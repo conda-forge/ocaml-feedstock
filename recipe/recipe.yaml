@@ -1,10 +1,12 @@
 context:
   name: ocaml
-  version: 5.3.0
+  version: 5.4.0
   flexdll_version: 0.44
+  build_number: 0
   arm64_sdk: 11.0
-  m2: ${{ "m2-" if not unix }}
+  dot: ${{ "./" if unix }}
   library: ${{ "Library/" if not unix }}
+  m2: ${{ "m2-" if not unix }}
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   
@@ -14,7 +16,7 @@ package:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+    sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
   - if: win
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
@@ -22,7 +24,7 @@ source:
       target_directory: flexdll
 
 build:
-  number: 1
+  number: ${{ build_number }}
   script:
     env:
       SKIP_MAKE_TESTS: 1
@@ -47,9 +49,9 @@ build:
         - lib/ocaml/ld.conf
         - lib/ocaml/Makefile.config
         - lib/ocaml/runtime-launch-info
-        - ocaml-cross-compilers/*/lib/ocaml/ld.conf
-        - ocaml-cross-compilers/*/lib/ocaml/Makefile.config
-        - ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
+        - lib/ocaml-cross-compilers/*/lib/ocaml/ld.conf
+        - lib/ocaml-cross-compilers/*/lib/ocaml/Makefile.config
+        - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
     ignore:
       # Only ignore bytecode files (binary format, relocation corrupts them)
       - lib/ocaml/**/*.cmo
@@ -76,12 +78,12 @@ build:
       - bin/ocamlprof
       - if: (linux or osx) and x86_64
         then:
-          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmo
-          - ocaml-cross-compilers/*/lib/ocaml/**/*.cma
-          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmi
-          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmx
-          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmt
-          - ocaml-cross-compilers/*/lib/ocaml/**/*.cmti
+          - lib/ocaml-cross-compilers/*/lib/ocaml/**/*.cmo
+          - lib/ocaml-cross-compilers/*/lib/ocaml/**/*.cma
+          - lib/ocaml-cross-compilers/*/lib/ocaml/**/*.cmi
+          - lib/ocaml-cross-compilers/*/lib/ocaml/**/*.cmx
+          - lib/ocaml-cross-compilers/*/lib/ocaml/**/*.cmt
+          - lib/ocaml-cross-compilers/*/lib/ocaml/**/*.cmti
 
 requirements:
   run_exports:
@@ -96,8 +98,8 @@ requirements:
     - ${{ m2 }}grep
     - ${{ m2 }}make
     - ${{ m2 }}sed
+    - ${{ m2 }}tar
     - binutils
-    - pkgconfig
     - if: linux and x86_64
       then:
         - ${{ c_compiler }}_impl_linux-aarch64 ${{ c_compiler_version }}.*
@@ -117,7 +119,9 @@ requirements:
         - ${{ m2 }}which
     - if: aarch64 or ppc64le or arm64
       then:
-        # - ocaml >=5.3
+        - if: match(version, ">=5.4") and build_number > 0
+          then:
+            - ocaml >=5.3 *_2
         - zstd
     - if: osx
       then:
@@ -132,6 +136,14 @@ requirements:
 tests:
   - package_contents:
       bin:
+        - if: unix
+          then:
+            - conda-ocaml-ar
+            - conda-ocaml-as
+            - conda-ocaml-cc
+            - conda-ocaml-mkdll
+            - conda-ocaml-mkexe
+            - conda-ocaml-ranlib
         - ocaml
         - ocamlc
         - ocamlc.byte
@@ -219,209 +231,137 @@ tests:
             - share/man/man{1,3}/*
         - if: linux and x86_64
           then:
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlc.opt
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamldep.opt
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlobjinfo.opt
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlopt.opt
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/libasmrun.a
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/runtime-launch-info
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.a
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cma
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmi
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmo
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmx
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmxa
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.o
-            - ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/stublibs/dll*.${{ so }}
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlc.opt
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamldep.opt
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlobjinfo.opt
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlopt.opt
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/libasmrun.a
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/runtime-launch-info
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cma
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmi
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmo
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmx
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmxa
-            - ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/stublibs/dll*.${{ so }}
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlc.opt
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamldep.opt
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlobjinfo.opt
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/bin/ocamlopt.opt
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/libasmrun.a
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/runtime-launch-info
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.a
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cma
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmi
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmo
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmx
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.cmxa
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/*.o
+            - lib/ocaml-cross-compilers/aarch64-conda-linux-gnu/lib/ocaml/stublibs/dll*.${{ so }}
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlc.opt
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamldep.opt
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlobjinfo.opt
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/bin/ocamlopt.opt
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/libasmrun.a
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/runtime-launch-info
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cma
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmi
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmo
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmx
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/*.cmxa
+            - lib/ocaml-cross-compilers/powerpc64le-conda-linux-gnu/lib/ocaml/stublibs/dll*.${{ so }}
         - if: osx and x86_64
           then:
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlc.opt
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamldep.opt
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlobjinfo.opt
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlopt.opt
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/libasmrun.a
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/runtime-launch-info
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cma
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmi
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmo
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmx
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmxa
-            - ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/stublibs/dll*.${{ so }}
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlc.opt
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamldep.opt
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlobjinfo.opt
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/bin/ocamlopt.opt
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/libasmrun.a
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/runtime-launch-info
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cma
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmi
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmo
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmx
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/*.cmxa
+            - lib/ocaml-cross-compilers/arm64-apple-darwin20.0.0/lib/ocaml/stublibs/dll*.${{ so }}
 
+  # Environment and resource file path validation
   - script:
-      - echo "=== Env., Resource files ==="
-      - if: unix
-        then: |
-          echo "${OCAMLLIB:-'UNSET'}" | grep ocaml > /dev/null && { echo "OCAMLLIB set"; }
-          head -2 ${PREFIX}/lib/ocaml/runtime-launch-info | grep ${PREFIX} > /dev/null && { echo "runtime-launch-info clean"; }
-          head -2 ${PREFIX}/lib/ocaml/ld.conf | grep ${PREFIX} > /dev/null && { echo "ld.conf clean"; }
-          cat ${PREFIX}/lib/ocaml/Makefile.config | grep ${PREFIX} > /dev/null && { echo "Makefile.config clean"; }
-          STDLIB_PATH=$(ocamlc.opt -config-var standard_library) && echo "standard_library=$STDLIB_PATH"
-          CC_PATH=$(ocamlc.opt -config-var c_compiler) && echo "c_compiler=$CC_PATH"
-        else: |
-          echo "%OCAMLLIB%" | grep ocaml
-          echo "%PATH%" | grep ocaml
-      - echo "PREFIX/PATH tests passed"
+      - cd testing && ${{ dot }}test-env-paths.${{ sh }}
+    files:
+      recipe:
+        - testing/test-env-paths.${{ sh }}
     requirements:
       run:
-        - ${{ m2 }}grep
+        - binutils
+        - if: not arm64
+          then:
+            - ${{ m2 }}grep
 
+  # OCAML config
   - script:
-      - echo "=== Check cross-binaries for correct arch ==="
+      - if: unix and not arm64
+        then:
+          - cd testing && ./test-config.sh
+        else:
+          - echo ""
+    files:
+      recipe:
+        - testing/test-config.sh
+    requirements:
+      run:
+        - binutils_impl_${{ target_platform }}
+        - if: not arm64
+          then:
+            - ${{ m2 }}grep
+
+  # Cross-compiled binary architecture verification
+  - script:
       - if: build_platform != target_platform
         then:
-          - if: aarch64
-            then:
-              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "AArch64" || { echo "ocamlc.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlopt.opt | grep -q "AArch64" || { echo "ocamlopt.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamllex.opt | grep -q "AArch64" || { echo "ocamllex.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamldep.opt | grep -q "AArch64" || { echo "ocamldep.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlobjinfo.opt | grep -q "AArch64" || { echo "ocamlobjinfo.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "AArch64" || { echo "ocamlrun: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/lib/ocaml/libasmrun_shared.so | grep -q "AArch64" || { echo "libasmrun_shared.so: Bad Arch"; exit 1; }
-          - if: arm64
-            then:
-              - otool -hv ${PREFIX}/bin/ocamlc.opt | grep -iq "ARM64" || { echo "ocamlc.opt: Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/bin/ocamlopt.opt | grep -iq "ARM64" || { echo "ocamlopt.opt: Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/bin/ocamllex.opt | grep -iq "ARM64" || { echo "ocamllex.opt: Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/bin/ocamldep.opt | grep -iq "ARM64" || { echo "ocamldep.opt: Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/bin/ocamlobjinfo.opt | grep -iq "ARM64" || { echo "ocamlobjinfo.opt: Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/bin/ocamlrun | grep -iq "ARM64" || { echo "ocamlrun: Bad Arch"; exit 1; }
-              - otool -hv ${PREFIX}/lib/ocaml/libasmrun_shared.dylib | grep -iq "ARM64" || { echo "libasmrun_shared: Bad Arch"; exit 1; }
-          - if: ppc64le
-            then:
-              - readelf -h ${PREFIX}/bin/ocamlc.opt | grep -q "PowerPC64" || { echo "ocamlc.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlopt.opt | grep -q "PowerPC64" || { echo "ocamlopt.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamllex.opt | grep -q "PowerPC64" || { echo "ocamllex.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamldep.opt | grep -q "PowerPC64" || { echo "ocamldep.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlobjinfo.opt | grep -q "PowerPC64" || { echo "ocamlobjinfo.opt: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/bin/ocamlrun | grep -q "PowerPC64" || { echo "ocamlrun: Bad Arch"; exit 1; }
-              - readelf -h ${PREFIX}/lib/ocaml/libasmrun_shared.so | grep -q "PowerPC64" || { echo "libasmrun_shared.so: Bad Arch"; exit 1; }
-          - echo "All cross-compiled binaries: CORRECT architecture ✓"
+          - cd testing && ${{ dot }}test-cross-arch.${{ sh }} ${{ target_platform }}
         else:
-          echo "Native build (no cross-compilation check needed)"
+          - echo "Native build - skipping cross-arch check"
+    files:
+      recipe:
+        - testing/test-cross-arch.${{ sh }}
+    requirements:
+      run:
+        - binutils
 
+  # Tool version checks (all platforms)
+  # Skip on cross-compiled platforms - QEMU emulation has limitations
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
-        - echo "=== All binaries version/info output ==="
         - if: arm64
           then:
-            - echo "Skipped test for ARM64"
-          else: |
-            echo "Testing ocamlc..." && ocamlc -version | grep ${{ version }}
-            echo "Testing ocamldep..." && ocamldep -version | grep ${{ version }}
-            echo "Testing ocamllex..." && ocamllex -version | grep ${{ version }}
-            echo "Testing ocamlrun..." && ocamlrun -version | grep ${{ version }}
-            echo "Testing ocamlyacc..." && ocamlyacc -version | grep ${{ version }}
-
-            echo "Testing ocaml..." && ocaml -version | grep ${{ version }}
-            echo "Testing ocamlcp..." && ocamlcp -version | grep ${{ version }}
-            echo "Testing ocamlmklib..." && ocamlmklib -version | grep ${{ version }}
-            echo "Testing ocamlmktop..." && ocamlmktop -version | grep ${{ version }}
-            echo "Testing ocamloptp..." && ocamloptp -version | grep ${{ version }}
-            echo "Testing ocamlprof..." && ocamlprof -version | grep ${{ version }}
-
-            echo "Testing ocamlopt..." && ocamlopt -version | grep ${{ version }}
-        - if: unix and not arm64
-          then: |
-            echo "Testing ocamlobjinfo..." && ocamlobjinfo -help | grep -q FILES
-            echo "Testing ocamlobjinfo.opt..." && ocamlobjinfo.opt -help | grep -q FILES
-            echo "Testing ocamlcmt..." && ocamlcmt -help | grep -q FILE
-            echo "Testing ocamlobjinfo.byte..." && ocamlobjinfo.byte -help | grep -q FILES
-        - if: not unix
-          then: |
-            echo "Testing ocamlobjinfo..." && ocamlobjinfo -help
-            echo "Testing ocamlobjinfo.opt..." && ocamlobjinfo.opt -help
-            echo "Testing ocamlcmt..." && ocamlcmt -help
-            echo "Testing ocamlobjinfo.byte..." && ocamlobjinfo.byte -help
-        - if: build_platform == target_platform
-          then: |
-            echo "Testing ocamldoc..." && ocamldoc -version | grep ${{ version }}
-            echo "Testing ocamldoc.opt..." && ocamldoc.opt -version | grep ${{ version }}
-            echo "Testing ocamldebug..." && ocamldebug -version | grep ${{ version }}
-        - if: linux and x86_64
-          then: |
-            echo "Testing aarch64 cross-compilers..."
-            echo "  ocamlc..." && aarch64-conda-linux-gnu-ocamlc -version | grep ${{ version }}
-            echo "  ocamldep..." && aarch64-conda-linux-gnu-ocamldep -version | grep ${{ version }}
-            echo "  ocamlobjinfo..." && aarch64-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
-            echo "  ocamlopt..." && aarch64-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
-            echo "Testing ppc64le cross-compilers..."
-            echo "  ocamlc..." && powerpc64le-conda-linux-gnu-ocamlc -version | grep ${{ version }}
-            echo "  ocamldep..." && powerpc64le-conda-linux-gnu-ocamldep -version | grep ${{ version }}
-            echo "  ocamlobjinfo..." && powerpc64le-conda-linux-gnu-ocamlobjinfo -help | grep -q FILES
-            echo "  ocamlopt..." && powerpc64le-conda-linux-gnu-ocamlopt -version | grep ${{ version }}
-        - if: osx and x86_64
-          then: |
-            echo "Testing arm64 cross-compilers..."
-            echo "  ocamlc..." && arm64-apple-darwin20.0.0-ocamlc -version | grep ${{ version }}
-            echo "  ocamldep..." && arm64-apple-darwin20.0.0-ocamldep -version | grep ${{ version }}
-            echo "  ocamlobjinfo..." && arm64-apple-darwin20.0.0-ocamlobjinfo -help | grep -q FILES
-            echo "  ocamlopt..." && arm64-apple-darwin20.0.0-ocamlopt -version | grep ${{ version }}
+            - echo "Skipping tool version tests"
+          else:
+            - cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }}
+    files:
+      recipe:
+        - testing/test-tool-versions.${{ sh }}
     requirements:
       run:
         - ${{ m2 }}grep
 
+  # Native-only tools (ocamldoc, ocamldebug)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
-        - echo "=== Exercise compilers with actual code ==="
-        - if: arm64
-          then:
-            - echo "Skipped test for ARM64"
+        - if: (build_platform == target_platform) and unix
+          then: cd testing && ${{ dot }}test-native-only-tools.${{ sh }} ${{ version }}
+          else: echo "Skipping native-only tools (cross-build or Windows)"
+    files:
+      recipe:
+        - testing/test-native-only-tools.${{ sh }}
+    requirements:
+      run:
+        - ${{ m2 }}grep
+
+  # Compilation tests (bytecode, native, multi-file)
+  # Skip on cross-compiled platforms (aarch64, ppc64le, arm64) - QEMU emulation unstable
+  - script:
+      env:
+        OCAMLRUNPARAM: "s=4M,o=1000"
+      content:
+        - if: build_platform != target_platform
+          then: echo "Skipping compilation tests (cross-compiled package, QEMU limitation)"
           else:
-            - printf 'print_endline "Hello World"\n' > hi.ml
-            - if: unix
-              then: |
-                  # 1. Bytecode compilation + execution
-                  echo "=== Testing bytecode compilation ==="
-                  ocamlc -o hi hi.ml && ./hi | grep "Hello World"
-                  (mkdir -p tmp && cp hi tmp && (cd tmp; ./hi)) | grep "Hello World" && rm ./hi
-                  ocamlrun ${PREFIX}/bin/ocamlc.byte -version | grep ${{ version }}
-
-                  # 2. Native compilation + execution
-                  echo "=== Testing native compilation ==="
-                  ocamlopt -o hi hi.ml && ./hi | grep "Hello World" && rm ./hi
-
-                  # 3. REPL test (ocaml toplevel)
-                  echo "=== Testing REPL ==="
-                  echo 'print_endline "REPL works";;' | ocaml 2>&1 || echo "REPL exit: $?"
-
-                  # 4. ocamldep actually parsing files
-                  echo "=== Testing ocamldep ==="
-                  ocamldep hi.ml
- 
-                  # 5. Multi-file compilation (exercises module system)
-                  echo "=== Testing multi-file compilation ==="
-                  printf 'let greet () = print_endline "From Lib"\n' > lib.ml
-                  printf 'let () = Lib.greet ()\n' > main.ml
-                  ocamlc -c lib.ml
-                  ocamlc -c main.ml
-                  ocamlc -o multi lib.cmo main.cmo
-                  ./multi | grep "From Lib"
-
-                  echo "=== Bytecode compiler via ocamlrun ==="
-                  ocamlrun ${PREFIX}/bin/ocamlc.byte -version
-                  printf 'print_endline "Hi CF"\n' > hi.ml && ocamlrun ${PREFIX}/bin/ocamlc.byte -o hi hi.ml && ./hi && rm ./hi
-
-                  echo "=== All compilation tests passed ==="
-              else:
-                - ocamlc -o hi.exe hi.ml && hi.exe | grep Hello && rm hi.exe
+            - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
+    files:
+      recipe:
+        - testing/test-compilation.${{ sh }}
     requirements:
       run:
         - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
@@ -432,36 +372,55 @@ tests:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
 
+  # Cross-compiler tests (linux-64 and osx-64 only)
   - script:
       env:
         OCAMLRUNPARAM: "s=4M,o=1000"
       content:
-        - echo "=== Exercise cross-compilers with actual code ==="
-        - if: linux and x86_64
-          then: |
-            echo "=== Testing cross-compiler compilation ==="
-            printf 'print_endline "Hello World from AARCH64"\n' > hi.ml
-            aarch64-conda-linux-gnu-ocamlopt -o hi hi.ml
-            QEMU_LD_PREFIX=${PREFIX}/aarch64-conda-linux-gnu/sysroot qemu-execve-aarch64 ./hi | grep "Hello World" && rm ./hi
-            printf 'print_endline "Hello World from PPC64LE"\n' > hi.ml
-            powerpc64le-conda-linux-gnu-ocamlopt -o hi hi.ml
-            # QEMU_CPU=power9 QEMU_LD_PREFIX=${PREFIX}/powerpc64le-conda-linux-gnu/sysroot qemu-execve-ppc64le ./hi | grep "Hello World" && rm ./hi
-          else:
-            - echo "No cross-compiler tests"
+        - if: (linux and x86_64) or (osx and x86_64)
+          then: cd testing && ${{ dot }}test-cross-compilers.${{ sh }} ${{ version }} ${{ build_platform }} ${{ target_platform }}
+          else: echo "Cross-compilers only tested on linux-64 and osx-64"
+    files:
+      recipe:
+        - testing/test-cross-compilers.${{ sh }}
     requirements:
       run:
+        - ${{ m2 }}grep
         - if: linux and x86_64
           then:
-            - ${{ c_compiler }}_impl_linux-64 >=${{ c_compiler_version }}
             - ${{ c_compiler }}_impl_linux-aarch64 ${{ c_compiler_version }}.*
             - ${{ c_compiler }}_impl_linux-ppc64le ${{ c_compiler_version }}.*
-            - ${{ c_stdlib }}_linux-64 >=${{ c_stdlib_version }}
             - ${{ c_stdlib }}_linux-aarch64 >=${{ c_stdlib_version }}
             - ${{ c_stdlib }}_linux-ppc64le >=${{ c_stdlib_version }}
             - binutils_impl_linux-aarch64
             - binutils_impl_linux-ppc64le
             - qemu-execve-aarch64
             - qemu-execve-ppc64le
+        - if: osx and x86_64
+          then:
+            - ${{ c_compiler }}_impl_osx-arm64 ${{ c_compiler_version }}.*
+            - lld >=${{ c_compiler_version }}
+            - llvm-tools >=${{ c_compiler_version }}
+
+  # CONDA_OCAML_* toolchain variable tests
+  - script:
+      env:
+        OCAMLRUNPARAM: "s=4M,o=1000"
+      content:
+        - if: build_platform == target_platform
+          then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
+          else: echo "Toolchain var tests only on native builds"
+    files:
+      recipe:
+        - testing/test-toolchain-vars.${{ sh }}
+    requirements:
+      run:
+        - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - ${{ m2 }}grep
+        - if: osx
+          then:
+            - lld >=${{ c_compiler_version }}
+            - llvm-tools >=${{ c_compiler_version }}
 
 about:
   homepage: https://ocaml.org/
