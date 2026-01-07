@@ -65,6 +65,13 @@ if [[ -z ${NATIVE_CC:-} ]]; then
   setup_cflags_ldflags "NATIVE" "${build_platform}" "${target_platform}"
 fi
 
+# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# (Stage 3 runs native compiler binaries from Stage 1 which are linked against BUILD_PREFIX)
+if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
+  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+  echo "  Set DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}"
+fi
+
 echo ""
 echo "============================================================"
 echo "Cross-target build configuration (Stage 3)"

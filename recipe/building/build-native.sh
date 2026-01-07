@@ -269,11 +269,14 @@ if [[ "${target_platform}" == "osx"* ]]; then
   # These should exist - append to them
   sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
   sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
+  # Fix BYTECCLIBS for -output-complete-exe (links libcamlrun.a which contains zstd.o)
+  sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
 
   echo "  macOS Makefile.config after fix:"
   echo "    OC_LDFLAGS:        $(grep -E '^OC_LDFLAGS=' "${config_file}" || echo '(not found)')"
   echo "    NATIVECCLINKOPTS:  $(grep -E '^NATIVECCLINKOPTS=' "${config_file}" || echo '(not found)')"
   echo "    NATIVECCLIBS:      $(grep -E '^NATIVECCLIBS=' "${config_file}" || echo '(not found)')"
+  echo "    BYTECCLIBS:        $(grep -E '^BYTECCLIBS=' "${config_file}" || echo '(not found)')"
 elif [[ "${target_platform}" != "linux"* ]]; then
   # Windows: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
