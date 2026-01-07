@@ -166,16 +166,16 @@ EOF
   echo "  [3/5] Patching config.generated.ml..."
   config_file="utils/config.generated.ml"
 
-  # Use ocaml-* wrapper scripts instead of $CONDA_OCAML_* variable references
+  # Use conda-ocaml-* wrapper scripts instead of $CONDA_OCAML_* variable references
   # Wrappers expand env vars at runtime, compatible with Unix.create_process
   sed -i \
-    -e 's#^let asm = .*#let asm = {|ocaml-as|}#' \
-    -e 's#^let ar = .*#let ar = {|ocaml-ar|}#' \
-    -e 's#^let c_compiler = .*#let c_compiler = {|ocaml-cc|}#' \
-    -e 's#^let ranlib = .*#let ranlib = {|ocaml-ranlib|}#' \
-    -e 's#^let mkexe = .*#let mkexe = {|ocaml-mkexe|}#' \
-    -e 's#^let mkdll = .*#let mkdll = {|ocaml-mkdll|}#' \
-    -e 's#^let mkmaindll = .*#let mkmaindll = {|ocaml-mkdll|}#' \
+    -e 's#^let asm = .*#let asm = {|conda-ocaml-as|}#' \
+    -e 's#^let ar = .*#let ar = {|conda-ocaml-ar|}#' \
+    -e 's#^let c_compiler = .*#let c_compiler = {|conda-ocaml-cc|}#' \
+    -e 's#^let ranlib = .*#let ranlib = {|conda-ocaml-ranlib|}#' \
+    -e 's#^let mkexe = .*#let mkexe = {|conda-ocaml-mkexe|}#' \
+    -e 's#^let mkdll = .*#let mkdll = {|conda-ocaml-mkdll|}#' \
+    -e 's#^let mkmaindll = .*#let mkmaindll = {|conda-ocaml-mkdll|}#' \
     "$config_file"
   sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${OCAML_CROSS_LIBDIR}|}#" "$config_file"
   [[ -n "${CROSS_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${CROSS_MODEL}|}#" "$config_file"
