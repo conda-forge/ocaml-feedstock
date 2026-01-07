@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# OCaml executable linker wrapper - expands CONDA_OCAML_MKEXE environment variable
+# CONDA_OCAML_MKEXE may include flags (e.g., "cc -Wl,-E")
+# Automatically adds -L${CONDA_PREFIX}/lib for runtime library search (relocatable)
+# shellcheck disable=SC2086
+if [[ -n "${CONDA_PREFIX:-}" ]]; then
+  exec ${CONDA_OCAML_MKEXE:-cc} -L"${CONDA_PREFIX}/lib" "$@"
+else
+  exec ${CONDA_OCAML_MKEXE:-cc} "$@"
+fi
