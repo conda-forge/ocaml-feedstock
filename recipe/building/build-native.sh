@@ -170,17 +170,17 @@ else
 fi
 
 # ============================================================================
-# Install ocaml-* wrapper scripts BEFORE build (needed during compilation)
+# Install conda-ocaml-* wrapper scripts BEFORE build (needed during compilation)
 # ============================================================================
 
 if is_unix; then
-  echo "  Installing ocaml-* wrapper scripts to BUILD_PREFIX..."
-  for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+  echo "  Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
+  for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${BUILD_PREFIX}/bin/${wrapper}"
   done
   # Debug: verify wrappers installed and environment set
   echo "  Wrapper scripts installed:"
-  ls -la "${BUILD_PREFIX}/bin/ocaml-"* 2>/dev/null || echo "    (none found!)"
+  ls -la "${BUILD_PREFIX}/bin/conda-ocaml-"* 2>/dev/null || echo "    (none found!)"
   echo "  CONDA_OCAML_* environment:"
   echo "    CONDA_OCAML_AS=${CONDA_OCAML_AS:-<unset>}"
   echo "    CONDA_OCAML_CC=${CONDA_OCAML_CC:-<unset>}"
@@ -215,16 +215,16 @@ echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config
 sed -i 's#\(bytecomp_c_libraries.*\)-L[^ ]*#\1#g' "$config_file"
 
 if is_unix; then
-  # Unix: Use ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
+  # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
   # This allows tools like Dune to invoke the compiler via Unix.create_process
   # (which doesn't expand shell variables) while still honoring runtime overrides
-  sed -i 's/^let asm = .*/let asm = {|ocaml-as|}/' "$config_file"
-  sed -i 's/^let ar = .*/let ar = {|ocaml-ar|}/' "$config_file"
-  sed -i 's/^let c_compiler = .*/let c_compiler = {|ocaml-cc|}/' "$config_file"
-  sed -i 's/^let ranlib = .*/let ranlib = {|ocaml-ranlib|}/' "$config_file"
-  sed -i 's/^let mkexe = .*/let mkexe = {|ocaml-mkexe|}/' "$config_file"
-  sed -i 's/^let mkdll = .*/let mkdll = {|ocaml-mkdll|}/' "$config_file"
-  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|ocaml-mkdll|}/' "$config_file"
+  sed -i 's/^let asm = .*/let asm = {|conda-ocaml-as|}/' "$config_file"
+  sed -i 's/^let ar = .*/let ar = {|conda-ocaml-ar|}/' "$config_file"
+  sed -i 's/^let c_compiler = .*/let c_compiler = {|conda-ocaml-cc|}/' "$config_file"
+  sed -i 's/^let ranlib = .*/let ranlib = {|conda-ocaml-ranlib|}/' "$config_file"
+  sed -i 's/^let mkexe = .*/let mkexe = {|conda-ocaml-mkexe|}/' "$config_file"
+  sed -i 's/^let mkdll = .*/let mkdll = {|conda-ocaml-mkdll|}/' "$config_file"
+  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
 else
   # Windows: Embed actual tool basenames directly
   # %CONDA_OCAML_*% doesn't work because CreateProcess doesn't expand %VAR%
@@ -333,10 +333,10 @@ fi
 echo "  [4/4] Installing native compiler"
 run_logged "install" "${MAKE[@]}"  install
 
-# Install ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
+# Install conda-ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
 if is_unix; then
-  echo "  - Installing ocaml-* wrapper scripts..."
-  for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+  echo "  - Installing conda-ocaml-* wrapper scripts..."
+  for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
   done
 fi

@@ -178,9 +178,9 @@ if [[ "${DISABLE_GETENTROPY}" == "1" ]]; then
   CONFIG_ARGS+=(ac_cv_func_getentropy=no)
 fi
 
-# Install ocaml-* wrapper scripts to BUILD_PREFIX (needed during build)
-echo "    Installing ocaml-* wrapper scripts to BUILD_PREFIX..."
-for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+# Install conda-ocaml-* wrapper scripts to BUILD_PREFIX (needed during build)
+echo "    Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
+for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
   install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${BUILD_PREFIX}/bin/${wrapper}"
 done
 
@@ -194,16 +194,16 @@ echo "  [2/5] Patching configuration ==="
 
 config_file="utils/config.generated.ml"
 
-# Patch config.generated.ml to use ocaml-* wrapper scripts
+# Patch config.generated.ml to use conda-ocaml-* wrapper scripts
 # Wrappers expand CONDA_OCAML_* env vars at runtime, compatible with Unix.create_process
 sed -i \
-  -e 's#^let asm = .*#let asm = {|ocaml-as|}#' \
-  -e 's#^let ar = .*#let ar = {|ocaml-ar|}#' \
-  -e 's#^let c_compiler = .*#let c_compiler = {|ocaml-cc|}#' \
-  -e 's#^let ranlib = .*#let ranlib = {|ocaml-ranlib|}#' \
-  -e 's#^let mkexe = .*#let mkexe = {|ocaml-mkexe|}#' \
-  -e 's#^let mkdll = .*#let mkdll = {|ocaml-mkdll|}#' \
-  -e 's#^let mkmaindll = .*#let mkmaindll = {|ocaml-mkdll|}#' \
+  -e 's#^let asm = .*#let asm = {|conda-ocaml-as|}#' \
+  -e 's#^let ar = .*#let ar = {|conda-ocaml-ar|}#' \
+  -e 's#^let c_compiler = .*#let c_compiler = {|conda-ocaml-cc|}#' \
+  -e 's#^let ranlib = .*#let ranlib = {|conda-ocaml-ranlib|}#' \
+  -e 's#^let mkexe = .*#let mkexe = {|conda-ocaml-mkexe|}#' \
+  -e 's#^let mkdll = .*#let mkdll = {|conda-ocaml-mkdll|}#' \
+  -e 's#^let mkmaindll = .*#let mkmaindll = {|conda-ocaml-mkdll|}#' \
   "$config_file"
 
 # PowerPC model
@@ -363,9 +363,9 @@ if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
   done
 fi
 
-# Install ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
-echo "    Installing ocaml-* wrapper scripts..."
-for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+# Install conda-ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
+echo "    Installing conda-ocaml-* wrapper scripts..."
+for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
   install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
 done
 
