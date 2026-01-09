@@ -213,10 +213,10 @@ sed -i \
 apply_cross_patches
 
 # ============================================================================
-# Build crossopt (OCaml 5.4.0 renamed from crosscompiledopt)
+# Build crosscompiledopt (uses existing cross-compiler from BUILD_PREFIX)
 # ============================================================================
 
-echo "  [3/4] Building crossopt ==="
+echo "  [3/5] Building crosscompiledopt ==="
 
 (
 
@@ -256,19 +256,50 @@ echo "  [3/4] Building crossopt ==="
     )
   fi
 
-  run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSCOMPILEDOPT_ARGS[@]}" -j"${CPU_COUNT}"
+  run_logged "crosscompiledopt" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" -j"${CPU_COUNT}"
 )
 
 # ============================================================================
-# crosscompiledruntime target removed in OCaml 5.4.0
-# crossopt (above) now builds everything: compiler + runtime + libraries
+# Build crosscompiledruntime
 # ============================================================================
+
+echo "  [4/5] Building crosscompiledruntime ==="
+
+(
+  CROSSCOMPILEDRUNTIME_ARGS=(
+    ARCH="${CROSS_ARCH}"
+    CAMLOPT="${CROSS_OCAMLOPT}"
+    AS="${CROSS_AS}"
+    ASPP="${CROSS_CC} -c"
+    CC="${CROSS_CC}"
+    CROSS_CC="${CROSS_CC}"
+    CROSS_AR="${CROSS_AR}"
+    CROSS_MKLIB="${CROSS_OCAMLMKLIB}"
+    SAK_AR="${NATIVE_AR}"
+    SAK_CC="${NATIVE_CC}"
+    SAK_CFLAGS="${NATIVE_CFLAGS}"
+    SAK_LDFLAGS="${NATIVE_LDFLAGS}"
+    ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
+    LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
+    OCAMLLIB="${OCAMLLIB}"
+  )
+
+  if [[ "${PLATFORM_TYPE}" == "linux" ]]; then
+    CROSSCOMPILEDRUNTIME_ARGS+=(
+      CPPFLAGS="-D_DEFAULT_SOURCE"
+      BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd"
+      NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd"
+    )
+  fi
+
+  run_logged "crosscompiledruntime" "${MAKE[@]}" crosscompiledruntime "${CROSSCOMPILEDRUNTIME_ARGS[@]}" -j"${CPU_COUNT}"
+)
 
 # ============================================================================
 # Install
 # ============================================================================
 
-echo "  [4/4] Installing ==="
+echo "  [5/5] Installing ==="
 
 # Replace stripdebug with no-op (can't execute target binaries on build machine)
 rm -f tools/stripdebug tools/stripdebug.ml tools/stripdebug.mli tools/stripdebug.cmi tools/stripdebug.cmo

@@ -1,9 +1,9 @@
 context:
+  build_num: 0
   name: ocaml
   version: 5.4.0
   flexdll_version: 0.44
-  build_number: 0
-  arm64_sdk: 11.0
+  # arm64_sdk: 11.0
   dot: ${{ "./" if unix }}
   library: ${{ "Library/" if not unix }}
   m2: ${{ "m2-" if not unix }}
@@ -24,11 +24,11 @@ source:
       target_directory: flexdll
 
 build:
-  number: ${{ build_number }}
+  number: ${{ build_num }}
   script:
     env:
       SKIP_MAKE_TESTS: 1
-      ARM64_SDK: ${{ arm64_sdk }}
+      # ARM64_SDK: ${{ arm64_sdk }}
   dynamic_linking:
     missing_dso_allowlist:
       - if: linux
@@ -111,7 +111,7 @@ requirements:
     - if: osx and x86_64
       then:
         - ${{ c_compiler }}_impl_osx-arm64 ${{ c_compiler_version }}.*
-        - ${{ c_stdlib }}_osx-arm64 =${{ arm64_sdk }}
+        # - ${{ c_stdlib }}_osx-arm64 =${{ arm64_sdk }}
     - if: not unix
       then:
         - ${{ m2 }}coreutils
@@ -119,7 +119,7 @@ requirements:
         - ${{ m2 }}which
     - if: aarch64 or ppc64le or arm64
       then:
-        - if: match(version, ">=5.4") and build_number > 0
+        - if: match(version, ">=5.4") and build_num > 0
           then:
             - ocaml >=5.3 *_2
         - zstd
