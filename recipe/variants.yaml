@@ -1,26 +1,9 @@
-# Variant configuration for OCaml feedstock multi-output recipe
-
-# C compiler configuration
-# Note: On Unix, c_compiler defaults come from global conda-forge config
-# We explicitly set them here for cross-compiler package name generation
 c_compiler:
-  - if: linux
-    then:
-      - gcc
-  - if: osx
-    then:
-      - clang
   - if: not unix
     then:
       - gcc
 
 c_compiler_version:
-  - if: linux
-    then:
-      - 13
-  - if: osx
-    then:
-      - 17
   - if: not unix
     then:
       - 14
@@ -31,21 +14,13 @@ c_stdlib:
       - m2w64-sysroot
 
 c_stdlib_version:
-  - if: linux
-    then:
-      - 2.17
   - if: osx and x86_64
-    then:
-      - 11.0
-  - if: osx and arm64
     then:
       - 11.0
   - if: not unix
     then:
       - 12
 
-# Cross-compiler variants (zipped together for consistency)
-# These are used by Output 3 (ocaml-cross-compiler_${cross_target})
 zip_keys:
   - - cross_build
     - cross_target

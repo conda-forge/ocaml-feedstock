@@ -46,7 +46,7 @@ fi
 # Test 2b: Verify wrapper scripts exist and are executable
 echo ""
 echo "Test 2b: Verify wrapper scripts are installed"
-for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     if [[ -x "${CONDA_PREFIX}/bin/${wrapper}" ]]; then
         echo "  $wrapper: OK"
     else

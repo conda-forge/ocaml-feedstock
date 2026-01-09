@@ -3,23 +3,327 @@ About ocaml-feedstock
 
 Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/main/LICENSE.txt)
 
+
+About ocaml
+-----------
+
 Home: https://ocaml.org/
 
 Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
 
-Summary: Objective Caml (OCaml) is an implementation of the ML language.
+Summary: OCaml compiler (metapackage)
 
 Development: https://github.com/ocaml/ocaml
 
 Documentation: https://ocaml.org/docs/
 
-OCaml is an implementation of the ML language, based on the Caml Light
-dialect extended with a complete class-based object system and a powerful
-module system in the style of Standard ML.
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
 
-OCaml comprises two compilers. One generates bytecode which is then
-interpreted by a C program. This compiler runs quickly, generates compact
-code with moderate memory requirements, and is portable to essentially any
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml-cross-compiler_linux-aarch64
+----------------------------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml cross-compiler for linux-aarch64
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml-cross-compiler_linux-ppc64le
+----------------------------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml cross-compiler for linux-ppc64le
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml_linux-64
+--------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml compilers for linux-64
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml_linux-aarch64
+-------------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml compilers for linux-aarch64
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml_linux-ppc64le
+-------------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml compilers for linux-ppc64le
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml-cross-compiler_osx-arm64
+------------------------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml cross-compiler for osx-arm64
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml_osx-64
+------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml compilers for osx-64
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml_osx-arm64
+---------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml compilers for osx-arm64
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+About ocaml_win-64
+------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: OCaml compilers for win-64
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is a general purpose industrial-strength programming language with an
+emphasis on expressiveness and safety. Developed for more than 20 years at
+Inria it benefits from one of the most advanced type systems and supports
+functional, imperative and object-oriented styles of programming.
+
+The OCaml system is a comprehensive implementation of the Caml language,
+featuring two compilers:
+
+A bytecode compiler (ocamlc) producing small, portable, fast-starting
+bytecode executables suitable for day-to-day development and prototyping on
 32 or 64 bit Unix platform. Performance of generated programs is quite good
 for a bytecoded implementation.  This compiler can be used either as a
 standalone, batch-oriented compiler that produces standalone programs, or as
@@ -103,6 +407,15 @@ Current release info
 | Name | Downloads | Version | Platforms |
 | --- | --- | --- | --- |
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml-green.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml--cross--compiler__linux--aarch64-green.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-aarch64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml-cross-compiler_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-aarch64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml-cross-compiler_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-aarch64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml-cross-compiler_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-aarch64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml--cross--compiler__linux--ppc64le-green.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-ppc64le) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml-cross-compiler_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-ppc64le) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml-cross-compiler_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-ppc64le) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml-cross-compiler_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_linux-ppc64le) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml--cross--compiler__osx--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_osx-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml-cross-compiler_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_osx-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml-cross-compiler_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_osx-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml-cross-compiler_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml-cross-compiler_osx-arm64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--64-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--aarch64-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--ppc64le-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) |
 
 Installing ocaml
 ================
@@ -114,16 +427,16 @@ conda config --add channels conda-forge
 conda config --set channel_priority strict
 ```
 
-Once the `conda-forge` channel has been enabled, `ocaml` can be installed with `conda`:
+Once the `conda-forge` channel has been enabled, `ocaml, ocaml-cross-compiler_linux-aarch64, ocaml-cross-compiler_linux-ppc64le, ocaml-cross-compiler_osx-arm64, ocaml_linux-64, ocaml_linux-aarch64, ocaml_linux-ppc64le, ocaml_osx-64, ocaml_osx-arm64, ocaml_win-64` can be installed with `conda`:
 
 ```
-conda install ocaml
+conda install ocaml ocaml-cross-compiler_linux-aarch64 ocaml-cross-compiler_linux-ppc64le ocaml-cross-compiler_osx-arm64 ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
 ```
 
 or with `mamba`:
 
 ```
-mamba install ocaml
+mamba install ocaml ocaml-cross-compiler_linux-aarch64 ocaml-cross-compiler_linux-ppc64le ocaml-cross-compiler_osx-arm64 ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
 ```
 
 It is possible to list all of the versions of `ocaml` available on your platform with `conda`:

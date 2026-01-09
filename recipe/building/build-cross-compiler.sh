@@ -40,17 +40,14 @@ fi
 
 # Define cross targets based on build platform
 declare -a CROSS_TARGETS
-case "${target_platform}" in
-  linux-64)
-    CROSS_TARGETS=("aarch64-conda-linux-gnu" "powerpc64le-conda-linux-gnu")
-    ;;
+case "${OCAML_CROSS_PLATFORM:-${target_platform}}" in
   linux-aarch64)
     CROSS_TARGETS=("aarch64-conda-linux-gnu")
     ;;
   linux-ppc64le)
     CROSS_TARGETS=("powerpc64le-conda-linux-gnu")
     ;;
-  osx-*)
+  osx-arm64)
     CROSS_TARGETS=("arm64-apple-darwin20.0.0")
     ;;
 esac
@@ -84,7 +81,12 @@ for target in "${CROSS_TARGETS[@]}"; do
   # Setup cross-toolchain (sets CROSS_CC, CROSS_AS, CROSS_AR, etc.)
   setup_toolchain "CROSS" "${target}"
   setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
-
+  
+  if [[ -z "${NATIVE_CC:-}" ]]; then
+    setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
+    setup_cflags_ldflags "NATIVE" "${build_platform}" "${CROSS_PLATFORM}"
+  fi
+  
   # Export CONDA_OCAML_<TARGET_ID>_* variables
   TARGET_ID=$(get_target_id "${target}")
 
@@ -172,6 +174,11 @@ EOF
 
   echo "  [3/5] Patching config.generated.ml..."
   config_file="utils/config.generated.ml"
+
+  # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
+  # Use more specific pattern to avoid affecting other content
+  sed -i 's#\(bytecomp_c_libraries.*\)-L[^ ]*#\1#g' "$config_file"
+  sed -i 's#\(compression_c_libraries.*\)-L[^ ]*#\1#g' "$config_file"
 
   # Patch the cross-compiler's config to use the correct tools
   # - Use DIRECT cross-assembler path (not wrapper) - avoids CONDA_OCAML_AS env var confusion
@@ -261,7 +268,7 @@ SAK_VARS_EOF
   # 2. Clean native runtime files (libasmrun*, amd64.o) - ARM64 needs these rebuilt
   # 3. crossopt rebuilds libasmrun* with CROSS tools (ARCH=arm64)
   #    (bytecode parts already exist and won't be rebuilt)
-  "${MAKE[@]}" runtime-all \
+  run_logged "runtime-all" "${MAKE[@]}" runtime-all \
     ARCH=amd64 \
     CC="${NATIVE_CC}" \
     CFLAGS="${NATIVE_CFLAGS}" \

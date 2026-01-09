@@ -217,6 +217,7 @@ echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config
 # Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
 # Use more specific pattern to avoid affecting other content
 sed -i 's#\(bytecomp_c_libraries.*\)-L[^ ]*#\1#g' "$config_file"
+sed -i 's#\(compression_c_libraries.*\)-L[^ ]*#\1#g' "$config_file"
 
 if is_unix; then
   # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables

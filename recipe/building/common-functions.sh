@@ -87,7 +87,8 @@ find_tool() {
                   "${_PREFIX_}"/bin \
                   \( -name "${tool_name}" -o -name "${tool_name}.exe" \) \
                   \( -type f -o -type l \) \
-                  -perm /111 2>/dev/null | head -1)
+                  -perm /111 \
+                  2>/dev/null | head -1)
   fi
 
   if [[ -n "${tool_path}" ]]; then
@@ -318,26 +319,6 @@ setup_toolchain() {
 # ==============================================================================
 # CONDA_OCAML_* Variable Helpers
 # ==============================================================================
-
-# Get CONDA_OCAML_* environment string for cross-compilation
-# Returns a string suitable for prefixing make commands in a subshell
-# Usage: $(get_cross_env_string) make crossopt ...
-# get_cross_env_string() {
-#   echo "CONDA_OCAML_CC='${CROSS_CC}' CONDA_OCAML_AS='${CROSS_ASM}' CONDA_OCAML_AR='${CROSS_AR}' CONDA_OCAML_RANLIB='${CROSS_RANLIB}' CONDA_OCAML_MKDLL='${CROSS_MKDLL}' CONDA_OCAML_MKEXE='${CROSS_MKEXE}'"
-# }
-
-# Get CONDA_OCAML_* export commands for cross-compilation
-# Returns export commands - use in subshell: ( eval "$(get_cross_env_exports)"; make ... )
-# get_cross_env_exports() {
-#   cat << EOF
-# export CONDA_OCAML_CC='${CROSS_CC}'
-# export CONDA_OCAML_AS='${CROSS_ASM}'
-# export CONDA_OCAML_AR='${CROSS_AR}'
-# export CONDA_OCAML_RANLIB='${CROSS_RANLIB}'
-# export CONDA_OCAML_MKDLL='${CROSS_MKDLL}'
-# export CONDA_OCAML_MKEXE='${CROSS_MKEXE}'
-# EOF
-# }
 
 # Get default tool basenames for wrapper scripts
 # Usage: get_cross_tool_defaults "aarch64-conda-linux-gnu"

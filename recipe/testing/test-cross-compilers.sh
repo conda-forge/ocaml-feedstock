@@ -86,7 +86,7 @@ test_cross_compiler() {
 }
 
 # Linux x86_64: test aarch64 and ppc64le cross-compilers
-if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
+if [[ "$TARGET_PLATFORM" == "linux-aarch64" ]]; then
   # Check if cross-compilers exist
   if command -v aarch64-conda-linux-gnu-ocamlopt >/dev/null 2>&1; then
     test_cross_compiler \
@@ -97,7 +97,9 @@ if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
   else
     echo "aarch64 cross-compiler not found, skipping"
   fi
+fi
 
+if [[ "$TARGET_PLATFORM" == "linux-ppc64le" ]]; then
   if command -v powerpc64le-conda-linux-gnu-ocamlopt >/dev/null 2>&1; then
     test_cross_compiler \
       "powerpc64le-conda-linux-gnu" \
@@ -110,7 +112,7 @@ if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
 fi
 
 # macOS x86_64: test arm64 cross-compiler
-if [[ "$BUILD_PLATFORM" == "osx-64" ]]; then
+if [[ "$TARGET_PLATFORM" == "osx-arm64" ]]; then
   if command -v arm64-apple-darwin20.0.0-ocamlopt >/dev/null 2>&1; then
     # No QEMU for macOS cross-compilation
     test_cross_compiler \

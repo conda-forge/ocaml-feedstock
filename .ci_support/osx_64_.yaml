@@ -14,9 +14,30 @@ channel_sources:
 - conda-forge
 channel_targets:
 - conda-forge main
+cross_build:
+- linux-64
+- linux-64
+- osx-64
+cross_linker:
+- ld-linux-aarch64.so.1
+- ld64.so.2
+- '-'
+cross_target:
+- linux-aarch64
+- linux-ppc64le
+- osx-arm64
 macos_machine:
 - x86_64-apple-darwin13.4.0
 target_platform:
 - osx-64
+triplet_target:
+- aarch64-conda-linux-gnu
+- powerpc64le-conda-linux-gnu
+- arm64-apple-darwin20.0.0
+zip_keys:
+- - cross_build
+  - cross_target
+  - cross_linker
+  - triplet_target
 zstd:
 - '1.5'
