@@ -38,6 +38,41 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
   fi
 fi
 
+# ==============================================================================
+# OUTPUT DETECTION - Multi-output recipe routing
+# ==============================================================================
+# Detect which output is being built and route accordingly:
+#   1. "ocaml" → metapackage (just echo and exit)
+#   2. "ocaml-cross-compiler_*" → cross-compiler output (run Stage 2 only)
+#   3. "ocaml_${target_platform}" → platform implementation (normal build flow)
+# ==============================================================================
+
+if [[ "${PKG_NAME}" == "ocaml" ]]; then
+  # Metapackage - no build needed, dependencies will pull in ocaml_${target_platform}
+  echo "Building metapackage: ocaml (depends on ocaml_${target_platform})"
+  echo "Metapackage build complete."
+  exit 0
+fi
+
+if [[ "${PKG_NAME}" == "ocaml-cross-compiler_"* ]]; then
+  # Cross-compiler output - run Stage 2 only (build-cross-compiler.sh)
+  echo "Building cross-compiler output: ${PKG_NAME}"
+  echo "Target platform: ${CROSS_TARGET_PLATFORM:-unknown}"
+  echo "Target triplet: ${CROSS_HOST_ALIAS:-unknown}"
+
+  # Source common functions first
+  source "${RECIPE_DIR}"/building/common-functions.sh
+
+  # Run cross-compiler build script directly
+  source "${RECIPE_DIR}"/building/build-cross-compiler.sh
+
+  echo "Cross-compiler build complete: ${PKG_NAME}"
+  exit 0
+fi
+
+# Otherwise, this is ocaml_${target_platform} - continue with normal build flow
+echo "Building platform implementation: ${PKG_NAME}"
+
 source "${RECIPE_DIR}"/building/common-functions.sh
 
 # Platform detection (must be after sourcing common-functions.sh for is_unix)
