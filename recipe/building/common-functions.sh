@@ -44,11 +44,19 @@ run_logged() {
   fi
 }
 
-# Apply Makefile and Makefile.cross patches for conda-forge cross-compilation
+# Apply Makefile.cross and platform-specific patches
 # Requires: NEEDS_DL variable to be set (1 = add -ldl)
 apply_cross_patches() {
+  # Copy custom Makefile.cross from feedstock
+  cp "${RECIPE_DIR}"/building/Makefile.cross .
+
   # Patch main Makefile (checkstack fix + BUILD!=HOST condition)
   patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch > /dev/null 2>&1 || true
+
+  # Fix dynlink "inconsistent assumptions" error:
+  # Use otherlibrariesopt-cross target which calls dynlink-allopt with proper CAMLOPT/BEST_OCAMLOPT
+  sed -i 's/otherlibrariesopt ocamltoolsopt/otherlibrariesopt-cross ocamltoolsopt/g' Makefile.cross
+  sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL}" == "1" ]]; then
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
