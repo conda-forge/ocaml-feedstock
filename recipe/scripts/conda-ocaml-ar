@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# OCaml archiver wrapper - expands CONDA_OCAML_AR environment variable
+exec ${CONDA_OCAML_AR:-ar} "$@"

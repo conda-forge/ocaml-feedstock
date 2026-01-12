@@ -23,6 +23,7 @@ set _RECIPE_DIR=%RECIPE_DIR:\=/%
 :: These are exported to bash for use in patching GHC settings files
 set _PREFIX_=%_PREFIX%
 set _BUILD_PREFIX_=%_BUILD_PREFIX%
+set _SRC_DIR_=%_SRC_DIR%
 
 :: Convert C: and D: /c, /d (Unix-style for bash/configure)
 set _PREFIX=%_PREFIX:C:=/c/%
@@ -40,6 +41,11 @@ set _BUILD_PREFIX=%_BUILD_PREFIX://=/%
 set _SRC_DIR=%_SRC_DIR://=/%
 set _RECIPE_DIR=%_RECIPE_DIR://=/%
 
+:: UTF-8 and MSYS2 settings
+chcp 65001
+set PYTHONUTF8=1
+set LC_ALL=en_US.UTF-8
+  
 set MSYSTEM=MINGW64
 set MSYS2_PATH_TYPE=inherit
 set MSYS2_ARG_CONV_EXCL="*"

@@ -1,323 +1,337 @@
 # ============================================================================
-# CROSS-COMPILERS (only on linux-64 and osx-64)
+# CROSS-COMPILERS BUILD SCRIPT
+# Builds cross-compilers for aarch64/ppc64le (on linux-64) or arm64 (on osx-64)
+#
+# Variables:
+#   OCAML_PREFIX         - Where native OCaml is installed (source for native tools)
+#   OCAML_INSTALL_PREFIX - Where cross-compilers will be installed (destination)
 # ============================================================================
-if [[ "${target_platform}" == "linux-64" ]] || [[ "${target_platform}" == "osx-64" ]]; then
 
-  # Set OCAMLLIB to installed native ocaml
-  export OCAMLLIB="${PREFIX}/lib/ocaml"
+# Source common functions
+source "${RECIPE_DIR}/building/common-functions.sh"
 
-  # Define cross targets based on build platform
-  declare -A CROSS_TARGETS
-  if [[ "${target_platform}" == "linux-64" ]]; then
-    CROSS_TARGETS=(
-      ["aarch64-conda-linux-gnu"]="arm64:linux"
-      ["powerpc64le-conda-linux-gnu"]="power:linux:ppc64le"
-    )
-    _CC="${CC}"
-  elif [[ "${target_platform}" == "osx-64" ]]; then
-    CROSS_TARGETS=(
-      ["arm64-apple-darwin20.0.0"]="arm64:macos"
-    )
-    _CC="clang"
+if [[ "${target_platform}" != "linux"* ]] && [[ "${target_platform}" != "osx"* ]]; then
+  echo "No cross-compiler recipe for ${target_platform} ... yet"
+  return 0
+fi
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+# OCAML_PREFIX = where native OCaml is installed (source for native tools)
+# OCAML_INSTALL_PREFIX = where cross-compilers will be installed (destination)
+: "${OCAML_PREFIX:=${PREFIX}}"
+: "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
+
+# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
+# Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
+# Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
+if [[ "${target_platform}" == "osx"* ]]; then
+  if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+  else
+    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
+fi
 
-  for target in "${!CROSS_TARGETS[@]}"; do
-    IFS=':' read -r _ARCH _PLATFORM _MODEL <<< "${CROSS_TARGETS[$target]}"
+# Define cross targets based on build platform
+declare -a CROSS_TARGETS
+case "${target_platform}" in
+  linux-64)
+    CROSS_TARGETS=("aarch64-conda-linux-gnu" "powerpc64le-conda-linux-gnu")
+    ;;
+  linux-aarch64)
+    CROSS_TARGETS=("aarch64-conda-linux-gnu")
+    ;;
+  linux-ppc64le)
+    CROSS_TARGETS=("powerpc64le-conda-linux-gnu")
+    ;;
+  osx-*)
+    CROSS_TARGETS=("arm64-apple-darwin20.0.0")
+    ;;
+esac
 
-    echo "=== Building cross-compiler for ${target} ==="
+# ============================================================================
+# Build loop
+# ============================================================================
 
-    CROSS_PREFIX="${PREFIX}/ocaml-cross-compilers/${target}"
-    mkdir -p "${CROSS_PREFIX}/bin" "${CROSS_PREFIX}/lib/ocaml"
+echo ""
+echo "============================================================"
+echo "Cross-compiler build configuration"
+echo "============================================================"
+echo "  Native OCaml (source):    ${OCAML_PREFIX}"
+echo "  Cross install (dest):     ${OCAML_INSTALL_PREFIX}"
+echo "  Native ocamlopt:          ${OCAML_PREFIX}/bin/ocamlopt"
 
-    _CC="${BUILD_PREFIX}/bin/${target}-${CC##*-}"
-    _AS="${BUILD_PREFIX}/bin/${target}-as"
-    [[ "${_PLATFORM}" == "macos" ]] && _AS="${_CC}"
+for target in "${CROSS_TARGETS[@]}"; do
+  echo ""
+  echo "  ------------------------------------------------------------"
+  echo "  Building cross-compiler for ${target}"
+  echo "  ------------------------------------------------------------"
 
-    if [[ "${_PLATFORM}" == "macos" ]]; then
-      # macOS: use LLVM tools consistently (GNU tools incompatible with ld64)
-      _AR="${BUILD_PREFIX}/bin/llvm-ar"
-      _RANLIB="${BUILD_PREFIX}/bin/llvm-ranlib"
-      _NM="${BUILD_PREFIX}/bin/llvm-nm"
-      _STRIP="${BUILD_PREFIX}/bin/llvm-strip"
-      _LD="${BUILD_PREFIX}/bin/ld.lld"
-      _ARM64_SYSROOT=""
-      for _try_sysroot in /opt/conda-sdks/*"${ARM64_SDK}".sdk; do
-        [[ -z "${_try_sysroot}" ]] && continue  # Skip empty entries
-        if [[ -d "${_try_sysroot}/usr/include" ]] || [[ -d "${_try_sysroot}/System/Library" ]]; then
-          _ARM64_SYSROOT="${_try_sysroot}"
-          echo "     Found ARM64 SDK at: ${_ARM64_SYSROOT}"
-          break
-        fi
-      done
-      # If no SDK found, try to query the cross-compiler for its default sysroot
-      if [[ -z "${_ARM64_SYSROOT}" ]]; then
-        # Try to get default sysroot from the cross-compiler
-        _CLANG_DEFAULT_SYSROOT=$("${_CC}" --print-sysroot 2>/dev/null || true)
-        if [[ -n "${_CLANG_DEFAULT_SYSROOT}" ]] && [[ -d "${_CLANG_DEFAULT_SYSROOT}" ]]; then
-          _ARM64_SYSROOT="${_CLANG_DEFAULT_SYSROOT}"
-          echo "     Found ARM64 SDK via clang --print-sysroot: ${_ARM64_SYSROOT}"
-        fi
-      fi
+  # Get target properties using common functions
+  CROSS_ARCH=$(get_target_arch "${target}")
+  CROSS_PLATFORM=$(get_target_platform "${target}")
 
-      if [[ -z "${_ARM64_SYSROOT}" ]]; then
-        echo "     WARNING: No ARM64 SDK found in any of the searched locations"
-        echo "     Searched: ${_SYSROOT_SEARCH[*]}"
-        echo "     BUILD_PREFIX: ${BUILD_PREFIX}"
-        echo "     CONDA_BUILD_SYSROOT: ${CONDA_BUILD_SYSROOT:-unset}"
-        ls -la "${BUILD_PREFIX}/${target}/" 2>/dev/null || echo "     No ${BUILD_PREFIX}/${target}/ directory"
-        ls -la /opt/*.sdk 2>/dev/null || echo "     No /opt/*.sdk directories"
-        echo "     Proceeding without explicit -isysroot (clang will use its default)"
-        _CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem $BUILD_PREFIX/include"
-      else
-        _CFLAGS="-ftree-vectorize -fPIC -O3 -pipe -isystem $BUILD_PREFIX/include -isysroot ${_ARM64_SYSROOT}"
-      fi
-      _LDFLAGS="-fuse-ld=lld"
-    else
-      _AR="${BUILD_PREFIX}/bin/${target}-ar"
-      _RANLIB="${BUILD_PREFIX}/bin/${target}-ranlib"
-      _NM="${BUILD_PREFIX}/bin/${target}-nm"
-      _STRIP="${BUILD_PREFIX}/bin/${target}-strip"
-      _LD="${BUILD_PREFIX}/bin/${target}-ld"
-      _CFLAGS="-ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O3 -pipe -isystem $BUILD_PREFIX/include"
-      _LDFLAGS=""
-    fi
+  # Handle PowerPC model override
+  CROSS_MODEL=""
+  [[ "${target}" == "powerpc64le-"* ]] && CROSS_MODEL="ppc64le"
 
-    # Without distclean, stale header.o (x86_64) causes "Relocations in generic ELF" errors
-    echo "     distclean"
-    make distclean > /dev/null 2>&1 || true
+  # Setup cross-toolchain (sets CROSS_CC, CROSS_AS, CROSS_AR, etc.)
+  setup_toolchain "CROSS" "${target}"
+  setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
 
-    # Configure for cross target (uses installed native tools from PATH)
-    # AR/RANLIB must be passed to configure so Makefile.config gets correct tools
-    # On macOS, must use LLVM tools (GNU tools incompatible with ld64)
-    # NOTE: Do NOT pass CC here - configure needs BUILD compiler to build the cross-compiler binary
-    # The TARGET compiler (_CC) is patched into config.generated.ml later
-    echo "     configure"
-    ./configure -prefix="${CROSS_PREFIX}" \
-      --target="${target}" \
-      "${CONFIG_ARGS[@]}" \
-      AR="${_AR}" \
-      RANLIB="${_RANLIB}" \
-      NM="${_NM}" \
-      STRIP="${_STRIP}" \
-      ${_MODEL:+ac_cv_func_getentropy=no} > "${SRC_DIR}"/_logs/crossconfigure.log 2>&1 || { cat "${SRC_DIR}"/_logs/crossconfigure.log; exit 1; }
+  # Export CONDA_OCAML_<TARGET_ID>_* variables
+  TARGET_ID=$(get_target_id "${target}")
 
-    # Patch config.generated.ml for cross output
-    # CRITICAL: Use basenames only (not full paths) so binaries are relocatable
-    as=$(basename ${_AS})
-    cc=$(basename ${_CC})
-    ar=$(basename ${_AR})
-    ranlib=$(basename ${_RANLIB})
-    config_file="utils/config.generated.ml"
-    if [[ "${_PLATFORM}" == "macos" ]]; then
-      sed -i "s#^let asm = .*#let asm = {|${cc} -c|}#" "$config_file"
-      sed -i "s#^let mkdll = .*#let mkdll = {|${cc} -shared -undefined dynamic_lookup|}#" "$config_file"
-      sed -i "s#^let mkexe = .*#let mkexe = {|${cc}|}#" "$config_file"
-    else
-      sed -i "s#^let asm = .*#let asm = {|${as}|}#" "$config_file"
-      sed -i "s#^let mkdll = .*#let mkdll = {|${cc} -shared|}#" "$config_file"
-      sed -i "s#^let mkexe = .*#let mkexe = {|${cc} -Wl,-E|}#" "$config_file"
-    fi
-    sed -i "s#^let c_compiler = .*#let c_compiler = {|${cc}|}#" "$config_file"
-    sed -i "s#^let ar = .*#let ar = {|${ar}|}#" "$config_file"
-    sed -i "s#^let ranlib = .*#let ranlib = {|${ranlib}|}#" "$config_file"
-    sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${CROSS_PREFIX}/lib/ocaml|}#" "$config_file"
-    [[ -n "${_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${_MODEL}|}#" "$config_file"
+  echo "  Target:        ${target}"
+  echo "  Target ID:     ${TARGET_ID}"
+  echo "  Arch:          ${CROSS_ARCH}"
+  echo "  Platform:      ${CROSS_PLATFORM}"
+  echo "  CROSS_AR:      ${CROSS_AR}"
+  echo "  CROSS_AS:      ${CROSS_AS}"
+  echo "  CROSS_ASM:     ${CROSS_ASM}"
+  echo "  CROSS_CC:      ${CROSS_CC}"
+  echo "  CROSS_CFLAGS:  ${CROSS_CFLAGS}"
+  echo "  CROSS_LD:      ${CROSS_LD}"
+  echo "  CROSS_LDFLAGS: ${CROSS_LDFLAGS}"
+  echo "  CROSS_RANLIB:  ${CROSS_RANLIB}"
 
-    # Apply cross patches
-    echo "     patch Makefile.cross"
-    cp "${RECIPE_DIR}"/building/Makefile.cross .
-    patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch > /dev/null 2>&1 || true
+  cat > "${SRC_DIR}/_xcross_compiler_${target_platform}_env.sh" << EOF
+# Generated by build-cross-compiler.sh - do not edit
+export "CROSS_AR=${CROSS_AR}"
+export "CROSS_AS=${CROSS_AS}"
+export "CROSS_ASM=${CROSS_ASM}"
+export "CROSS_CC=${CROSS_CC}"
+export "CROSS_CFLAGS=${CROSS_CFLAGS}"
+export "CROSS_LD=${CROSS_LD}"
+export "CROSS_LDFLAGS=${CROSS_LDFLAGS}"
+export "CROSS_RANLIB=${CROSS_RANLIB}"
+export "CROSS_MKDLL=${CROSS_MKDLL}"
+export "CROSS_MKEXE=${CROSS_MKEXE}"
 
-    _CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
-
-    # Build cross-compiler
-    # CRITICAL: LIBDIR must be explicitly set to prevent MAKEFLAGS inheritance
-    # from parent (native) build which has LIBDIR=${PREFIX}/lib/ocaml
-    echo "     crossopt"
-
-    # Common crossopt args
-    _CROSSOPT_ARGS=(
-      ARCH="${_ARCH}"
-      AR="${_AR}"
-      AS="${_AS}"
-      ASPP="${_CC} -c"
-      CAMLOPT=ocamlopt
-      CC="${_CC}"
-      CFLAGS="${_CFLAGS}"
-      CROSS_AR="${_AR}"
-      CROSS_CC="${_CC}"
-      CROSS_MKLIB="${_CROSS_MKLIB}"
-      LD="${_LD}"
-      LDFLAGS="${_LDFLAGS}"
-      LIBDIR="${CROSS_PREFIX}/lib/ocaml"
-      NM="${_NM}"
-      RANLIB="${_RANLIB}"
-      SAK_CC="${CC}"
-      SAK_CFLAGS="${CFLAGS}"
-      STRIP="${_STRIP}"
-      ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
-    )
-
-    # Platform-specific args
-    if [[ "${_PLATFORM}" == "macos" ]]; then
-      _CROSSOPT_ARGS+=(SAK_LDFLAGS="-fuse-ld=lld")
-    fi
-
-    make crossopt "${_CROSSOPT_ARGS[@]}" -j${CPU_COUNT} > "${SRC_DIR}"/_logs/crossopt.log 2>&1 || { cat "${SRC_DIR}"/_logs/crossopt.log; exit 1; }
-
-    # Install cross-compiler artifacts directly (skip make installcross - too complex)
-    # Install to CROSS_PREFIX which matches what configure baked into the binary
-    echo "     installing cross-compiler artifacts"
-
-    CROSS_LIBDIR="${CROSS_PREFIX}/lib/ocaml"
-    mkdir -p "${CROSS_LIBDIR}" "${CROSS_PREFIX}/bin"
-
-    # Cross-compiler binaries (run on build, emit target code)
-    cp ocamlopt.opt "${CROSS_PREFIX}/bin/ocamlopt.opt"
-    cp ocamlc.opt "${CROSS_PREFIX}/bin/ocamlc.opt"
-    cp tools/ocamldep.opt "${CROSS_PREFIX}/bin/ocamldep.opt"
-    cp tools/ocamlobjinfo.opt "${CROSS_PREFIX}/bin/ocamlobjinfo.opt"
-
-    # Create wrapper script for ocamlopt that sets OCAMLLIB to cross-compiled libs
-    # Uses self-contained path resolution (doesn't depend on OCAML_PREFIX being set)
-    cat > "${PREFIX}/bin/${target}-ocamlopt" << 'WRAPPER'
-#!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlopt.opt" "$@"
-WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlopt"
-    chmod +x "${PREFIX}/bin/${target}-ocamlopt"
-
-    # Create wrapper script for ocamlc (bytecode compiler) with same OCAMLLIB
-    cat > "${PREFIX}/bin/${target}-ocamlc" << 'WRAPPER'
-#!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlc.opt" "$@"
-WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlc"
-    chmod +x "${PREFIX}/bin/${target}-ocamlc"
-
-    # Create wrapper script for ocamldep (dependency analyzer) with same OCAMLLIB
-    cat > "${PREFIX}/bin/${target}-ocamldep" << 'WRAPPER'
-#!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamldep.opt" "$@"
-WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamldep"
-    chmod +x "${PREFIX}/bin/${target}-ocamldep"
-
-    # Create wrapper script for ocamlobjinfo (object file inspector) with same OCAMLLIB
-    cat > "${PREFIX}/bin/${target}-ocamlobjinfo" << 'WRAPPER'
-#!/bin/sh
-_prefix="$(cd "$(dirname "$0")/.." && pwd)"
-export OCAMLLIB="${_prefix}/ocaml-cross-compilers/__TARGET__/lib/ocaml"
-exec "${_prefix}/ocaml-cross-compilers/__TARGET__/bin/ocamlobjinfo.opt" "$@"
-WRAPPER
-    sed -i "s#__TARGET__#${target}#g" "${PREFIX}/bin/${target}-ocamlobjinfo"
-    chmod +x "${PREFIX}/bin/${target}-ocamlobjinfo"
-
-    # Stdlib - need both bytecode (.cmo, .cma) and native (.cmx, .cmxa) files plus metadata
-    # CRITICAL: .cmo files needed by CAMLC=ocamlc in Makefile.cross (prevents "Cannot find file std_exit.cmo")
-    # Also need runtime-launch-info and other metadata files for ocamlc
-    echo "     copying stdlib files..."
-    cp stdlib/*.cma stdlib/*.cmxa stdlib/*.a stdlib/*.cmi stdlib/*.cmo stdlib/*.cmx stdlib/*.o "${CROSS_LIBDIR}/" || {
-      echo "     ERROR: Failed to copy stdlib files for ${target}"
-      ls -la stdlib/*.{cma,cmxa,a,cmi,cmo,cmx,o} 2>&1 | head -20
-      exit 1
-    }
-    # Copy metadata files (runtime-launch-info, target_runtime-launch-info, etc.)
-    if ls stdlib/*runtime*info 1>/dev/null 2>&1; then
-      cp stdlib/*runtime*info "${CROSS_LIBDIR}/"
-      echo "     copied runtime info files"
-    else
-      echo "     Warning: No runtime info files found - listing stdlib:"
-      ls -la stdlib/ | grep -E "runtime|launch|info" || echo "     (none found)"
-    fi
-
-    # Compiler libs - only need archive files (.cma, .cmxa, .a)
-    # Individual .cmo/.cmx files are packaged inside the archives
-    echo "     copying compilerlibs files..."
-    cp compilerlibs/*.cma compilerlibs/*.cmxa compilerlibs/*.a "${CROSS_LIBDIR}/" || {
-      echo "     ERROR: Failed to copy compilerlibs files for ${target}"
-      ls -la compilerlibs/*.{cma,cmxa,a} 2>&1 | head -20
-      exit 1
-    }
-
-    # Runtime
-    echo "     copying runtime files..."
-    cp runtime/*.a runtime/*.o "${CROSS_LIBDIR}/" || {
-      echo "     ERROR: Failed to copy runtime files for ${target}"
-      ls -la runtime/*.{a,o} 2>&1 | head -20
-      exit 1
-    }
-
-    # Otherlibs (unix, str, dynlink, etc.) - copy archives and any standalone modules
-    # Some otherlibs have individual .cmo/.cmx files, others only have archives
-    echo "     copying otherlibs files..."
-    for lib in otherlibs/*/; do
-      # Copy what exists - use 2>/dev/null to ignore missing patterns
-      cp "${lib}"*.cma "${lib}"*.cmxa "${lib}"*.a "${lib}"*.cmi "${CROSS_LIBDIR}/" 2>/dev/null || true
-      cp "${lib}"*.cmo "${lib}"*.cmx "${lib}"*.o "${CROSS_LIBDIR}/" 2>/dev/null || true
-    done
-
-    # Stublibs
-    mkdir -p "${CROSS_LIBDIR}/stublibs"
-    cp otherlibs/*/dll*.so "${CROSS_LIBDIR}/stublibs/" 2>/dev/null || {
-      echo "     Warning: No stublib .so files to copy"
-    }
-
-    # Create ld.conf for stublibs discovery
-    # CRITICAL: Cross-compiler binary is x86-64 (runs on build machine)
-    # It needs x86-64 stublibs at runtime, NOT the cross-compiled (aarch64/ppc64le) ones
-    # Point to NATIVE OCaml's stublibs (same arch as cross-compiler binary)
-    cat > "${CROSS_LIBDIR}/ld.conf" << LDCONF
-${PREFIX}/lib/ocaml/stublibs
-${PREFIX}/lib/ocaml
-LDCONF
-
-    echo "     installed: ${PREFIX}/bin/${target}-ocamlopt -> ${CROSS_PREFIX}/bin/ocamlopt.opt"
-    echo "     libs:      ${CROSS_LIBDIR}/"
-
-    # Quick sanity test - compile a simple program and verify architecture
-    echo "     testing cross-compiler..."
-    "${PREFIX}/bin/${target}-ocamlopt" -version | grep -q ${PKG_VERSION}
-
-    cat > /tmp/test_cross.ml << 'EOF'
-let () = print_endline "Hello from cross-compiled OCaml"
+# CONDA_OCAML_* for runtime (use CROSS_* not CONDA_OCAML_* which may be native)
+export "CONDA_OCAML_${TARGET_ID}_AR=${CROSS_AR}"
+export "CONDA_OCAML_${TARGET_ID}_AS=${CROSS_ASM}"
+export "CONDA_OCAML_${TARGET_ID}_CC=${CROSS_CC}"
+export "CONDA_OCAML_${TARGET_ID}_RANLIB=${CROSS_RANLIB}"
+export "CONDA_OCAML_${TARGET_ID}_MKDLL=${CROSS_MKDLL}"
+export "CONDA_OCAML_${TARGET_ID}_MKEXE=${CROSS_MKEXE}"
 EOF
 
-    if "${PREFIX}/bin/${target}-ocamlopt" -o /tmp/test_cross /tmp/test_cross.ml 2>/dev/null; then
-      # Verify binary architecture
-      _file_output=$(file /tmp/test_cross)
-      case "${_ARCH}" in
-        arm64)
-          if echo "$_file_output" | grep -qiE "aarch64|arm64"; then
-            echo "     ✓ cross-compiler produces ${_ARCH} binaries"
-          else
-            echo "     ✗ ERROR: expected ${_ARCH}, got: $_file_output"
-            exit 1
-          fi
-          ;;
-        power)
-          if echo "$_file_output" | grep -qi "powerpc\|ppc64"; then
-            echo "     ✓ cross-compiler produces ${_ARCH} binaries"
-          else
-            echo "     ✗ ERROR: expected ${_ARCH}, got: $_file_output"
-            exit 1
-          fi
-          ;;
-      esac
-      rm -f /tmp/test_cross /tmp/test_cross.ml /tmp/test_cross.o /tmp/test_cross.cmx /tmp/test_cross.cmi
-    else
-      echo "     ✗ ERROR: cross-compilation failed"
-      # Try again with verbose output
-      "${PREFIX}/bin/${target}-ocamlopt" -verbose -o /tmp/test_cross /tmp/test_cross.ml || true
-      exit 1
-    fi
+  # Installation prefix for this cross-compiler
+  OCAML_CROSS_PREFIX="${OCAML_INSTALL_PREFIX}/lib/ocaml-cross-compilers/${target}"
+  OCAML_CROSS_LIBDIR="${OCAML_CROSS_PREFIX}/lib/ocaml"
+  mkdir -p "${OCAML_CROSS_PREFIX}/bin" "${OCAML_CROSS_LIBDIR}"
 
-    echo "=== Done ==="
+  # ========================================================================
+  # Clean and configure
+  # ========================================================================
+
+  echo "  [1/5] Cleaning previous build..."
+  run_logged "pre-cross-distclean" "${MAKE[@]}" distclean > /dev/null 2>&1 || true
+
+  echo "  [2/5] Configuring for ${target}..."
+  # PKG_CONFIG=false forces simple "-lzstd" instead of "-L/long/path -lzstd"
+  # Do NOT pass CC here - configure needs BUILD compiler
+  # ac_cv_func_getentropy=no: conda-forge uses glibc 2.17 sysroot which lacks getentropy
+  # CRITICAL: Override CFLAGS/LDFLAGS - conda-build sets them for TARGET (ppc64le)
+  # but configure needs BUILD flags (x86_64) to compile the cross-compiler binary
+  run_logged "cross-configure" ${CONFIGURE[@]} \
+    -prefix="${OCAML_CROSS_PREFIX}" \
+    --host="${build_alias}" \
+    --target="${target}" \
+    --enable-frame-pointers \
+    "${CONFIG_ARGS[@]}" \
+    AR="${CROSS_AR}" \
+    AS="${NATIVE_AS}" \
+    CC="${NATIVE_CC}" \
+    CFLAGS="${NATIVE_CFLAGS}" \
+    LD="${NATIVE_LD}" \
+    LDFLAGS="${NATIVE_LDFLAGS}" \
+    NM="${CROSS_NM}" \
+    RANLIB="${CROSS_RANLIB}" \
+    STRIP="${CROSS_STRIP}" \
+    ac_cv_func_getentropy=no \
+    ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
+
+  # ========================================================================
+  # Patch config.generated.ml
+  # ========================================================================
+
+  echo "  [3/5] Patching config.generated.ml..."
+  config_file="utils/config.generated.ml"
+
+  # Use conda-ocaml-* wrapper scripts instead of $CONDA_OCAML_* variable references
+  # Wrappers expand env vars at runtime, compatible with Unix.create_process
+  sed -i \
+    -e 's#^let asm = .*#let asm = {|conda-ocaml-as|}#' \
+    -e 's#^let ar = .*#let ar = {|conda-ocaml-ar|}#' \
+    -e 's#^let c_compiler = .*#let c_compiler = {|conda-ocaml-cc|}#' \
+    -e 's#^let ranlib = .*#let ranlib = {|conda-ocaml-ranlib|}#' \
+    -e 's#^let mkexe = .*#let mkexe = {|conda-ocaml-mkexe|}#' \
+    -e 's#^let mkdll = .*#let mkdll = {|conda-ocaml-mkdll|}#' \
+    -e 's#^let mkmaindll = .*#let mkmaindll = {|conda-ocaml-mkdll|}#' \
+    "$config_file"
+  sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${OCAML_CROSS_LIBDIR}|}#" "$config_file"
+  [[ -n "${CROSS_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${CROSS_MODEL}|}#" "$config_file"
+
+  # Apply "${MAKE[@]}"file.cross patches
+  cp "${RECIPE_DIR}/building/Makefile.cross" .
+  patch -N -p0 < "${RECIPE_DIR}/building/tmp_Makefile.patch" > /dev/null 2>&1 || true
+
+  # ========================================================================
+  # Build cross-compiler
+  # ========================================================================
+
+  echo "  [4/5] Building cross-compiler (crossopt)..."
+
+  (
+    # Set CONDA_OCAML_* for cross-compilation during build
+    # NOTE: CC/AS/AR/RANLIB are CROSS tools (for compiling ARM64/PPC64 stdlib)
+    # BUT: MKEXE must stay NATIVE (for linking the x86_64 cross-compiler binary)
+    # CONDA_OCAML_MKEXE inherits native value from _native_env.sh - DO NOT override!
+    # CRITICAL: Must EXPORT these so ocaml-* wrapper scripts see them
+    # CRITICAL: Use CROSS_ASM (not CROSS_AS) - on macOS, ASM includes "-c" flag
+    # Without -c, clang tries to link, causing "symbol(s) not found" linker errors
+    export CONDA_OCAML_AS="${CROSS_ASM}"
+    export CONDA_OCAML_CC="${CROSS_CC}"
+    export CONDA_OCAML_AR="${CROSS_AR}"
+    export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
+    export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+    # CONDA_OCAML_MKEXE intentionally NOT set - use native linker for cross-compiler binary
+
+    # Ensure cross-tools are findable in PATH
+    PATH="${OCAML_PREFIX}/bin:${PATH}"
+    hash -r
+
+    # Build arguments
+    CROSSOPT_ARGS=(
+      ARCH="${CROSS_ARCH}"
+      AR="${CROSS_AR}"
+      AS="${CROSS_AS}"
+      ASPP="${CROSS_CC} -c"
+      CAMLOPT=ocamlopt
+      CC="${CROSS_CC}"
+      CFLAGS="${CROSS_CFLAGS}"
+      CROSS_AR="${CROSS_AR}"
+      CROSS_CC="${CROSS_CC}"
+      CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
+      LD="${CROSS_LD}"
+      LDFLAGS="${CROSS_LDFLAGS}"
+      LIBDIR="${OCAML_CROSS_LIBDIR}"
+      NM="${CROSS_NM}"
+      RANLIB="${CROSS_RANLIB}"
+      STRIP="${CROSS_STRIP}"
+      ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+      
+      SAK_AR="${NATIVE_AR}"
+      SAK_CC="${NATIVE_CC}"
+      SAK_CFLAGS="${NATIVE_CFLAGS}"
+      SAK_LDFLAGS="${NATIVE_LDFLAGS}"
+
+      # NATIVE_AS/ASM/CC for building native tools (profiling.cmx, ocamlopt.opt internals)
+      # Makefile.cross defaults to "as" and $(CC) which are wrong during cross-compilation
+      # NATIVE_ASM includes "-c" flag for macOS clang (required for assembly-only)
+      NATIVE_AS="${NATIVE_AS}"
+      NATIVE_ASM="${NATIVE_ASM}"
+      NATIVE_CC="${NATIVE_CC}"
+    )
+
+    run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}"
+  )
+
+  # ========================================================================
+  # Install cross-compiler
+  # ========================================================================
+
+  echo "  [5/5] Installing cross-compiler artifacts..."
+
+  # Binaries
+  cp ocamlopt.opt "${OCAML_CROSS_PREFIX}/bin/"
+  cp ocamlc.opt "${OCAML_CROSS_PREFIX}/bin/"
+  cp tools/ocamldep.opt "${OCAML_CROSS_PREFIX}/bin/"
+  cp tools/ocamlobjinfo.opt "${OCAML_CROSS_PREFIX}/bin/"
+
+  # Stdlib (bytecode + native + metadata)
+  cp stdlib/*.{cma,cmxa,a,cmi,cmo,cmx,o} "${OCAML_CROSS_LIBDIR}/" 2>/dev/null
+  cp stdlib/*runtime*info "${OCAML_CROSS_LIBDIR}/" 2>/dev/null
+
+  # Compiler libs
+  cp compilerlibs/*.{cma,cmxa,a} "${OCAML_CROSS_LIBDIR}/" 2>/dev/null
+
+  # Runtime
+  cp runtime/*.{a,o} "${OCAML_CROSS_LIBDIR}/" 2>/dev/null
+
+  # Otherlibs
+  for lib in otherlibs/*/; do
+    cp "${lib}"*.{cma,cmxa,a,cmi,cmo,cmx,o} "${OCAML_CROSS_LIBDIR}/" 2>/dev/null
   done
-fi
+
+  # Stublibs
+  mkdir -p "${OCAML_CROSS_LIBDIR}/stublibs"
+  cp otherlibs/*/dll*.so "${OCAML_CROSS_LIBDIR}/stublibs/" 2>/dev/null
+
+  # ld.conf - point to native OCaml's stublibs (same arch as cross-compiler binary)
+  # Cross-compiler binary runs on BUILD machine, needs BUILD-arch stublibs
+  cat > "${OCAML_CROSS_LIBDIR}/ld.conf" << EOF
+${OCAML_PREFIX}/lib/ocaml/stublibs
+${OCAML_PREFIX}/lib/ocaml
+EOF
+
+  # ========================================================================
+  # Generate wrapper scripts
+  # ========================================================================
+
+  for tool in ocamlopt ocamlc ocamldep ocamlobjinfo; do
+    generate_cross_wrapper "${tool}" "${OCAML_INSTALL_PREFIX}" "${target}" "${OCAML_CROSS_PREFIX}"
+  done
+
+  echo "  Installed: ${OCAML_INSTALL_PREFIX}/bin/${target}-ocamlopt"
+  echo "  Libs:      ${OCAML_CROSS_LIBDIR}/"
+
+  # ========================================================================
+  # Test cross-compiler
+  # ========================================================================
+
+  echo "  Testing cross-compiler..."
+  "${OCAML_INSTALL_PREFIX}/bin/${target}-ocamlopt" -version | grep -q "${PKG_VERSION}"
+
+  cat > /tmp/test_xcross_compiler.ml << 'TESTEOF'
+let () = print_endline "Hello from cross-compiled OCaml"
+TESTEOF
+
+  if "${OCAML_INSTALL_PREFIX}/bin/${target}-ocamlopt" -o /tmp/test_xcross_compiler /tmp/test_xcross_compiler.ml 2>/dev/null; then
+    _file_output=$(file /tmp/test_xcross_compiler)
+    case "${CROSS_ARCH}" in
+      arm64)
+        echo "$_file_output" | grep -qiE "aarch64|arm64" && echo "  ✓ Produces ${CROSS_ARCH} binaries" || {
+          echo "  ✗ ERROR: expected ${CROSS_ARCH}, got: $_file_output"
+          exit 1
+        }
+        ;;
+      power)
+        echo "$_file_output" | grep -qi "powerpc\|ppc64" && echo "  ✓ Produces ${CROSS_ARCH} binaries" || {
+          echo "  ✗ ERROR: expected ${CROSS_ARCH}, got: $_file_output"
+          exit 1
+        }
+        ;;
+    esac
+    rm -f /tmp/test_xcross_compiler /tmp/test_xcross_compiler.ml /tmp/test_xcross_compiler.{o,cmx,cmi}
+  else
+    echo "  ✗ ERROR: cross-compilation failed"
+    "${OCAML_INSTALL_PREFIX}/bin/${target}-ocamlopt" -verbose -o /tmp/test_xcross_compiler /tmp/test_xcross_compiler.ml || true
+    exit 1
+  fi
+
+  echo "  Done: ${target}"
+done
+
+echo ""
+echo "============================================================"
+echo "All cross-compilers built successfully"
+echo "============================================================"

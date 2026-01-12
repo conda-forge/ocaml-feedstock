@@ -90,6 +90,28 @@ CROSS_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
 # CROSS_OTHERLIBS_OVERRIDES: same as CROSS_OVERRIDES
 CROSS_OTHERLIBS_OVERRIDES = $(CROSS_OVERRIDES)
 
+# NATIVE_AS/NATIVE_CC: Passed from build-cross-compiler.sh, saved before CONDA_OCAML_* override
+# These are the native (BUILD machine) assembler/compiler for building native tools
+# NATIVE_ASM is the assembler command (e.g., "clang -c" on macOS, "as" on Linux)
+NATIVE_AS ?= as
+NATIVE_ASM ?= $(NATIVE_AS)
+NATIVE_CC ?= $(CC)
+
+# NATIVE_OVERRIDES: For building NATIVE tools (ocamlc.opt, ocamlopt.opt, profiling.cmx)
+# These run on the BUILD machine and must use BUILD tools, NOT cross-compiler.
+# Does NOT include CC/AR overrides - uses defaults from Makefile.config (BUILD compiler)
+# NOTE: CONDA_OCAML_AS/CC are set as ENVIRONMENT VARIABLES at call sites (lines 207, 219)
+# NOT here, because NATIVE_ASM contains spaces (e.g., "clang -c") which breaks
+# make variable passing (spaces split into separate args, -c becomes invalid option)
+NATIVE_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
+  BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
+  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)"
+
+# NATIVE_COMPILER_OVERRIDES: For building native compilers with native tools
+# CRITICAL: Does NOT include CC="$(CROSS_CC)" - we need BUILD CC for native tools
+NATIVE_COMPILER_OVERRIDES=$(NATIVE_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
+  BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) BEST_OCAMLLEX=ocamllex
+
 # CAMLOPT is now a variable that can be overridden from command line
 CROSS_COMPILER_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
   BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) BEST_OCAMLLEX=ocamllex
@@ -123,7 +145,8 @@ CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
 # must override to use correct $(ARCH).o for cross-compilation
 # LDFLAGS passed here is for the TARGET cross-linker (e.g., -fuse-ld=lld on macOS)
 # SAK_LINK uses $(SAK_LDFLAGS) NOT $(LDFLAGS) - SAK runs on BUILD machine, not TARGET
-RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFLAGS)' \
+# AR must be passed to create archives with correct format (llvm-ar on macOS for ld64 compat)
+RUNTIME_VARS = ARCH=$(ARCH) AR='$(AR)' AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFLAGS)' \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
   'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
   runtime_ASM_OBJECTS='runtime/$(ARCH).o'
@@ -133,7 +156,9 @@ RUNTIME_VARS = ARCH=$(ARCH) AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFLAGS='$(LDFL
 # The x86_64 ocamlrun from Stage 1 (_native/bin) is available via PATH
 # SAK tool also runs on BUILD machine
 # SAK_LDFLAGS: linker flags for BUILD machine (e.g., -fuse-ld=lld on macOS)
+# SAK_AR: archiver for BUILD machine (llvm-ar on macOS for ld64 compatibility)
 SAK_LDFLAGS ?=
+SAK_AR ?= $(AR)
 BYTECODE_RUNTIME_VARS = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
   'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
@@ -146,7 +171,8 @@ crossopt: cross-flexdll
 	# CC/CFLAGS override command-line values (cross-compiler) that propagate via MAKEFLAGS
 	# Without CFLAGS override, ppc64le builds fail with "bad value 'power8' for '-mtune='"
 	# SAK_LDFLAGS: linker flags for BUILD machine (e.g., -fuse-ld=lld on macOS for ld64/ar compat)
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# AR: archiver for BUILD machine (llvm-ar on macOS for ld64 compatibility)
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 else
 crossopt:
 	# CRITICAL: Build bytecode runtime with BUILD compiler (not cross-compiler)
@@ -154,7 +180,8 @@ crossopt:
 	# CC/CFLAGS override command-line values (cross-compiler) that propagate via MAKEFLAGS
 	# Without CFLAGS override, ppc64le builds fail with "bad value 'power8' for '-mtune='"
 	# SAK_LDFLAGS: linker flags for BUILD machine (e.g., -fuse-ld=lld on macOS for ld64/ar compat)
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# AR: archiver for BUILD machine (llvm-ar on macOS for ld64 compatibility)
+	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 endif
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
@@ -170,17 +197,28 @@ endif
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
-	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
-	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
+	# CRITICAL: Build native compilers using CAMLOPT (Stage 1 from PATH, x86_64)
+	# NOT $(OCAMLOPT) which is the local cross-compiler with aarch64 AS baked in
+	# MUST use NATIVE_COMPILER_OVERRIDES (no CC override) - BUILD CC for native tools
+	# Without this, tools/profiling.cmx gets compiled with cross-AS causing
+	# "unknown mnemonic movq" error (aarch64-as can't assemble x86_64)
+	# CRITICAL: Set CONDA_OCAML_AS/CC as ENV VARS (not just make vars) for ocamlopt
+	# Use NATIVE_ASM (not NATIVE_AS) because macOS needs "clang -c" (space-separated)
+	# Shell quotes protect the space in env var assignment
+	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+	  $(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
+	  $(NATIVE_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(HOST_ZSTD_LIBS)" $(OLDS)
 	# Build stdlib native directly using the FRESHLY BUILT cross-compiler
 	# CRITICAL: Use absolute path to cross-compiler - ROOTDIR is relative (.) and breaks with -C
 	# The cross-compiler produces aarch64 code, native produces x86_64
 	# COMPILER_DEPS= disables bytecode compiler file dependency (for .cmi files)
 	# OPTCOMPILER= disables native compiler file dependency (for .cmx files)
 	$(MAKE) -C stdlib allopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
-	# otherlibrariesopt also needs cross-compiler for aarch64 .cmx/.o files
+	# otherlibrariesopt needs cross-compiler for aarch64 .cmx/.o files
 	$(MAKE) otherlibrariesopt ocamltoolsopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	$(MAKE) ocamltoolsopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	# ocamltoolsopt.opt builds NATIVE tools (ocamllex.opt etc.) - need NATIVE overrides
+	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS)
 	# Copy stublibs to where the cross-compiler expects them
 	# The compiler has Config.standard_library baked in (pointing to PREFIX/lib/ocaml)
 	# and looks for stublibs relative to that path. We must copy before CROSSCOMPILERLIBS.
@@ -213,8 +251,14 @@ crosscompiledopt:
 	# Clean dynlink native files before any native compilation to prevent "inconsistent assumptions"
 	rm -f otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o
 	rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o
-	$(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
-	  $(CROSS_COMPILER_OVERRIDES) "$(HOST_ZSTD_LIBS)" $(OLDS)
+	# CRITICAL: Build native compilers using CAMLOPT (native from PATH)
+	# NOT $(OCAMLOPT) which has cross-AS baked in (causes "unknown mnemonic" errors)
+	# MUST use NATIVE_COMPILER_OVERRIDES (no CC override) - BUILD CC for native tools
+	# Set CONDA_OCAML_AS/CC as ENV VARS for ocamlopt to find native assembler
+	# Use NATIVE_ASM (not NATIVE_AS) because macOS needs "clang -c" (space-separated)
+	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+	  $(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
+	  $(NATIVE_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(HOST_ZSTD_LIBS)" $(OLDS)
 	# Build stdlib native directly using CAMLOPT (cross-compiler passed on command line)
 	# CAMLOPT should be the cross-compiler from _cross/bin that produces target code
 	$(MAKE) -C stdlib allopt CAMLOPT=$(CAMLOPT) OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
@@ -227,7 +271,10 @@ crosscompiledopt:
 	# otherlibrariesopt - skip ocamltoolsopt here (triggers parallel tools-allopt with wrong CAMLOPT)
 	$(MAKE) otherlibrariesopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamltoolsopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	$(MAKE) ocamltoolsopt.opt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	# ocamltoolsopt.opt builds NATIVE tools (ocamllex.opt etc.) - need NATIVE overrides
+	# Set CONDA_OCAML_AS/CC as ENV VARS for ocamlopt to find native assembler
+	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS)
 	# Copy stublibs to where the cross-compiler expects them (same as crossopt)
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
