@@ -55,7 +55,7 @@ apply_cross_patches() {
   sed -i 's/otherlibrariesopt ocamltoolsopt/otherlibrariesopt-cross ocamltoolsopt/g' Makefile.cross
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
-  if [[ "${NEEDS_DL}" == "1" ]]; then
+  if [[ "${NEEDS_DL:-0}" == "1" ]]; then
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
   fi
 }
@@ -148,23 +148,64 @@ get_target_platform() {
 # macOS SDK Sysroot Detection
 # ==============================================================================
 
+decompress_xz() {
+  local input="$1"
+  local output_dir="$2"
+
+  python -c "
+import lzma, tarfile
+with lzma.open('${input}') as xz:
+    with tarfile.open(fileobj=xz) as tar:
+        tar.extractall('${output_dir}')
+"
+}
+
 # Find macOS ARM64 SDK sysroot
 # Sets: ARM64_SYSROOT variable
 # Usage: setup_macos_sysroot "arm64-apple-darwin20.0.0" [cross_cc]
 setup_macos_sysroot() {
   ARM64_SYSROOT=""
+  local SDK_DIR="/opt/conda-sdks"
 
-  # Try SDK search paths
-  local try_sysroot
-  for try_sysroot in /opt/conda-sdks/*"${ARM64_SDK:-MacOSX11.3}".sdk; do
-    [[ -z "${try_sysroot}" ]] && continue
-    if [[ -d "${try_sysroot}/usr/include" ]] || [[ -d "${try_sysroot}/System/Library" ]]; then
-      ARM64_SYSROOT="${try_sysroot}"
-      echo "     Found ARM64 SDK at: ${ARM64_SYSROOT}"
-      break
-    fi
+  # Check existing
+  for sdk in "${SDK_DIR}"/MacOSX11.[0-9]+.sdk; do
+    [[ -d "${sdk}" ]] && ARM64_SYSROOT="${sdk}" && break
   done
+
+  # Download if missing
+  if [[ -z "${ARM64_SYSROOT}" ]]; then
+    SDK_DIR="${SRC_DIR}/conda-sdks" && mkdir -p "${SDK_DIR}" 2>/dev/null
   
+    echo "     Downloading MacOSX11.sdk..."
+    local url="https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.0.sdk.tar.xz"
+    curl -L --output "${SDK_DIR}"/MacOSX11.0.sdk.tar.xz "${url}"
+    echo "d3feee3ef9c6016b526e1901013f264467bb927865a03422a9cb925991cc9783  ${SDK_DIR}/MacOSX11.0.sdk.tar.xz" | shasum -a 256 -c
+
+    echo "     Extracting MacOSX11.0.sdk..."
+    python3 << PYEOF
+import lzma
+import tarfile
+import os
+
+tarball = "${SDK_DIR}/MacOSX11.0.sdk.tar.xz"
+outdir = "${SDK_DIR}"
+
+with lzma.open(tarball, 'rb') as f:
+    with tarfile.open(fileobj=f, mode='r:') as tar:
+        tar.extractall(path=outdir, filter='data')
+
+print(f"Extracted to {outdir}")
+PYEOF
+
+    if [[ $? -ne 0 ]]; then
+      echo "ERROR: Extraction failed"
+      return 1
+    fi
+
+    ARM64_SYSROOT="${SDK_DIR}/MacOSX11.0.sdk"
+  fi
+
+  echo "     Using ARM64 SDK: ${ARM64_SYSROOT}"
   export ARM64_SYSROOT
 }
 
@@ -209,17 +250,18 @@ setup_cflags_ldflags() {
         export "${name}_LDFLAGS=${LDFLAGS}"
       else
         # Native osx-64 build creating arm64 cross-compiler: use macOS-compatible flags
+        # CRITICAL: Both CFLAGS and LDFLAGS need -isysroot for the ARM64 SDK!
+        # Without -isysroot in LDFLAGS, linker can't find basic C functions (open, stat, etc.)
         setup_macos_sysroot
         export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
-        export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+        export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
       fi
       ;;
     NATIVE_osx-64_osx-arm64)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
       # MUST include -L${BUILD_PREFIX}/lib for zstd - PREFIX has ARM64 libs!
       # CRITICAL: Also strip -L$PREFIX from global LDFLAGS (conda-build sets it with ARM64 paths)
-      export LDFLAGS="${LDFLAGS//-L${PREFIX}\/lib/}"
-      export LDFLAGS="-L${BUILD_PREFIX}/lib ${LDFLAGS}"
+      export LDFLAGS="-L${BUILD_PREFIX}/lib ${LDFLAGS//-L${PREFIX}\/lib/}"
       export "${name}_CFLAGS=-march=core2 -mtune=haswell -mssse3 -ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       ;;
@@ -313,29 +355,9 @@ setup_toolchain() {
 # CONDA_OCAML_* Variable Helpers
 # ==============================================================================
 
-# Get CONDA_OCAML_* environment string for cross-compilation
-# Returns a string suitable for prefixing make commands in a subshell
-# Usage: $(get_cross_env_string) make crossopt ...
-# get_cross_env_string() {
-#   echo "CONDA_OCAML_CC='${CROSS_CC}' CONDA_OCAML_AS='${CROSS_ASM}' CONDA_OCAML_AR='${CROSS_AR}' CONDA_OCAML_RANLIB='${CROSS_RANLIB}' CONDA_OCAML_MKDLL='${CROSS_MKDLL}' CONDA_OCAML_MKEXE='${CROSS_MKEXE}'"
-# }
-
-# Get CONDA_OCAML_* export commands for cross-compilation
-# Returns export commands - use in subshell: ( eval "$(get_cross_env_exports)"; make ... )
-# get_cross_env_exports() {
-#   cat << EOF
-# export CONDA_OCAML_CC='${CROSS_CC}'
-# export CONDA_OCAML_AS='${CROSS_ASM}'
-# export CONDA_OCAML_AR='${CROSS_AR}'
-# export CONDA_OCAML_RANLIB='${CROSS_RANLIB}'
-# export CONDA_OCAML_MKDLL='${CROSS_MKDLL}'
-# export CONDA_OCAML_MKEXE='${CROSS_MKEXE}'
-# EOF
-# }
-
 # Get default tool basenames for wrapper scripts
 # Usage: get_cross_tool_defaults "aarch64-conda-linux-gnu"
-# Sets: DEFAULT_CC, DEFAULT_AS, DEFAULT_AR, DEFAULT_RANLIB, DEFAULT_MKDLL, DEFAULT_MKEXE
+# Sets: DEFAULT_CC, DEFAULT_AS, DEFAULT_AR, DEFAULT_LD, DEFAULT_RANLIB, DEFAULT_MKDLL, DEFAULT_MKEXE
 get_cross_tool_defaults() {
   local target="$1"
 
@@ -344,16 +366,17 @@ get_cross_tool_defaults() {
   # Without -c, clang tries to link instead of just assembling
   DEFAULT_AS="${CROSS_ASM}"
   DEFAULT_AR=$(basename "${CROSS_AR}")
+  DEFAULT_LD=$(basename "${CROSS_LD}")
   DEFAULT_RANLIB=$(basename "${CROSS_RANLIB}")
 
   if [[ "${target}" == "arm64-"* ]]; then
     # macOS: use lld linker and headerpad for install_name_tool compatibility
-    DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup"
-    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+    DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup \${LDFLAGS}"
+    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names \${LDFLAGS}"
   else
     # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
-    DEFAULT_MKDLL="${DEFAULT_CC} -shared"
-    DEFAULT_MKEXE="${DEFAULT_CC} -Wl,-E -ldl"
+    DEFAULT_MKDLL="${DEFAULT_CC} -shared \${LDFLAGS}"
+    DEFAULT_MKEXE="${DEFAULT_CC} \${LDFLAGS} -Wl,-E -ldl"
   fi
 }
 
@@ -377,7 +400,7 @@ generate_cross_wrapper() {
   get_cross_tool_defaults "${target}"
 
   mkdir -p "${install_prefix}/bin"
-  local wrapper_path="${install_prefix}/bin/${target}-${tool}"
+  local wrapper_path="${install_prefix}/bin/${target}-${tool}.opt"
 
   cat > "${wrapper_path}" << WRAPPER
 #!/bin/sh
@@ -387,6 +410,7 @@ export OCAMLLIB="\${prefix}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
 export CONDA_OCAML_CC="\${CONDA_OCAML_${target_id}_CC:-${DEFAULT_CC}}"
 export CONDA_OCAML_AS="\${CONDA_OCAML_${target_id}_AS:-${DEFAULT_AS}}"
 export CONDA_OCAML_AR="\${CONDA_OCAML_${target_id}_AR:-${DEFAULT_AR}}"
+export CONDA_OCAML_LD="\${CONDA_OCAML_${target_id}_LD:-${DEFAULT_LD}}"
 export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${target_id}_RANLIB:-${DEFAULT_RANLIB}}"
 export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${target_id}_MKDLL:-${DEFAULT_MKDLL}}"
 export CONDA_OCAML_MKEXE="\${CONDA_OCAML_${target_id}_MKEXE:-${DEFAULT_MKEXE}}"

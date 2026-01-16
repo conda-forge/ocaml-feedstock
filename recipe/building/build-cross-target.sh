@@ -30,6 +30,7 @@ fi
 # Platform Detection & Toolchain Setup (using common-functions.sh)
 # ============================================================================
 
+CONFIG_ARGS+=(--with-target-bindir="${PREFIX}"/bin)
 CROSS_ARCH=$(get_target_arch "${host_alias}")
 CROSS_PLATFORM=$(get_target_platform "${host_alias}")
 
@@ -365,7 +366,7 @@ fi
 
 # Install conda-ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
 echo "    Installing conda-ocaml-* wrapper scripts..."
-for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
+for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
   install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
 done
 
