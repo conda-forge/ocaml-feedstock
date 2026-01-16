@@ -192,6 +192,33 @@ if is_unix; then
   echo "    CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<unset>}"
   echo "    CONDA_OCAML_MKDLL=${CONDA_OCAML_MKDLL:-<unset>}"
   echo "  PATH includes BUILD_PREFIX/bin: $(echo "$PATH" | grep -q "${BUILD_PREFIX}/bin" && echo "yes" || echo "NO!")"
+else
+  # Non-unix: Build wrapper .exe files BEFORE configuring
+  # These need to exist when config.generated.ml references them
+  echo "  Building conda-ocaml-* wrapper executables to BUILD_PREFIX..."
+  WRAPPER_SRC="${RECIPE_DIR}/building/non-unix-conda-ocaml-wrapper.c"
+  WRAPPER_DIR="${BUILD_PREFIX}/Library/bin"
+  mkdir -p "${WRAPPER_DIR}"
+
+  declare -A WRAPPERS=(
+    ["CC"]="gcc.exe"
+    ["AS"]="as.exe"
+    ["AR"]="ar.exe"
+    ["LD"]="ld.exe"
+    ["RANLIB"]="ranlib.exe"
+    ["WINDRES"]="windres.exe"
+  )
+
+  for tool_name in "${!WRAPPERS[@]}"; do
+    default_tool="${WRAPPERS[$tool_name]}"
+    wrapper_name="conda-ocaml-${tool_name,,}.exe"  # lowercase
+    echo "    Building ${wrapper_name}..."
+    "${NATIVE_CC}" -O2 -o "${WRAPPER_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
+      -DTOOL_NAME="${tool_name}" \
+      -DDEFAULT_TOOL="\"${default_tool}\""
+  done
+  echo "  Wrapper executables built:"
+  ls -la "${WRAPPER_DIR}"/conda-ocaml-*.exe 2>/dev/null || echo "    (none found!)"
 fi
 
 # ============================================================================

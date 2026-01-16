@@ -89,6 +89,14 @@ for target in "${CROSS_TARGETS[@]}"; do
   if [[ "${target}" == "arm64-apple-darwin"* ]]; then
     echo "  Setting up macOS ARM64 SDK for cross-compilation..."
     setup_macos_sysroot "${target}"
+    # CRITICAL: Override BOTH SDKROOT and CONDA_BUILD_SYSROOT
+    # conda-forge sets CONDA_BUILD_SYSROOT=/opt/conda-sdks/MacOSX10.13.sdk for x86_64
+    # The cross-compiler clang respects CONDA_BUILD_SYSROOT for library lookup
+    # Without overriding it, lld finds the wrong SDK even with -syslibroot flags
+    export SDKROOT="${ARM64_SYSROOT}"
+    export CONDA_BUILD_SYSROOT="${ARM64_SYSROOT}"
+    echo "  SDKROOT exported: ${SDKROOT}"
+    echo "  CONDA_BUILD_SYSROOT exported: ${CONDA_BUILD_SYSROOT}"
   fi
 
   # Setup cross-toolchain (sets CROSS_CC, CROSS_AS, CROSS_AR, etc.)
@@ -218,7 +226,7 @@ EOF
   # 3. crossopt rebuilds native parts for TARGET (bytecode unchanged)
 
   echo "  [4/6] Pre-building bytecode runtime and stdlib with native tools..."
-  "${MAKE[@]}" runtime-all \
+  run_logged "runtime-all" "${MAKE[@]}" runtime-all \
     ARCH=amd64 \
     CC="${NATIVE_CC}" \
     CFLAGS="${NATIVE_CFLAGS}" \
@@ -228,10 +236,7 @@ EOF
     SAK_CFLAGS="${NATIVE_CFLAGS}" \
     SAK_LDFLAGS="${NATIVE_LDFLAGS}" \
     ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
-    -j"${CPU_COUNT}" || {
-    echo "     FAILED - see log"
-    exit 1
-  }
+    -j"${CPU_COUNT}" || { cat "${LOG_DIR}"/runtime-all.log; exit 1; }
 
   # NOTE: stdlib pre-build removed - was causing inconsistent assumptions
   # Let crossopt handle stdlib build entirely with consistent variables
@@ -292,6 +297,8 @@ EOF
       CROSS_AR="${CROSS_AR}"
       CROSS_CC="${CROSS_CC}"
       CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
+      CROSS_MKEXE="${CROSS_MKEXE}"
+      CROSS_MKDLL="${CROSS_MKDLL}"
       LD="${CROSS_LD}"
       LDFLAGS="${CROSS_LDFLAGS}"
       LIBDIR="${OCAML_CROSS_LIBDIR}"
@@ -314,7 +321,7 @@ EOF
       NATIVE_STDLIB="${NATIVE_STDLIB}"
     )
 
-    run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}"
+    run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}" || { cat "${LOG_DIR}"/crossopt.log; exit 1; }
   )
 
   # ========================================================================
@@ -345,6 +352,8 @@ EOF
       CFLAGS="${CROSS_CFLAGS}"
       CROSS_AR="${CROSS_AR}"
       CROSS_CC="${CROSS_CC}"
+      CROSS_MKEXE="${CROSS_MKEXE}"
+      CROSS_MKDLL="${CROSS_MKDLL}"
       LD="${CROSS_LD}"
       LDFLAGS="${CROSS_LDFLAGS}"
       NM="${CROSS_NM}"

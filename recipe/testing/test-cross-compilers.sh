@@ -78,6 +78,24 @@ test_cross_compiler() {
     return 0
   fi
 
+  # Setup macOS ARM64 SDK for linking tests
+  # The cross-compiler needs CONDA_BUILD_SYSROOT pointing to ARM64 SDK
+  # otherwise linker finds x86_64 SDK and fails with "libSystem.tbd incompatible with arm64"
+  if [[ "${target}" == "arm64-apple-darwin"* ]]; then
+    echo "  Setting up ARM64 SDK for linking tests..."
+    SDK_DIR="/tmp/conda-sdks"
+    ARM64_SDK="${SDK_DIR}/MacOSX11.0.sdk"
+    if [[ ! -d "${ARM64_SDK}" ]]; then
+      mkdir -p "${SDK_DIR}"
+      curl -sL "https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.0.sdk.tar.xz" -o "${SDK_DIR}/sdk.tar.xz"
+      tar -xf "${SDK_DIR}/sdk.tar.xz" -C "${SDK_DIR}"
+      rm -f "${SDK_DIR}/sdk.tar.xz"
+    fi
+    export SDKROOT="${ARM64_SDK}"
+    export CONDA_BUILD_SYSROOT="${ARM64_SDK}"
+    echo "    CONDA_BUILD_SYSROOT=${ARM64_SDK}"
+  fi
+
   TEST_ERRORS=0
 
   # ---------------------------------------------------------------------------

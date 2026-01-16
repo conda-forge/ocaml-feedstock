@@ -307,6 +307,14 @@ setup_toolchain() {
 
        _MKDLL="$(basename "${_CC}") -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
        _MKEXE="$(basename "${_CC}") -fuse-ld=lld -Wl,-headerpad_max_install_names"
+       # Include -isysroot in MKDLL/MKEXE when cross-compiling for ARM64
+       # OCaml's Makefile uses $(MKEXE) directly without $(LDFLAGS)
+       # NOTE: CONDA_BUILD_SYSROOT must be exported to ARM64 SDK path
+       # (in build-cross-compiler.sh) for the cross-compiler to use correct SDK
+       if [[ -n "${ARM64_SYSROOT:-}" ]]; then
+         _MKDLL="${_MKDLL} -isysroot ${ARM64_SYSROOT}"
+         _MKEXE="${_MKEXE} -isysroot ${ARM64_SYSROOT}"
+       fi
       ;;
     *-linux-*)
        _AR=$(find_tool "${target}-ar" true)

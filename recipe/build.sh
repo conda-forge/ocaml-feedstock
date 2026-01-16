@@ -272,8 +272,22 @@ echo "=== Installing activation scripts ==="
 # The native ocamlc/ocamlopt binaries run on BUILD platform and need BUILD platform tools
 # Cross-compilers have their own tool configuration baked in (config.generated.ml)
 (
-  source "${SRC_DIR}/_native_compiler_env.sh"
-  
+  # Source native compiler env if available (not present in Stage 3 fast path)
+  if [[ -f "${SRC_DIR}/_native_compiler_env.sh" ]]; then
+    source "${SRC_DIR}/_native_compiler_env.sh"
+  else
+    # Stage 3 fast path: use defaults from BUILD_PREFIX toolchain
+    echo "  (Using BUILD_PREFIX defaults - Stage 3 fast path)"
+    export CONDA_OCAML_AR=$(basename "${AR:-ar}")
+    export CONDA_OCAML_AS=$(basename "${AS:-as}")
+    export CONDA_OCAML_CC=$(basename "${CC:-cc}")
+    export CONDA_OCAML_LD=$(basename "${LD:-ld}")
+    export CONDA_OCAML_RANLIB=$(basename "${RANLIB:-ranlib}")
+    export CONDA_OCAML_MKEXE="${CC:-cc}"
+    export CONDA_OCAML_MKDLL="${CC:-cc} -shared"
+    export CONDA_OCAML_WINDRES="${WINDRES:-windres}"
+  fi
+
   # Helper: convert "fullpath/cmd flags" to "cmd flags" (basename first word only)
   _basename_cmd() {
     local cmd="$1"

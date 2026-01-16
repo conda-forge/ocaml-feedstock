@@ -87,10 +87,17 @@ CAMLOPT ?= ocamlopt
 #   - The native ocamlmklib has BUILD linker baked in (Config.mkdll, Config.ar)
 #   - The wrapper script uses CROSS_CC/CROSS_AR for proper cross-compilation
 #   - For native builds, CROSS_MKLIB defaults to ocamlmklib
+# MKEXE/MKDLL: Must include -isysroot for macOS ARM64 cross-compilation
+#   - OCaml's stdlib/Makefile uses $(MKEXE) directly without $(LDFLAGS)
+#   - Without explicit pass-through, linker finds wrong SDK
+CROSS_MKEXE ?= $(MKEXE)
+CROSS_MKDLL ?= $(MKDLL)
+
 CROSS_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
   BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
   CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)" \
-  CC="$(CROSS_CC)" AR="$(CROSS_AR)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
+  CC="$(CROSS_CC)" AR="$(CROSS_AR)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+  MKEXE="$(CROSS_MKEXE)" MKDLL="$(CROSS_MKDLL)"
 
 # CROSS_OTHERLIBS_OVERRIDES: same as CROSS_OVERRIDES
 CROSS_OTHERLIBS_OVERRIDES = $(CROSS_OVERRIDES)
