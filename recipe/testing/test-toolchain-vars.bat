@@ -30,16 +30,48 @@ if not defined CONDA_OCAML_RANLIB (
     echo FAIL: CONDA_OCAML_RANLIB is not set after activation
     exit /b 1
 )
+if not defined CONDA_OCAML_LD (
+    echo FAIL: CONDA_OCAML_LD is not set after activation
+    exit /b 1
+)
+if not defined CONDA_OCAML_WINDRES (
+    echo FAIL: CONDA_OCAML_WINDRES is not set after activation
+    exit /b 1
+)
 
 echo   CONDA_OCAML_CC     = %CONDA_OCAML_CC%
 echo   CONDA_OCAML_AS     = %CONDA_OCAML_AS%
 echo   CONDA_OCAML_AR     = %CONDA_OCAML_AR%
 echo   CONDA_OCAML_RANLIB = %CONDA_OCAML_RANLIB%
+echo   CONDA_OCAML_LD     = %CONDA_OCAML_LD%
+echo   CONDA_OCAML_WINDRES= %CONDA_OCAML_WINDRES%
 echo PASS: All CONDA_OCAML_* variables are set
 echo.
 
-REM Test 2: Verify ocamlopt -config shows values
-echo Test 2: ocamlopt -config shows toolchain configuration
+REM Test 2: Verify wrapper executables exist
+echo Test 2: Wrapper executables exist in OCAML_PREFIX\bin
+
+set WRAPPER_DIR=%OCAML_PREFIX%\bin
+set WRAPPER_MISSING=0
+
+for %%w in (cc as ar ld ranlib windres) do (
+    if exist "%WRAPPER_DIR%\conda-ocaml-%%w.exe" (
+        echo   conda-ocaml-%%w.exe: OK
+    ) else (
+        echo   conda-ocaml-%%w.exe: MISSING
+        set WRAPPER_MISSING=1
+    )
+)
+
+if %WRAPPER_MISSING% equ 1 (
+    echo FAIL: Some wrapper executables are missing
+    exit /b 1
+)
+echo PASS: All wrapper executables found
+echo.
+
+REM Test 3: Verify ocamlopt -config shows wrapper names
+echo Test 3: ocamlopt -config shows wrapper toolchain configuration
 
 for /f "tokens=*" %%i in ('ocamlopt -config-var c_compiler 2^>nul') do set CONFIG_CC=%%i
 for /f "tokens=*" %%i in ('ocamlopt -config-var asm 2^>nul') do set CONFIG_ASM=%%i
@@ -47,17 +79,17 @@ for /f "tokens=*" %%i in ('ocamlopt -config-var asm 2^>nul') do set CONFIG_ASM=%
 echo   c_compiler = %CONFIG_CC%
 echo   asm = %CONFIG_ASM%
 
-REM Check if config references CONDA_OCAML variables (contains %)
-echo %CONFIG_CC% | findstr /C:"CONDA_OCAML" >nul
+REM Check if config shows conda-ocaml-* wrapper names
+echo %CONFIG_CC% | findstr /C:"conda-ocaml" >nul
 if %errorlevel% equ 0 (
-    echo PASS: c_compiler references CONDA_OCAML variable
+    echo PASS: c_compiler uses conda-ocaml wrapper
 ) else (
-    echo INFO: c_compiler may be hardcoded: %CONFIG_CC%
+    echo WARN: c_compiler may not use wrapper: %CONFIG_CC%
 )
 echo.
 
-REM Test 3: Compilation works with default toolchain
-echo Test 3: Compilation works with default CONDA_OCAML_CC
+REM Test 4: Compilation works with default toolchain
+echo Test 4: Compilation works with default CONDA_OCAML_CC
 
 set TESTDIR=%TEMP%\ocaml-toolchain-test-%RANDOM%
 mkdir "%TESTDIR%" 2>nul
@@ -84,8 +116,8 @@ echo PASS: Compilation works with default toolchain
 popd
 echo.
 
-REM Test 4: Custom CC can be set (just verify variable changes)
-echo Test 4: Custom CONDA_OCAML_CC can be overridden
+REM Test 5: Custom CC can be set (just verify variable changes)
+echo Test 5: Custom CONDA_OCAML_CC can be overridden
 
 set ORIGINAL_CC=%CONDA_OCAML_CC%
 set CONDA_OCAML_CC=custom-test-cc

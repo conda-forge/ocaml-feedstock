@@ -92,6 +92,7 @@ let () =
 EOF
 
   # Compile with -output-complete-exe (embeds bytecode interpreter)
+  # This is the exact pattern dune/opam use for bootstrapping
   echo "  compiling with -output-complete-exe..."
   ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
 
