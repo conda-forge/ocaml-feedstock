@@ -28,3 +28,15 @@
 @if not defined CONDA_OCAML_RANLIB (
     @if defined RANLIB (@set "CONDA_OCAML_RANLIB=%RANLIB%") else (@set "CONDA_OCAML_RANLIB=@RANLIB@")
 )
+@if not defined CONDA_OCAML_LD (
+    @if defined LD (@set "CONDA_OCAML_LD=%LD%") else (@set "CONDA_OCAML_LD=@LD@")
+)
+@if not defined CONDA_OCAML_MKEXE (
+    @set "CONDA_OCAML_MKEXE=@MKEXE@"
+)
+@if not defined CONDA_OCAML_MKDLL (
+    @set "CONDA_OCAML_MKDLL=@MKDLL@"
+)
+@if not defined CONDA_OCAML_WINDRES (
+    @if defined WINDRES (@set "CONDA_OCAML_WINDRES=%WINDRES%") else (@set "CONDA_OCAML_WINDRES=@WINDRES@")
+)
