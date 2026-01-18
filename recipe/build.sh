@@ -60,10 +60,6 @@ CONFIG_ARGS=(
   --disable-static
   --enable-installing-source-artifacts
   --enable-installing-bytecode-programs
-
-  # This is needed to preset the install path in binaries and facilitate CONDA relocation
-  --with-target-bindir="${PREFIX}"/bin
-
   PKG_CONFIG=false
 )
 
@@ -108,12 +104,13 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
       echo "Cross-compiler stdlib found, attempting Stage 3..."
 
       # Try Stage 3 - may fail if API changed between versions
+      OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
       set +e
       (
         set -e
         export OCAML_PREFIX="${BUILD_PREFIX}"
         export CROSS_COMPILER_PREFIX="${BUILD_PREFIX}"
-        OCAML_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
+        OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
         source "${RECIPE_DIR}"/building/build-cross-target.sh
       )
       STAGE3_RC=$?
@@ -155,26 +152,31 @@ fi
 # ==============================================================================
 if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]] || [[ ${FAST_CROSS_PATH_SUCCESS} -eq 0 ]]; then
   # Stage 1: Build native OCaml
+  OCAML_NATIVE_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler
   (
-    OCAML_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    OCAML_INSTALL_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     source "${RECIPE_DIR}"/building/build-native.sh
   )
 
   # Stage 2: Build cross-compilers (using native OCaml)
+  OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
   (
-    export OCAML_PREFIX="${SRC_DIR}"/_native_compiler
+    export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
     export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
 
-    OCAML_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     source "${SRC_DIR}/_native_compiler_env.sh"
     source "${RECIPE_DIR}"/building/build-cross-compiler.sh
   )
   
   if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+    # Stage 3: Cross-compile target binaries
+    OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
     (
-      export OCAML_PREFIX="${SRC_DIR}"/_native_compiler
-      export CROSS_COMPILER_PREFIX="${SRC_DIR}"/_xcross_compiler
-      OCAML_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
+      export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
+      export CROSS_COMPILER_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}"
+
+      OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
       source "${SRC_DIR}/_native_compiler_env.sh"
       source "${SRC_DIR}/_xcross_compiler_${target_platform}_env.sh"
       source "${RECIPE_DIR}"/building/build-cross-target.sh
@@ -193,30 +195,28 @@ OCAML_INSTALL_PREFIX="${PREFIX}"
 # Windows: Use cp -r instead of tar to avoid path escaping issues
 # The tar command on Windows has issues with paths containing backslashes
 if is_unix; then
+  makefile_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
+  
   if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
-    tar -C "${SRC_DIR}/_target_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+    tar -C "${OCAML_TARGET_INSTALL_PREFIX}" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+    sed -i "s#${OCAML_TARGET_INSTALL_PREFIX}#${OCAML_INSTALL_PREFIX}#g" "${makefile_config}"
   else
-    tar -C "${SRC_DIR}/_native_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
-    tar -C "${SRC_DIR}/_xcross_compiler" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+    tar -C "${OCAML_NATIVE_INSTALL_PREFIX}" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+    tar -C "${OCAML_XCROSS_INSTALL_PREFIX}" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
+    sed -i "s#${OCAML_NATIVE_INSTALL_PREFIX}#${OCAML_INSTALL_PREFIX}#g" "${makefile_config}"
   fi
-else
-  # Windows: cp -r is more reliable than tar with Windows paths
-  cp -r "${SRC_DIR}/_native_compiler/"* "${OCAML_INSTALL_PREFIX}/"
-fi
-
-# ==============================================================================
-# Fix ld.conf - update paths from build-time to install-time
-# ==============================================================================
-echo "=== Fixing ld.conf paths ==="
-
-# Native OCaml ld.conf
-if [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/ld.conf" ]]; then
   cat > "${OCAML_INSTALL_PREFIX}/lib/ocaml/ld.conf" << EOF
 ${OCAML_INSTALL_PREFIX}/lib/ocaml/stublibs
 ${OCAML_INSTALL_PREFIX}/lib/ocaml
 EOF
-  echo "  Fixed: lib/ocaml/ld.conf"
+else
+  # Windows: cp -r is more reliable than tar with Windows paths
+  cp -r "${OCAML_NATIVE_INSTALL_PREFIX}/"* "${OCAML_INSTALL_PREFIX}/"
+  makefile_config="${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/Makefile.config"
 fi
+
+sed -i "s#/.*build_env/bin/##g" "${makefile_config}"
+sed -i 's#$(CC)#$(CONDA_OCAML_CC)#g' "${makefile_config}"
 
 # Cross-compiler ld.conf files
 for ldconf in "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/lib/ocaml/ld.conf; do
@@ -268,16 +268,26 @@ echo ""
 echo "=== Installing activation scripts ==="
 
 # Use basenames so scripts work regardless of install location
+# CRITICAL: Always use NATIVE tools for activation scripts, even during cross-compilation
+# The native ocamlc/ocamlopt binaries run on BUILD platform and need BUILD platform tools
+# Cross-compilers have their own tool configuration baked in (config.generated.ml)
 (
-  # Set OCAML_PREFIX for env script (uses ${OCAML_PREFIX}/bin for PATH)
-  export OCAML_PREFIX="${PREFIX}"
-
-  if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "0" ]]; then
+  # Source native compiler env if available (not present in Stage 3 fast path)
+  if [[ -f "${SRC_DIR}/_native_compiler_env.sh" ]]; then
     source "${SRC_DIR}/_native_compiler_env.sh"
   else
-    source "${SRC_DIR}/_target_compiler_${target_platform}_env.sh"
+    # Stage 3 fast path: use defaults from BUILD_PREFIX toolchain
+    echo "  (Using BUILD_PREFIX defaults - Stage 3 fast path)"
+    export CONDA_OCAML_AR=$(basename "${AR:-ar}")
+    export CONDA_OCAML_AS=$(basename "${AS:-as}")
+    export CONDA_OCAML_CC=$(basename "${CC:-cc}")
+    export CONDA_OCAML_LD=$(basename "${LD:-ld}")
+    export CONDA_OCAML_RANLIB=$(basename "${RANLIB:-ranlib}")
+    export CONDA_OCAML_MKEXE="${CC:-cc}"
+    export CONDA_OCAML_MKDLL="${CC:-cc} -shared"
+    export CONDA_OCAML_WINDRES="${WINDRES:-windres}"
   fi
-  
+
   # Helper: convert "fullpath/cmd flags" to "cmd flags" (basename first word only)
   _basename_cmd() {
     local cmd="$1"
@@ -298,9 +308,11 @@ echo "=== Installing activation scripts ==="
     sed -i "s|@AR@|$(basename "${CONDA_OCAML_AR}")|g" "${_SCRIPT}"
     sed -i "s|@AS@|$(basename "${CONDA_OCAML_AS}")|g" "${_SCRIPT}"
     sed -i "s|@CC@|$(basename "${CONDA_OCAML_CC}")|g" "${_SCRIPT}"
+    sed -i "s|@LD@|$(basename "${CONDA_OCAML_LD}")|g" "${_SCRIPT}"
     sed -i "s|@RANLIB@|$(basename "${CONDA_OCAML_RANLIB}")|g" "${_SCRIPT}"
     sed -i "s|@MKEXE@|$(_basename_cmd "${CONDA_OCAML_MKEXE}")|g" "${_SCRIPT}"
     sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
+    sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"
   done
 )
 

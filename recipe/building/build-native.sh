@@ -94,11 +94,14 @@ echo "  NATIVE_RANLIB:  ${NATIVE_RANLIB}"
 # Users can override via environment variables
 export CONDA_OCAML_AR=$(basename "${NATIVE_AR}")
 export CONDA_OCAML_CC=$(basename "${NATIVE_CC}")
+export CONDA_OCAML_LD=$(basename "${NATIVE_LD}")
 export CONDA_OCAML_RANLIB=$(basename "${NATIVE_RANLIB}")
 # Special case, already a basename
 export CONDA_OCAML_AS="${NATIVE_ASM}"
 export CONDA_OCAML_MKEXE="${NATIVE_MKEXE}"
 export CONDA_OCAML_MKDLL="${NATIVE_MKDLL}"
+# non-unix-specific: windres for resource compilation
+export CONDA_OCAML_WINDRES="${NATIVE_WINDRES:-windres}"
 
 # ============================================================================
 # Export variables for downstream scripts
@@ -119,6 +122,7 @@ export NATIVE_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"
 export CONDA_OCAML_AR="${CONDA_OCAML_AR}"
 export CONDA_OCAML_AS="${CONDA_OCAML_AS}"
 export CONDA_OCAML_CC="${CONDA_OCAML_CC}"
+export CONDA_OCAML_LD="${CONDA_OCAML_LD}"
 export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-}"
@@ -154,21 +158,20 @@ CONFIG_ARGS+=(
   LD="${NATIVE_LD}"
   LDFLAGS="${NATIVE_LDFLAGS}"
   RANLIB="${NATIVE_RANLIB}"
-  
   host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
 )
 
 if is_unix; then
   CONFIG_ARGS+=(
-    --with-target-bindir="${PREFIX}"/bin
     --enable-frame-pointers
+    --with-target-bindir="${PREFIX}"/bin
   )
 else
   CONFIG_ARGS+=(
     --with-flexdll
     --with-gnu-ld
     --with-target-bindir="${PREFIX}"/Library/bin
-    WINDOWS_UNICODE_MODE=compatible
+    windows_UNICODE_MODE=compatible
     WINDRES="${NATIVE_WINDRES}"
   )
 fi
@@ -179,7 +182,7 @@ fi
 
 if is_unix; then
   echo "  Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
-  for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
+  for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${BUILD_PREFIX}/bin/${wrapper}"
   done
   # Debug: verify wrappers installed and environment set
@@ -193,6 +196,33 @@ if is_unix; then
   echo "    CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<unset>}"
   echo "    CONDA_OCAML_MKDLL=${CONDA_OCAML_MKDLL:-<unset>}"
   echo "  PATH includes BUILD_PREFIX/bin: $(echo "$PATH" | grep -q "${BUILD_PREFIX}/bin" && echo "yes" || echo "NO!")"
+else
+  # Non-unix: Build wrapper .exe files BEFORE configuring
+  # These need to exist when config.generated.ml references them
+  echo "  Building conda-ocaml-* wrapper executables to BUILD_PREFIX..."
+  WRAPPER_SRC="${RECIPE_DIR}/building/non-unix-conda-ocaml-wrapper.c"
+  WRAPPER_DIR="${BUILD_PREFIX}/Library/bin"
+  mkdir -p "${WRAPPER_DIR}"
+
+  declare -A WRAPPERS=(
+    ["CC"]="gcc.exe"
+    ["AS"]="as.exe"
+    ["AR"]="ar.exe"
+    ["LD"]="ld.exe"
+    ["RANLIB"]="ranlib.exe"
+    ["WINDRES"]="windres.exe"
+  )
+
+  for tool_name in "${!WRAPPERS[@]}"; do
+    default_tool="${WRAPPERS[$tool_name]}"
+    wrapper_name="conda-ocaml-${tool_name,,}.exe"  # lowercase
+    echo "    Building ${wrapper_name}..."
+    "${NATIVE_CC}" -O2 -o "${WRAPPER_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
+      -DTOOL_NAME="${tool_name}" \
+      -DDEFAULT_TOOL="\"${default_tool}\""
+  done
+  echo "  Wrapper executables built:"
+  ls -la "${WRAPPER_DIR}"/conda-ocaml-*.exe 2>/dev/null || echo "    (none found!)"
 fi
 
 # ============================================================================
@@ -214,9 +244,9 @@ config_file="utils/config.generated.ml"
 # Debug: Check native_compiler exists before patching
 echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config_file" | head -1 || echo '(not found)')"
 
-# Remove -L paths from bytecomp_c_libraries (embedded in ocamlc binary)
-# Use more specific pattern to avoid affecting other content
-sed -i 's#\(bytecomp_c_libraries.*\)-L[^ ]*#\1#g' "$config_file"
+# NOTE: Do NOT remove -L paths here - they're needed for the build.
+# The -L path removal for bytecomp_c_libraries happens AFTER world.opt build
+# but BEFORE install, to avoid non-relocatable paths in installed binaries.
 
 if is_unix; then
   # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
@@ -230,13 +260,18 @@ if is_unix; then
   sed -i 's/^let mkdll = .*/let mkdll = {|conda-ocaml-mkdll|}/' "$config_file"
   sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
 else
-  # Windows: Embed actual tool basenames directly
-  # %CONDA_OCAML_*% doesn't work because CreateProcess doesn't expand %VAR%
-  # (only cmd.exe does). Use the tool basenames we already computed.
-  sed -i "s/^let asm = .*/let asm = {|${CONDA_OCAML_AS}|}/" "$config_file"
-  sed -i "s/^let c_compiler = .*/let c_compiler = {|${CONDA_OCAML_CC}|}/" "$config_file"
-  sed -i "s/^let ar = .*/let ar = {|${CONDA_OCAML_AR}|}/" "$config_file"
-  sed -i "s/^let ranlib = .*/let ranlib = {|${CONDA_OCAML_RANLIB}|}/" "$config_file"
+  # non-unix: Use conda-ocaml-*.exe wrapper executables
+  # These read CONDA_OCAML_* environment variables at runtime.
+  # Unlike Unix shell scripts, non-unix needs actual .exe wrappers because:
+  # - CreateProcess doesn't expand %VAR% (only cmd.exe does)
+  # - .bat files don't work as direct executables from CreateProcess
+  sed -i 's/^let asm = .*/let asm = {|conda-ocaml-as.exe|}/' "$config_file"
+  sed -i 's/^let c_compiler = .*/let c_compiler = {|conda-ocaml-cc.exe|}/' "$config_file"
+  sed -i 's/^let ar = .*/let ar = {|conda-ocaml-ar.exe|}/' "$config_file"
+  sed -i 's/^let ranlib = .*/let ranlib = {|conda-ocaml-ranlib.exe|}/' "$config_file"
+  # NOTE: Do NOT override mkexe/mkdll/mkmaindll on non-unix!
+  # These use flexlink which has complex behavior that shouldn't be wrapped.
+  # Let OCaml+flexlink handle linking directly.
 fi
 
 # Clean up Makefile.config - remove embedded paths that cause issues
@@ -271,7 +306,7 @@ if [[ "${target_platform}" == "osx"* ]]; then
   # Note: Don't use -L${PREFIX}/lib here - conda-ocaml-mkexe wrapper adds it at runtime
   sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
 elif [[ "${target_platform}" != "linux"* ]]; then
-  # Windows: Fix flexlink toolchain detection
+  # non-unix: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
   sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
 
@@ -309,13 +344,41 @@ fi
 # ============================================================================
 
 echo "  [4/4] Installing native compiler"
-run_logged "install" "${MAKE[@]}"  install
 
-# Install conda-ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
+# Install (INSTALLING=1 and VPATH= help prevent stale file issues if Makefile.cross is included)
+run_logged "install" "${MAKE[@]}" install INSTALLING=1 VPATH=
+
+# Install conda-ocaml-* wrappers (expand CONDA_OCAML_* env vars for tools like Dune)
 if is_unix; then
   echo "  - Installing conda-ocaml-* wrapper scripts..."
-  for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
+  for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
+  done
+else
+  # non-unix: Build and install wrapper .exe files
+  # These are small C programs that read CONDA_OCAML_* env vars at runtime
+  echo "  - Building conda-ocaml-* wrapper executables..."
+  WRAPPER_SRC="${RECIPE_DIR}/building/non-unix-conda-ocaml-wrapper.c"
+  WRAPPER_DIR="${OCAML_INSTALL_PREFIX}/bin"
+  mkdir -p "${WRAPPER_DIR}"
+
+  # Build each wrapper with appropriate defaults
+  declare -A WRAPPERS=(
+    ["CC"]="gcc.exe"
+    ["AS"]="as.exe"
+    ["AR"]="ar.exe"
+    ["LD"]="ld.exe"
+    ["RANLIB"]="ranlib.exe"
+    ["WINDRES"]="windres.exe"
+  )
+
+  for tool_name in "${!WRAPPERS[@]}"; do
+    default_tool="${WRAPPERS[$tool_name]}"
+    wrapper_name="conda-ocaml-${tool_name,,}.exe"  # lowercase
+    echo "    Building ${wrapper_name}..."
+    "${NATIVE_CC}" -O2 -o "${WRAPPER_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
+      -DTOOL_NAME="${tool_name}" \
+      -DDEFAULT_TOOL="\"${default_tool}\""
   done
 fi
 

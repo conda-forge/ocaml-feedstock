@@ -1,0 +1,11 @@
+# Trial/backup files from debugging sessions
+*.backup*
+*.bak*
+*.orig
+*.new
+.claude/
+logs/
+recipe/
+
+# Testing scripts (keep in version control but ignore local runs)
+# testing/ directory itself is tracked

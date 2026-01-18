@@ -30,6 +30,7 @@ fi
 # Platform Detection & Toolchain Setup (using common-functions.sh)
 # ============================================================================
 
+CONFIG_ARGS+=(--with-target-bindir="${PREFIX}"/bin)
 CROSS_ARCH=$(get_target_arch "${host_alias}")
 CROSS_PLATFORM=$(get_target_platform "${host_alias}")
 
@@ -213,7 +214,7 @@ sed -i \
 apply_cross_patches
 
 # ============================================================================
-# Build crosscompiledopt (uses existing cross-compiler from BUILD_PREFIX)
+# Build crosscompiledopt
 # ============================================================================
 
 echo "  [3/5] Building crosscompiledopt ==="
@@ -230,12 +231,11 @@ echo "  [3/5] Building crosscompiledopt ==="
     LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
     OCAMLLIB="${OCAMLLIB}"
     LDFLAGS="${CROSS_LDFLAGS}"
-
-    # CRITICAL: Do NOT override CONDA_OCAML_AS or CONDA_OCAML_MKEXE!
-    # Native ocamlopt builds compiler binaries (ocamlc.opt, ocamlopt.opt) - needs NATIVE tools
-    # Cross stdlib uses AS="${CROSS_AS}" CC="${CROSS_CC}" passed below
+    
+    CONDA_OCAML_AS="${CROSS_ASM}"
     CONDA_OCAML_CC="${CROSS_CC}"
-    # CONDA_OCAML_MKEXE and CONDA_OCAML_AS intentionally NOT overridden
+    CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
+    CONDA_OCAML_MKDLL="${CROSS_MKDLL:-}"
 
     AS="${CROSS_AS}"
     ASPP="${CROSS_CC} -c"
@@ -265,6 +265,10 @@ echo "  [3/5] Building crosscompiledopt ==="
 
 echo "  [4/5] Building crosscompiledruntime ==="
 
+# Fix build_config.h paths for target
+sed -i "s#${BUILD_PREFIX}/lib/ocaml#${OCAML_INSTALL_PREFIX}/lib/ocaml#g" runtime/build_config.h
+sed -i "s#${build_alias}#${host_alias}#g" runtime/build_config.h
+
 (
   CROSSCOMPILEDRUNTIME_ARGS=(
     ARCH="${CROSS_ARCH}"
@@ -275,20 +279,30 @@ echo "  [4/5] Building crosscompiledruntime ==="
     CROSS_CC="${CROSS_CC}"
     CROSS_AR="${CROSS_AR}"
     CROSS_MKLIB="${CROSS_OCAMLMKLIB}"
+    CHECKSTACK_CC="${NATIVE_CC}"
     SAK_AR="${NATIVE_AR}"
     SAK_CC="${NATIVE_CC}"
     SAK_CFLAGS="${NATIVE_CFLAGS}"
-    SAK_LDFLAGS="${NATIVE_LDFLAGS}"
     ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
     LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
     OCAMLLIB="${OCAMLLIB}"
+    CONDA_OCAML_AS="${CROSS_ASM}"
+    CONDA_OCAML_CC="${CROSS_CC}"
+    CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
+    CONDA_OCAML_MKDLL="${CROSS_MKDLL:-}"
   )
 
-  if [[ "${PLATFORM_TYPE}" == "linux" ]]; then
+  if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
+    CROSSCOMPILEDRUNTIME_ARGS+=(
+      LDFLAGS="${CROSS_LDFLAGS}"
+      SAK_LDFLAGS="${NATIVE_LDFLAGS}"
+    )
+  else
     CROSSCOMPILEDRUNTIME_ARGS+=(
       CPPFLAGS="-D_DEFAULT_SOURCE"
       BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd"
       NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd"
+      SAK_LINK="${NATIVE_CC} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)"
     )
   fi
 
@@ -352,7 +366,7 @@ fi
 
 # Install conda-ocaml-* wrapper scripts (expand CONDA_OCAML_* env vars for tools like Dune)
 echo "    Installing conda-ocaml-* wrapper scripts..."
-for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
+for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
   install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
 done
 
