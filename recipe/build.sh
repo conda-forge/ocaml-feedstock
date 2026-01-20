@@ -213,6 +213,13 @@ else
   # Windows: cp -r is more reliable than tar with Windows paths
   cp -r "${OCAML_NATIVE_INSTALL_PREFIX}/"* "${OCAML_INSTALL_PREFIX}/"
   makefile_config="${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/Makefile.config"
+  # Windows ld.conf - OCaml looks here for stublibs (DLLs)
+  # Convert Unix-style paths (/c/path) to Windows-style (C:/path) for OCaml
+  WIN_OCAMLLIB=$(echo "${OCAML_INSTALL_PREFIX}/Library/lib/ocaml" | sed 's#^/\([a-zA-Z]\)/#\1:/#')
+  cat > "${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/ld.conf" << EOF
+${WIN_OCAMLLIB}/stublibs
+${WIN_OCAMLLIB}
+EOF
 fi
 
 sed -i "s#/.*build_env/bin/##g" "${makefile_config}"
