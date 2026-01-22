@@ -9,6 +9,7 @@
 @set "OCAMLLIB=%OCAML_PREFIX%\lib\ocaml"
 
 @set "PATH=%OCAMLLIB%\stublibs;%PATH%"
+@set "CAML_LD_LIBRARY_PATH=%OCAMLLIB%\stublibs"
 
 @REM OCaml toolchain configuration
 @REM These are used by ocamlopt for assembling and linking native code
