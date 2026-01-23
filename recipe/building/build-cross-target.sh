@@ -190,6 +190,14 @@ done
 run_logged "stage3_configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}"
 
 # ============================================================================
+# Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
+# ============================================================================
+if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
+  echo "  Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
+  echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+fi
+
+# ============================================================================
 # Patch configuration
 # ============================================================================
 

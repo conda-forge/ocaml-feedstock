@@ -233,7 +233,17 @@ echo "  [1/4] Configuring native compiler"
 run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}"
 
 # ============================================================================
-# Patch config.generated.ml and Makefil.config
+# Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
+# ============================================================================
+# OCaml 5.4.0 uses CHECKSTACK_CC but doesn't define it - causes build failure
+# Error: "make[2]: O2: No such file or directory" (flags executed as commands)
+if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
+  echo "  Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
+  echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+fi
+
+# ============================================================================
+# Patch config.generated.ml and Makefile.config
 # ============================================================================
 
 echo "  [2/4] Patching config for ocaml-* wrapper scripts"

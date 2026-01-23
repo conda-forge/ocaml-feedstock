@@ -56,7 +56,10 @@ apply_cross_patches() {
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
+    # glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
+    # Patch both BYTECCLIBS (bytecode runtime) and NATIVECCLIBS (native runtime)
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
+    sed -i 's/^\(NATIVECCLIBS=.*\)$/\1 -ldl/' Makefile.config
   fi
 }
 

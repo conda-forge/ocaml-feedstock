@@ -44,15 +44,13 @@ declare -a CROSS_TARGETS
 case "${target_platform}" in
   linux-64)
     CROSS_TARGETS=("aarch64-conda-linux-gnu" "powerpc64le-conda-linux-gnu")
-    CONFIG_ARGS+=(--enable-frame-pointers)
+    # Frame pointers configured per-target (PPC doesn't support them)
     ;;
   linux-aarch64)
     CROSS_TARGETS=("aarch64-conda-linux-gnu")
-    CONFIG_ARGS+=(--enable-frame-pointers)
     ;;
   linux-ppc64le)
     CROSS_TARGETS=("powerpc64le-conda-linux-gnu")
-    # CONFIG_ARGS+=(--enable-frame-pointers)
     ;;
   osx-*)
     CROSS_TARGETS=("arm64-apple-darwin20.0.0")
@@ -70,6 +68,12 @@ echo "============================================================"
 echo "  Native OCaml (source):    ${OCAML_PREFIX}"
 echo "  Cross install (dest):     ${OCAML_INSTALL_PREFIX}"
 echo "  Native ocamlopt:          ${OCAML_PREFIX}/bin/ocamlopt"
+
+# CRITICAL: Add native OCaml to PATH so configure can find ocamlc
+# Configure checks "if the installed OCaml compiler can build the cross compiler"
+PATH="${OCAML_PREFIX}/bin:${PATH}"
+hash -r
+echo "  PATH updated to include: ${OCAML_PREFIX}/bin"
 
 for target in "${CROSS_TARGETS[@]}"; do
   echo ""
@@ -102,6 +106,18 @@ for target in "${CROSS_TARGETS[@]}"; do
   # Setup cross-toolchain (sets CROSS_CC, CROSS_AS, CROSS_AR, etc.)
   setup_toolchain "CROSS" "${target}"
   setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
+
+  # Platform-specific settings for cross-compiler
+  # NEEDS_DL: glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
+  # This is used by apply_cross_patches() to add -ldl to Makefile.config
+  # CROSS_PLATFORM is "linux-aarch64", "linux-ppc64le", "osx-arm64", etc.
+  NEEDS_DL=0
+  case "${CROSS_PLATFORM}" in
+    linux-*)
+      NEEDS_DL=1
+      ;;
+  esac
+  export NEEDS_DL
 
   # Export CONDA_OCAML_<TARGET_ID>_* variables
   TARGET_ID=$(get_target_id "${target}")
@@ -164,11 +180,20 @@ EOF
   export CFLAGS="${NATIVE_CFLAGS}"
   export LDFLAGS="${NATIVE_LDFLAGS}"
 
+  # Per-target configure args (frame pointers not supported on PPC)
+  declare -a TARGET_CONFIG_ARGS=()
+  case "${CROSS_ARCH}" in
+    arm64|amd64)
+      TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
+      ;;
+  esac
+
   run_logged "cross-configure" ${CONFIGURE[@]} \
     -prefix="${OCAML_CROSS_PREFIX}" \
     --host="${build_alias}" \
     --target="${target}" \
     "${CONFIG_ARGS[@]}" \
+    "${TARGET_CONFIG_ARGS[@]}" \
     AR="${CROSS_AR}" \
     AS="${NATIVE_AS}" \
     LD="${NATIVE_LD}" \
@@ -177,6 +202,14 @@ EOF
     STRIP="${CROSS_STRIP}" \
     ac_cv_func_getentropy=no \
     ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
+
+  # ========================================================================
+  # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
+  # ========================================================================
+  if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
+    echo "    Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
+    echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+  fi
 
   # ========================================================================
   # Patch config.generated.ml
@@ -212,6 +245,22 @@ EOF
 
   # Patch native_pack_linker to use cross-linker via wrapper
   sed -i "s#^let native_pack_linker = .*#let native_pack_linker = {|conda-ocaml-ld -r -o |}#" "$config_file"
+
+  # CRITICAL: Patch native_c_libraries to include -ldl for Linux targets
+  # glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym/dlerror
+  # This value is BAKED INTO the compiler binary, not read from Makefile.config!
+  if [[ "${NEEDS_DL}" == "1" ]]; then
+    # Add -ldl to native_c_libraries if not already present
+    if ! grep -q '"-ldl"' "$config_file"; then
+      sed -i 's#^let native_c_libraries = {|\(.*\)|}#let native_c_libraries = {|\1 -ldl|}#' "$config_file"
+      echo "    Patched native_c_libraries: added -ldl"
+    fi
+    # Also patch bytecomp_c_libraries for bytecode
+    if ! grep -q 'bytecomp_c_libraries.*-ldl' "$config_file"; then
+      sed -i 's#^let bytecomp_c_libraries = {|\(.*\)|}#let bytecomp_c_libraries = {|\1 -ldl|}#' "$config_file"
+      echo "    Patched bytecomp_c_libraries: added -ldl"
+    fi
+  fi
 
   echo "    Patched architecture=${CROSS_ARCH}"
   [[ -n "${CROSS_MODEL}" ]] && echo "    Patched model=${CROSS_MODEL}"
@@ -312,7 +361,7 @@ EOF
       RANLIB="${CROSS_RANLIB}"
       STRIP="${CROSS_STRIP}"
       ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
-      
+
       SAK_AR="${NATIVE_AR}"
       SAK_CC="${NATIVE_CC}"
       SAK_CFLAGS="${NATIVE_CFLAGS}"
