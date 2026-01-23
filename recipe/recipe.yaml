@@ -147,21 +147,16 @@ requirements:
 tests:
   - package_contents:
       bin:
+        - conda-ocaml-ar
+        - conda-ocaml-as
+        - conda-ocaml-cc
+        - conda-ocaml-ld
+        - conda-ocaml-ranlib
         - if: unix
           then:
-            - conda-ocaml-ar
-            - conda-ocaml-as
-            - conda-ocaml-cc
-            - conda-ocaml-ld
             - conda-ocaml-mkdll
             - conda-ocaml-mkexe
-            - conda-ocaml-ranlib
           else:
-            - conda-ocaml-ar.exe
-            - conda-ocaml-as.exe
-            - conda-ocaml-cc.exe
-            - conda-ocaml-ld.exe
-            - conda-ocaml-ranlib.exe
             - conda-ocaml-windres.exe
         - ocaml
         - ocamlc

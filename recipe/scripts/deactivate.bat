@@ -12,6 +12,9 @@
     @set "OCAML_PREFIX="
 )
 
+@REM Clean up OCaml library path
+@set "CAML_LD_LIBRARY_PATH="
+
 @REM Clean up OCaml toolchain variables
 @set "CONDA_OCAML_AS="
 @set "CONDA_OCAML_CC="

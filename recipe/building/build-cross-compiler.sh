@@ -52,7 +52,7 @@ case "${target_platform}" in
     ;;
   linux-ppc64le)
     CROSS_TARGETS=("powerpc64le-conda-linux-gnu")
-    CONFIG_ARGS+=(--enable-frame-pointers)
+    # CONFIG_ARGS+=(--enable-frame-pointers)
     ;;
   osx-*)
     CROSS_TARGETS=("arm64-apple-darwin20.0.0")
@@ -160,17 +160,10 @@ EOF
   # CRITICAL: Override CFLAGS/LDFLAGS - conda-build sets them for TARGET (ppc64le)
   # but configure needs BUILD flags (x86_64) to compile the cross-compiler binary
 
-  # Frame pointers only supported on amd64 and arm64, not on ppc64le
-  FRAME_POINTERS_FLAG=""
-  if [[ "${target}" != *"ppc64le"* && "${target}" != *"powerpc64le"* ]]; then
-    FRAME_POINTERS_FLAG="--enable-frame-pointers"
-  fi
-
   run_logged "cross-configure" ${CONFIGURE[@]} \
     -prefix="${OCAML_CROSS_PREFIX}" \
     --host="${build_alias}" \
     --target="${target}" \
-    ${FRAME_POINTERS_FLAG} \
     "${CONFIG_ARGS[@]}" \
     AR="${CROSS_AR}" \
     AS="${NATIVE_AS}" \
@@ -202,7 +195,12 @@ EOF
     -e 's#^let mkdll = .*#let mkdll = {|conda-ocaml-mkdll|}#' \
     -e 's#^let mkmaindll = .*#let mkmaindll = {|conda-ocaml-mkdll|}#' \
     "$config_file"
-  sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${OCAML_CROSS_LIBDIR}|}#" "$config_file"
+  # CRITICAL: Use the actual PREFIX path that conda will install to
+  # OCAML_CROSS_LIBDIR may point to work/_xcross_compiler/... during build
+  # We need to use ${PREFIX} (the conda prefix) which will be correct after install
+  # Conda/rattler-build will relocate these paths during packaging
+  FINAL_STDLIB_PATH="${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+  sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${FINAL_STDLIB_PATH}|}#" "$config_file"
 
   # CRITICAL: Patch architecture - this is baked into the binary!
   # CROSS_ARCH is set by get_target_arch() - values: arm64, power, amd64
@@ -376,6 +374,34 @@ EOF
     run_logged "installcross" "${MAKE[@]}" installcross "${INSTALL_ARGS[@]}"
   )
 
+  # Verify rpath for macOS cross-compiler binaries
+  # OCaml embeds @rpath/libzstd.1.dylib - rpath should be set via BYTECCLIBS during build
+  # Cross-compiler binaries are in ${PREFIX}/lib/ocaml-cross-compilers/${target}/bin/
+  # libzstd is in ${PREFIX}/lib/, so relative path is ../../../../lib
+  if [[ "${target_platform}" == "osx"* ]]; then
+    echo "  Verifying rpath for macOS cross-compiler binaries..."
+    for binary in "${OCAML_CROSS_PREFIX}"/bin/*.opt; do
+      if [[ -f "${binary}" ]]; then
+        # Check if libzstd is linked via @rpath
+        if otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
+          # Check if rpath already exists (either @executable_path or @loader_path)
+          if otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
+            RPATH=$(otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
+            echo "    $(basename ${binary}): rpath OK (${RPATH})"
+          else
+            # No rpath set - add one
+            echo "    $(basename ${binary}): adding @loader_path/../../../../lib rpath"
+            if install_name_tool -add_rpath @loader_path/../../../../lib "${binary}" 2>&1; then
+              codesign -f -s - "${binary}" 2>/dev/null || true
+            else
+              echo "    WARNING: install_name_tool failed for $(basename ${binary})"
+            fi
+          fi
+        fi
+      fi
+    done
+  fi
+
   # Post-install fixes for cross-compiler package
 
   # ld.conf - point to native OCaml's stublibs (same arch as cross-compiler binary)
@@ -415,11 +441,16 @@ EOF
 
   # Patch Makefile.config for cross-compilation
   # The installed Makefile.config has BUILD machine settings, we need TARGET settings
+  # Also clean up build-time paths that would cause test failures and runtime issues
   echo "  Patching Makefile.config for target ${target}..."
   makefile_config="${OCAML_CROSS_LIBDIR}/Makefile.config"
   if [[ -f "${makefile_config}" ]]; then
     # Architecture
     sed -i "s|^ARCH=.*|ARCH=${CROSS_ARCH}|" "${makefile_config}"
+
+    # TOOLPREF - CRITICAL: Must be TARGET triplet, not BUILD triplet!
+    # opam uses this to find the correct cross-toolchain
+    sed -i "s|^TOOLPREF=.*|TOOLPREF=${target}-|" "${makefile_config}"
 
     # Model (for PowerPC)
     if [[ -n "${CROSS_MODEL}" ]]; then
@@ -429,9 +460,15 @@ EOF
     # Toolchain - use wrapper scripts that expand CONDA_OCAML_* at runtime
     sed -i "s|^CC=.*|CC=conda-ocaml-cc|" "${makefile_config}"
     sed -i "s|^AS=.*|AS=conda-ocaml-as|" "${makefile_config}"
+    sed -i "s|^ASM=.*|ASM=conda-ocaml-as|" "${makefile_config}"
     sed -i "s|^ASPP=.*|ASPP=conda-ocaml-cc -c|" "${makefile_config}"
     sed -i "s|^AR=.*|AR=conda-ocaml-ar|" "${makefile_config}"
     sed -i "s|^RANLIB=.*|RANLIB=conda-ocaml-ranlib|" "${makefile_config}"
+
+    # CPP - strip build-time path, keep binary name and flags (-E -P)
+    # Pattern: CPP=/long/path/to/clang -E -P -> CPP=clang -E -P
+    # The ( .*)? is optional to handle CPP without flags
+    sed -Ei 's#^(CPP)=/.*/([^/ ]+)( .*)?$#\1=\2\3#' "${makefile_config}"
 
     # Linker commands - use cross-tools via wrappers
     sed -i "s|^NATIVE_PACK_LINKER=.*|NATIVE_PACK_LINKER=conda-ocaml-ld -r -o|" "${makefile_config}"
@@ -442,20 +479,53 @@ EOF
     # Library paths - remove hardcoded BUILD paths, use runtime paths
     # bytecomp_c_libraries and native_c_libraries should not have -L paths
     # that point to BUILD_PREFIX - those won't exist at runtime
-    sed -i 's|-L[^ ]*build[^ ]*/lib ||g' "${makefile_config}"
-    sed -i 's|-L[^ ]*_build_env[^ ]*/lib ||g' "${makefile_config}"
+    # Patterns to catch: conda-bld, rattler-build, build_env, _build_env
+    sed -i 's|-L[^ ]*conda-bld[^ ]* ||g' "${makefile_config}"
+    sed -i 's|-L[^ ]*rattler-build[^ ]* ||g' "${makefile_config}"
+    sed -i 's|-L[^ ]*build_env[^ ]* ||g' "${makefile_config}"
+    sed -i 's|-L[^ ]*_build_env[^ ]* ||g' "${makefile_config}"
 
     # Ensure zstd is linked correctly (will be found via standard paths at runtime)
-    # Don't hardcode absolute paths
+    # Remove any remaining absolute -L paths before -lzstd
     sed -i 's|-L/[^ ]*/lib -lzstd|-lzstd|g' "${makefile_config}"
+    # Also catch -L without trailing -lzstd
+    sed -i 's|-L/[^ ]*/lib ||g' "${makefile_config}"
 
-    # Standard library path
-    sed -i "s|^LIBDIR=.*|LIBDIR=${OCAML_CROSS_LIBDIR}|" "${makefile_config}"
-    sed -i "s|^STUBLIBDIR=.*|STUBLIBDIR=${OCAML_CROSS_LIBDIR}/stublibs|" "${makefile_config}"
+    # Standard library path - use actual ${PREFIX} which conda will relocate
+    # The OCAML_CROSS_LIBDIR variable contains build-time work directory path
+    # We need to use the FINAL installed path: ${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml
+    FINAL_CROSS_LIBDIR="${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+    FINAL_CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
+    sed -i "s|^prefix=.*|prefix=${FINAL_CROSS_PREFIX}|" "${makefile_config}"
+    sed -i "s|^LIBDIR=.*|LIBDIR=${FINAL_CROSS_LIBDIR}|" "${makefile_config}"
+    sed -i "s|^STUBLIBDIR=.*|STUBLIBDIR=${FINAL_CROSS_LIBDIR}/stublibs|" "${makefile_config}"
+
+    # CRITICAL: Remove or sanitize CONFIGURE_ARGS - it contains build-time paths
+    # This is purely informational but fails tests and confuses users
+    # Replace the entire line with a sanitized version
+    sed -i '/^CONFIGURE_ARGS=/d' "${makefile_config}"
+    echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${makefile_config}"
+
+    # Clean any remaining build-time paths in other fields
+    # Pattern: /home/*/build_artifacts/*, /home/*/feedstock_root/*
+    # Replace with ${PREFIX} which conda will relocate
+    sed -i "s|/home/[^/]*/feedstock_root/[^ ]*|${PREFIX}|g" "${makefile_config}"
+    sed -i "s|/home/[^/]*/build_artifacts/[^ ]*|${PREFIX}|g" "${makefile_config}"
+
+    # Remove -Wl,-rpath paths that point to build directories
+    sed -i 's|-Wl,-rpath,[^ ]*rattler-build[^ ]* ||g' "${makefile_config}"
+    sed -i 's|-Wl,-rpath-link,[^ ]*rattler-build[^ ]* ||g' "${makefile_config}"
+
+    # Clean LDFLAGS - remove build-time paths from LDFLAGS and LDFLAGS?= lines
+    # These patterns catch conda-bld, rattler-build, build_env paths
+    sed -i 's|-L[^ ]*miniforge[^ ]* ||g' "${makefile_config}"
+    sed -i 's|-L[^ ]*miniconda[^ ]* ||g' "${makefile_config}"
 
     echo "    Patched ARCH=${CROSS_ARCH}"
     [[ -n "${CROSS_MODEL}" ]] && echo "    Patched MODEL=${CROSS_MODEL}"
     echo "    Patched toolchain to use conda-ocaml-* wrappers"
+    echo "    Cleaned build-time paths from prefix/LIBDIR/STUBLIBDIR"
+    echo "    Removed CONFIGURE_ARGS (contained build-time paths)"
   else
     echo "    WARNING: Makefile.config not found at ${makefile_config}"
   fi
@@ -481,6 +551,41 @@ EOF
   )
 
   echo "  Installed via make installcross to: ${OCAML_CROSS_PREFIX}"
+
+  # ========================================================================
+  # Verify runtime library architecture
+  # ========================================================================
+  echo "  Verifying libasmrun.a architecture (expected: ${CROSS_ARCH})..."
+  if [[ -f "${OCAML_CROSS_LIBDIR}/libasmrun.a" ]]; then
+    _tmpdir=$(mktemp -d)
+    (cd "$_tmpdir" && ar x "${OCAML_CROSS_LIBDIR}/libasmrun.a" 2>/dev/null)
+    _obj=$(ls "$_tmpdir"/*.o 2>/dev/null | head -1)
+    if [[ -n "$_obj" ]]; then
+      if [[ "${target_platform}" == "osx"* ]]; then
+        _arch_info=$(lipo -info "$_obj" 2>/dev/null || file "$_obj")
+      else
+        _arch_info=$(readelf -h "$_obj" 2>/dev/null | grep -i "Machine:" || file "$_obj")
+      fi
+      echo "    libasmrun.a object: $_arch_info"
+      # Check architecture matches target (use | not \| with grep -E)
+      case "${CROSS_ARCH}" in
+        arm64) _expected="arm64|ARM64|AArch64|aarch64" ;;
+        aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
+        power) _expected="PowerPC|ppc64" ;;
+        *) _expected="${CROSS_ARCH}" ;;
+      esac
+      if ! echo "$_arch_info" | grep -qiE "$_expected"; then
+        echo "    ✗ ERROR: libasmrun.a has WRONG architecture!"
+        echo "    Expected: ${CROSS_ARCH}, Got: $_arch_info"
+        rm -rf "$_tmpdir"
+        exit 1
+      fi
+      echo "    ✓ Architecture verified: ${CROSS_ARCH}"
+    fi
+    rm -rf "$_tmpdir"
+  else
+    echo "    WARNING: libasmrun.a not found at ${OCAML_CROSS_LIBDIR}/libasmrun.a"
+  fi
 
   # ========================================================================
   # Generate wrapper scripts

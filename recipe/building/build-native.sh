@@ -126,10 +126,6 @@ export CONDA_OCAML_LD="${CONDA_OCAML_LD}"
 export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-}"
-
-# Add native compiler to PATH for cross-compiler builds
-# Use \${OCAML_PREFIX} so it's evaluated when sourced, not when created
-export PATH="\${OCAML_PREFIX}/bin:\${PATH}"
 EOF
 
 # ============================================================================
@@ -280,7 +276,12 @@ sed -i  's#-fdebug-prefix-map=[^ ]*##g' "${config_file}"
 sed -i  's#-link\s+-L[^ ]*##g' "${config_file}"                             # Remove flexlink's "-link -L..." patterns
 sed -i  's#-L[^ ]*##g' "${config_file}"                                     # Remove standalone -L paths
 # These would be found in BUILD_PREFIX and fail relocation
-sed -Ei 's#^(CC|CPP|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"   # Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
+# Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
+# Simple commands: CC, AS, ASM, ASPP, STRIP (line ends with binary name)
+sed -Ei 's#^(CC|AS|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"
+# CPP has flags after binary (e.g., "/path/to/clang -E -P" -> "clang -E -P")
+# The ( .*)? is optional to handle CPP without flags
+sed -Ei 's#^(CPP)=/.*/([^/ ]+)( .*)?$#\1=\2\3#' "${config_file}"
 
 if [[ "${target_platform}" == "osx"* ]]; then
   # For cross-compilation, use BUILD_PREFIX (has x86_64 libs for native compiler)
@@ -347,6 +348,50 @@ echo "  [4/4] Installing native compiler"
 
 # Install (INSTALLING=1 and VPATH= help prevent stale file issues if Makefile.cross is included)
 run_logged "install" "${MAKE[@]}" install INSTALLING=1 VPATH=
+
+# Clean hardcoded -L paths from installed Makefile.config
+# During build we added -L${BUILD_PREFIX}/lib or -L${PREFIX}/lib to find zstd
+# But these absolute paths won't exist at runtime - clean them out
+echo "  - Cleaning hardcoded -L paths from installed Makefile.config..."
+installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
+if [[ -f "${installed_config}" ]]; then
+  # Remove -L paths containing build directories (conda-bld, rattler-build, build_env)
+  sed -i 's|-L[^ ]*conda-bld[^ ]* ||g' "${installed_config}"
+  sed -i 's|-L[^ ]*rattler-build[^ ]* ||g' "${installed_config}"
+  sed -i 's|-L[^ ]*build_env[^ ]* ||g' "${installed_config}"
+  sed -i 's|-L[^ ]*_build_env[^ ]* ||g' "${installed_config}"
+  # Remove any remaining absolute -L paths (will find libs via standard paths at runtime)
+  sed -i 's|-L/[^ ]*/lib ||g' "${installed_config}"
+  # Clean -Wl,-L paths too
+  sed -i 's|-Wl,-L[^ ]* ||g' "${installed_config}"
+fi
+
+# Verify rpath for macOS binaries
+# OCaml embeds @rpath/libzstd.1.dylib - rpath should be set via BYTECCLIBS during build
+# This verifies the rpath is present and adds it only if missing
+if [[ "${target_platform}" == "osx"* ]]; then
+  echo "  - Verifying rpath for macOS binaries..."
+  for binary in "${OCAML_INSTALL_PREFIX}"/bin/*.opt; do
+    if [[ -f "${binary}" ]]; then
+      # Check if libzstd is linked via @rpath
+      if otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
+        # Check if rpath already exists (either @executable_path or @loader_path)
+        if otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
+          RPATH=$(otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
+          echo "    $(basename ${binary}): rpath OK (${RPATH})"
+        else
+          # No rpath set - add one
+          echo "    $(basename ${binary}): adding @loader_path/../lib rpath"
+          if install_name_tool -add_rpath @loader_path/../lib "${binary}" 2>&1; then
+            codesign -f -s - "${binary}" 2>/dev/null || true
+          else
+            echo "    WARNING: install_name_tool failed for $(basename ${binary})"
+          fi
+        fi
+      fi
+    fi
+  done
+fi
 
 # Install conda-ocaml-* wrappers (expand CONDA_OCAML_* env vars for tools like Dune)
 if is_unix; then
