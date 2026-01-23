@@ -161,6 +161,11 @@ hash -r
 echo ""
 echo "  [1/5] Configuring for ${host_alias} ==="
 
+# NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as env vars, not configure args.
+export CC="${CROSS_CC}"
+export CFLAGS="${CROSS_CFLAGS}"
+export LDFLAGS="${CROSS_LDFLAGS}"
+
 CONFIG_ARGS+=(
   -prefix="${OCAML_INSTALL_PREFIX}"
   --build="${build_alias}"
@@ -168,11 +173,8 @@ CONFIG_ARGS+=(
   --target="${host_alias}"
   AR="${CROSS_AR}"
   AS="${CROSS_AS}"
-  CC="${CROSS_CC}"
   LD="${CROSS_LD}"
   RANLIB="${CROSS_RANLIB}"
-  CFLAGS="${CROSS_CFLAGS}"
-  LDFLAGS="${CROSS_LDFLAGS}"
 )
 
 if [[ "${DISABLE_GETENTROPY}" == "1" ]]; then

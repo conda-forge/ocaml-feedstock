@@ -146,13 +146,16 @@ else
 fi
 
 # Add toolchain to configure args
+# NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as environment variables, not configure args.
+# Passing them as args causes make to misparse flags like -O2 as filenames.
+export CC="${NATIVE_CC}"
+export CFLAGS="${NATIVE_CFLAGS}"
+export LDFLAGS="${NATIVE_LDFLAGS}"
+
 CONFIG_ARGS+=(
   AR="${NATIVE_AR}"
   AS="${NATIVE_AS}"
-  CC="${NATIVE_CC}"
-  CFLAGS="${NATIVE_CFLAGS}"
   LD="${NATIVE_LD}"
-  LDFLAGS="${NATIVE_LDFLAGS}"
   RANLIB="${NATIVE_RANLIB}"
   host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
 )

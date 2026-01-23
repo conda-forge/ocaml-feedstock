@@ -159,6 +159,10 @@ EOF
   # ac_cv_func_getentropy=no: conda-forge uses glibc 2.17 sysroot which lacks getentropy
   # CRITICAL: Override CFLAGS/LDFLAGS - conda-build sets them for TARGET (ppc64le)
   # but configure needs BUILD flags (x86_64) to compile the cross-compiler binary
+  # NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as env vars, not configure args.
+  export CC="${NATIVE_CC}"
+  export CFLAGS="${NATIVE_CFLAGS}"
+  export LDFLAGS="${NATIVE_LDFLAGS}"
 
   run_logged "cross-configure" ${CONFIGURE[@]} \
     -prefix="${OCAML_CROSS_PREFIX}" \
@@ -167,10 +171,7 @@ EOF
     "${CONFIG_ARGS[@]}" \
     AR="${CROSS_AR}" \
     AS="${NATIVE_AS}" \
-    CC="${NATIVE_CC}" \
-    CFLAGS="${NATIVE_CFLAGS}" \
     LD="${NATIVE_LD}" \
-    LDFLAGS="${NATIVE_LDFLAGS}" \
     NM="${CROSS_NM}" \
     RANLIB="${CROSS_RANLIB}" \
     STRIP="${CROSS_STRIP}" \
