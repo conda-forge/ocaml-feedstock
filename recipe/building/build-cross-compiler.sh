@@ -190,6 +190,7 @@ EOF
 
   run_logged "cross-configure" ${CONFIGURE[@]} \
     -prefix="${OCAML_CROSS_PREFIX}" \
+    --mandir="${OCAML_CROSS_PREFIX}"/share/man \
     --host="${build_alias}" \
     --target="${target}" \
     "${CONFIG_ARGS[@]}" \

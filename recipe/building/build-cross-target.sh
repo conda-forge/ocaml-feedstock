@@ -168,6 +168,7 @@ export LDFLAGS="${CROSS_LDFLAGS}"
 
 CONFIG_ARGS+=(
   -prefix="${OCAML_INSTALL_PREFIX}"
+  -mandir="${OCAML_INSTALL_PREFIX}"/share/man
   --build="${build_alias}"
   --host="${host_alias}"
   --target="${host_alias}"
