@@ -1,3 +1,19 @@
+# ==============================================================================
+# OCaml Multi-Output Variants Configuration (GCC Pattern)
+# ==============================================================================
+#
+# Following ctng-compilers-feedstock pattern:
+# - Only TG_ is a variant key (cleaner filenames)
+# - Triplet and build_platform are derived in recipe.yaml using match()
+#
+# Variant filenames will be clean:
+#   linux_64_TG_linux-64.yaml
+#   linux_64_TG_linux-aarch64.yaml
+#   osx_64_TG_osx-arm64.yaml
+#
+# ==============================================================================
+
+# Windows-specific overrides
 c_compiler:
   - if: not unix
     then:
@@ -17,3 +33,20 @@ c_stdlib_version:
   - if: not unix
     then:
       - 12
+
+# ==============================================================================
+# Target platform matrix (GCC-style: single variant key)
+# ==============================================================================
+# TG_: The target platform this package produces code for
+#
+# The corresponding triplet and build_platform are derived in recipe.yaml
+# using match() expressions - NOT as variant keys (avoids long filenames)
+# ==============================================================================
+
+TG_:
+  - linux-64
+  - linux-aarch64
+  - linux-ppc64le
+  - osx-64
+  - osx-arm64
+  - win-64

@@ -9,9 +9,12 @@ set -euo pipefail
 VERSION="${1:-}"
 BUILD_PLATFORM="${2:-${build_platform:-}}"
 TARGET_PLATFORM="${3:-${target_platform:-}}"
+TARGET_TRIPLE="${4:-}"
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> [build_platform] [target_platform]"
+  echo "Usage: $0 <version> [build_platform] [target_platform] [target_triple]"
+  echo "  target_triple: Optional specific target to test (e.g., aarch64-conda-linux-gnu)"
+  echo "                 If omitted, tests all available targets for the build platform"
   exit 1
 fi
 
@@ -94,6 +97,12 @@ test_cross_compiler() {
     export SDKROOT="${ARM64_SDK}"
     export CONDA_BUILD_SYSROOT="${ARM64_SDK}"
     echo "    CONDA_BUILD_SYSROOT=${ARM64_SDK}"
+
+    # CRITICAL: Override MKEXE/MKDLL to use test-time SDK
+    # The wrapper defaults have build-time sysroot hardcoded, we need test-time sysroot
+    export CONDA_OCAML_ARM64_MKEXE="clang -target arm64-apple-macos11 -fuse-ld=lld -isysroot ${ARM64_SDK}"
+    export CONDA_OCAML_ARM64_MKDLL="clang -target arm64-apple-macos11 -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup -isysroot ${ARM64_SDK}"
+    echo "    CONDA_OCAML_ARM64_MKEXE=${CONDA_OCAML_ARM64_MKEXE}"
   fi
 
   TEST_ERRORS=0
@@ -124,15 +133,18 @@ test_cross_compiler() {
   fi
 
   # ---------------------------------------------------------------------------
-  # Test 3: native_pack_linker uses cross-linker (CRITICAL - was wrong before!)
+  # Test 3: native_pack_linker uses correct linker (CRITICAL - was wrong before!)
+  # For cross-compilers: should use ${target}-ocaml-ld (cross-prefixed)
+  # For native: should use conda-ocaml-ld
   # ---------------------------------------------------------------------------
   echo "  [3/14] native_pack_linker in -config..."
   PACK_LINKER=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^native_pack_linker:" | cut -d: -f2- | xargs)
-  if [[ "${PACK_LINKER}" == *"conda-ocaml-ld"* ]]; then
+  # Cross-compilers should use target-prefixed linker
+  if [[ "${PACK_LINKER}" == *"${target}-ocaml-ld"* ]] || [[ "${PACK_LINKER}" == *"conda-ocaml-ld"* ]]; then
     echo "    ✓ native_pack_linker: ${PACK_LINKER}"
   else
     echo "    ✗ ERROR: native_pack_linker is '${PACK_LINKER}'"
-    echo "      Expected to contain 'conda-ocaml-ld'"
+    echo "      Expected to contain '${target}-ocaml-ld' or 'conda-ocaml-ld'"
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
 
@@ -659,21 +671,22 @@ EOF
   TEST_ML="/tmp/test_env_${TARGET_ID}.ml"
   echo 'let () = print_endline "test"' > "${TEST_ML}"
 
-  # Ensure PREFIX/bin is in PATH so conda-ocaml-* wrappers can be found
+  # Ensure PREFIX/bin is in PATH so ${target}-ocaml-* wrappers can be found
   export PATH="${PREFIX}/bin:${PATH}"
 
-  # Debug: Check if conda-ocaml-cc exists and is executable
-  if [[ ! -x "${PREFIX}/bin/conda-ocaml-cc" ]]; then
-    echo "    ✗ ERROR: ${PREFIX}/bin/conda-ocaml-cc not found or not executable"
-    echo "      This is a package installation issue"
+  # Debug: Check if ${target}-ocaml-cc exists and is executable (standalone wrapper)
+  TOOLCHAIN_WRAPPER="${PREFIX}/bin/${target}-ocaml-cc"
+  if [[ ! -x "${TOOLCHAIN_WRAPPER}" ]]; then
+    echo "    ✗ ERROR: ${TOOLCHAIN_WRAPPER} not found or not executable"
+    echo "      Cross-compiler should have standalone toolchain wrappers"
     ENV_TEST_PASSED=0
     return 0
   fi
 
   # Debug: Check wrapper script content
-  echo "  Debug: Checking cross-compiler wrapper..."
-  echo "    Wrapper exists: ${CROSS_OCAMLOPT}"
-  if grep -q "CONDA_OCAML_${TARGET_ID}_CC" "${CROSS_OCAMLOPT}" 2>/dev/null; then
+  echo "  Debug: Checking standalone toolchain wrapper..."
+  echo "    Wrapper exists: ${TOOLCHAIN_WRAPPER}"
+  if grep -q "CONDA_OCAML_${TARGET_ID}_CC" "${TOOLCHAIN_WRAPPER}" 2>/dev/null; then
     echo "    ✓ Wrapper reads CONDA_OCAML_${TARGET_ID}_CC"
   else
     echo "    ✗ Wrapper does NOT read CONDA_OCAML_${TARGET_ID}_CC"
@@ -737,63 +750,109 @@ fi
 
 TOTAL_ERRORS=0
 
-# Linux x86_64: test aarch64 and ppc64le cross-compilers
-if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
-  # Test aarch64 cross-compiler
-  if test_cross_compiler \
-    "aarch64-conda-linux-gnu" \
-    "Linux ARM64 (aarch64)" \
-    "qemu-execve-aarch64" \
-    "${PREFIX}/aarch64-conda-linux-gnu/sysroot"; then
+# If TARGET_TRIPLE is specified, test only that target
+if [[ -n "$TARGET_TRIPLE" ]]; then
+  echo "Testing specific target: ${TARGET_TRIPLE}"
+
+  # Determine QEMU settings based on target
+  case "${TARGET_TRIPLE}" in
+    aarch64-conda-linux-gnu)
+      QEMU_CMD="qemu-execve-aarch64"
+      QEMU_PREFIX="${PREFIX}/aarch64-conda-linux-gnu/sysroot"
+      ARCH_NAME="Linux ARM64 (aarch64)"
+      ;;
+    powerpc64le-conda-linux-gnu)
+      QEMU_CMD="qemu-execve-ppc64le"
+      QEMU_PREFIX="${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"
+      ARCH_NAME="Linux PPC64LE"
+      ;;
+    arm64-apple-darwin*)
+      QEMU_CMD=""
+      QEMU_PREFIX=""
+      ARCH_NAME="macOS ARM64"
+      ;;
+    *)
+      echo "Warning: Unknown target triple ${TARGET_TRIPLE}, testing anyway..."
+      QEMU_CMD=""
+      QEMU_PREFIX=""
+      ARCH_NAME="${TARGET_TRIPLE}"
+      ;;
+  esac
+
+  # Test the specified target
+  if test_cross_compiler "${TARGET_TRIPLE}" "${ARCH_NAME}" "${QEMU_CMD}" "${QEMU_PREFIX}"; then
     :
   else
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
   fi
 
-  # Test environment variable override for aarch64
-  if test_toolchain_env_vars "aarch64-conda-linux-gnu"; then
+  # Test environment variable override
+  if test_toolchain_env_vars "${TARGET_TRIPLE}"; then
     :
   else
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
   fi
+else
+  # No specific target - test all available targets for the build platform
 
-  # Test ppc64le cross-compiler
-  if test_cross_compiler \
-    "powerpc64le-conda-linux-gnu" \
-    "Linux PPC64LE" \
-    "qemu-execve-ppc64le" \
-    "${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"; then
-    :
-  else
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+  # Linux x86_64: test aarch64 and ppc64le cross-compilers
+  if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
+    # Test aarch64 cross-compiler
+    if test_cross_compiler \
+      "aarch64-conda-linux-gnu" \
+      "Linux ARM64 (aarch64)" \
+      "qemu-execve-aarch64" \
+      "${PREFIX}/aarch64-conda-linux-gnu/sysroot"; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+
+    # Test environment variable override for aarch64
+    if test_toolchain_env_vars "aarch64-conda-linux-gnu"; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+
+    # Test ppc64le cross-compiler
+    if test_cross_compiler \
+      "powerpc64le-conda-linux-gnu" \
+      "Linux PPC64LE" \
+      "qemu-execve-ppc64le" \
+      "${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+
+    # Test environment variable override for ppc64le
+    if test_toolchain_env_vars "powerpc64le-conda-linux-gnu"; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
   fi
 
-  # Test environment variable override for ppc64le
-  if test_toolchain_env_vars "powerpc64le-conda-linux-gnu"; then
-    :
-  else
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-  fi
-fi
+  # macOS x86_64: test arm64 cross-compiler
+  if [[ "$BUILD_PLATFORM" == "osx-64" ]]; then
+    # Test arm64 cross-compiler (no QEMU for macOS)
+    if test_cross_compiler \
+      "arm64-apple-darwin20.0.0" \
+      "macOS ARM64" \
+      "" \
+      ""; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
 
-# macOS x86_64: test arm64 cross-compiler
-if [[ "$BUILD_PLATFORM" == "osx-64" ]]; then
-  # Test arm64 cross-compiler (no QEMU for macOS)
-  if test_cross_compiler \
-    "arm64-apple-darwin20.0.0" \
-    "macOS ARM64" \
-    "" \
-    ""; then
-    :
-  else
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-  fi
-
-  # Test environment variable override for arm64
-  if test_toolchain_env_vars "arm64-apple-darwin20.0.0"; then
-    :
-  else
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    # Test environment variable override for arm64
+    if test_toolchain_env_vars "arm64-apple-darwin20.0.0"; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
   fi
 fi
 

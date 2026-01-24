@@ -26,7 +26,7 @@ echo "PASS: All CONDA_OCAML_* variables are set"
 
 # Test 2: Verify ocamlopt -config shows wrapper script references
 echo ""
-echo "Test 2: ocamlopt -config uses ocaml-* wrapper scripts"
+echo "Test 2: ocamlopt -config uses conda-ocaml-* wrapper scripts"
 
 CONFIG_CC=$(ocamlopt -config-var c_compiler)
 CONFIG_ASM=$(ocamlopt -config-var asm)
@@ -34,9 +34,9 @@ CONFIG_ASM=$(ocamlopt -config-var asm)
 echo "  c_compiler = $CONFIG_CC"
 echo "  asm = $CONFIG_ASM"
 
-# Config should reference ocaml-* wrapper scripts (for Unix.create_process compatibility)
-if [[ "$CONFIG_CC" == "ocaml-cc" ]]; then
-    echo "PASS: c_compiler uses ocaml-cc wrapper"
+# Config should reference conda-ocaml-* wrapper scripts (for Unix.create_process compatibility)
+if [[ "$CONFIG_CC" == "conda-ocaml-cc" ]]; then
+    echo "PASS: c_compiler uses conda-ocaml-cc wrapper"
 elif [[ "$CONFIG_CC" == *'$'* ]] || [[ "$CONFIG_CC" == *'CONDA_OCAML'* ]]; then
     echo "INFO: c_compiler uses direct env var reference (older build): $CONFIG_CC"
 else
@@ -46,7 +46,7 @@ fi
 # Test 2b: Verify wrapper scripts exist and are executable
 echo ""
 echo "Test 2b: Verify wrapper scripts are installed"
-for wrapper in ocaml-cc ocaml-as ocaml-ar ocaml-ranlib ocaml-mkexe ocaml-mkdll; do
+for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     if [[ -x "${CONDA_PREFIX}/bin/${wrapper}" ]]; then
         echo "  $wrapper: OK"
     else
@@ -111,7 +111,7 @@ if [[ -f "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh" ]]; then
     source "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh"
 fi
 
-echo "  CONDA_OCAML_CC = ${CONDA_OCAML_CC}"
+echo "  CONDA_OCAML_CC = ${CONDA_OCAML_CC:-<not set>}"
 
 cd "$TESTDIR"
 if ocamlopt -o hello2 hello.ml 2>&1; then

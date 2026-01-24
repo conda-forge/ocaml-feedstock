@@ -1,3 +1,5 @@
+TG_:
+- linux-aarch64
 c_compiler:
 - gcc
 c_compiler_version:
