@@ -1,5 +1,5 @@
 /*
- * Generic conda-ocaml wrapper for Windows
+ * Generic conda-ocaml wrapper for non-unix
  *
  * Reads CONDA_OCAML_<TOOL> environment variable and executes that program
  * with all arguments passed through. Falls back to default if not set.

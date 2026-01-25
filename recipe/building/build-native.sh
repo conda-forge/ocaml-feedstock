@@ -391,6 +391,10 @@ if [[ "${target_platform}" == "osx"* ]]; then
       fi
     fi
   done
+
+  # Fix install_names to silence rattler-build overlinking warnings
+  # See fix-macos-install-names.sh for details
+  bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_INSTALL_PREFIX}/lib/ocaml"
 fi
 
 # Install conda-ocaml-* wrappers (expand CONDA_OCAML_* env vars for tools like Dune)

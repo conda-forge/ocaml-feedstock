@@ -401,6 +401,10 @@ EOF
         fi
       fi
     done
+
+    # Fix install_names to silence rattler-build overlinking warnings
+    # See fix-macos-install-names.sh for details
+    bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
   fi
 
   # Post-install fixes for cross-compiler package
