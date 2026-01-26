@@ -1,5 +1,5 @@
 @echo off
-REM Test OCaml tool versions on Windows
+REM Test OCaml tool versions on non-unix
 REM Verifies all tools report correct version
 
 setlocal enabledelayedexpansion

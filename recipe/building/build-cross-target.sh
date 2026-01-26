@@ -85,11 +85,13 @@ if [[ -z "${NATIVE_ASM:-}" ]]; then
   export NATIVE_ASM
 fi
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# macOS: Set DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
 # (Stage 3 runs native compiler binaries from Stage 1 which are linked against BUILD_PREFIX)
+# IMPORTANT: Use FALLBACK variant - DYLD_LIBRARY_PATH overrides system libs (libiconv)
+# causing crashes in tools like sed, make, otool that depend on system libiconv.
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
-  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  echo "  Set DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}"
+  export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH=${DYLD_FALLBACK_LIBRARY_PATH}"
 fi
 
 echo ""

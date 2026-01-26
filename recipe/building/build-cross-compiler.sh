@@ -24,16 +24,19 @@ fi
 : "${OCAML_PREFIX:=${PREFIX}}"
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# macOS: Set DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
 # The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
 # Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
 # Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
+# IMPORTANT: Use DYLD_FALLBACK_LIBRARY_PATH, not DYLD_LIBRARY_PATH!
+# DYLD_LIBRARY_PATH overrides system libs (libiconv) causing crashes in
+# tools like sed, make, otool that depend on system libiconv.
 if [[ "${target_platform}" == "osx"* ]]; then
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
   else
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
 fi
@@ -498,6 +501,10 @@ EOF
         fi
       fi
     done
+
+    # Fix install_names to silence rattler-build overlinking warnings
+    # See fix-macos-install-names.sh for details
+    bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
   fi
 
   # Post-install fixes for cross-compiler package
