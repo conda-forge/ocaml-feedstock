@@ -13,44 +13,34 @@
 #
 # ==============================================================================
 
-_c:
-  - if: not unix
-    then:
-      - _vs
-      - _mingw
-    else:
-      - ''
+is_:
+  - mingw_  # [not unix]
+  - vs_  # [not unix]
+  - ''  # [unix]
 
 # # Windows-specific overrides
-# c_compiler:
-#   - if: not unix
-#     then:
-#       - vs2022
-#       - gcc
+# c_compiler:  # [not unix]
+#       - vs2022  # [not unix]
+#       - gcc     # [not unix]
 # 
-# c_compiler_version:
-#   - if: not unix
-#     then:
-#       - 2022
-#       - 14
+# c_compiler_version:  # [not unix]
+#       - 2022  # [not unix]
+#       - 14  # [not unix]
 # 
-# c_stdlib:
-#   - if: not unix
-#     then:
-#       - ucrt
-#       - m2w64-sysroot
+# c_stdlib:  # [not unix]
+#       - ucrt  # [not unix]
+#       - m2w64-sysroot  # [not unix]
 # 
-# c_stdlib_version:
-#   - if: not unix
-#     then:
-#       - 19
-#       - 12
+# c_stdlib_version:  # [not unix]
+#       - 19  # [not unix]
+#       - 12  # [not unix]
 # 
-# zip_keys:
-#   - if: not unix
-#     then:
-#       - [c_, c_compiler, c_compiler_version, c_stdlib, c_stdlib_version]
-
+# zip_keys:  # [not unix]
+#       - c_compiler  # [not unix]
+#       - c_compiler_version  # [not unix]
+#       - c_stdlib  # [not unix]
+#       - c_stdlib_version  # [not unix]
+    
 # ==============================================================================
 # Target platform matrix (GCC-style: single variant key)
 # ==============================================================================

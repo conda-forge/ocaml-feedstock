@@ -4,10 +4,10 @@
 "$schema" = "https://pixi.sh/v0.59.0/schema/manifest/schema.json"
 
 [workspace]
-name = "ocaml-feedstock-5.4.0"
+name = "ocaml-feedstock-5.4.0-altc"
 version = "3.54.1"  # conda-smithy version used to generate this file
-description = "Pixi configuration for conda-forge/ocaml-feedstock-5.4.0"
-authors = ["@conda-forge/ocaml-feeds"]
+description = "Pixi configuration for conda-forge/ocaml-feedstock-5.4.0-altc"
+authors = ["@conda-forge/ocaml-feedstock-"]
 channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64", "linux-ppc64le", "osx-64", "osx-arm64", "win-64"]
 requires-pixi = ">=0.59.0"
@@ -22,61 +22,67 @@ cmd = "inspect_artifacts --all-packages"
 description = "List contents of all packages found in rattler-build build directory."
 [tasks.build]
 cmd = "rattler-build build --recipe recipe"
-description = "Build ocaml-feedstock-5.4.0 directly (without setup scripts), no particular variant specified"
+description = "Build ocaml-feedstock-5.4.0-altc directly (without setup scripts), no particular variant specified"
 [tasks."build-linux_64_TG_linux-64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/linux_64_TG_linux-64.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant linux_64_TG_linux-64 directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant linux_64_TG_linux-64 directly (without setup scripts)"
 [tasks."inspect-linux_64_TG_linux-64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_64_TG_linux-64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant linux_64_TG_linux-64"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant linux_64_TG_linux-64"
 [tasks."build-linux_64_TG_linux-aarch64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/linux_64_TG_linux-aarch64.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant linux_64_TG_linux-aarch64 directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant linux_64_TG_linux-aarch64 directly (without setup scripts)"
 [tasks."inspect-linux_64_TG_linux-aarch64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_64_TG_linux-aarch64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant linux_64_TG_linux-aarch64"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant linux_64_TG_linux-aarch64"
 [tasks."build-linux_64_TG_linux-ppc64le"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/linux_64_TG_linux-ppc64le.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant linux_64_TG_linux-ppc64le directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant linux_64_TG_linux-ppc64le directly (without setup scripts)"
 [tasks."inspect-linux_64_TG_linux-ppc64le"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_64_TG_linux-ppc64le.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant linux_64_TG_linux-ppc64le"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant linux_64_TG_linux-ppc64le"
 [tasks."build-linux_aarch64_TG_linux-aarch64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/linux_aarch64_TG_linux-aarch64.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant linux_aarch64_TG_linux-aarch64 directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant linux_aarch64_TG_linux-aarch64 directly (without setup scripts)"
 [tasks."inspect-linux_aarch64_TG_linux-aarch64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_aarch64_TG_linux-aarch64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant linux_aarch64_TG_linux-aarch64"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant linux_aarch64_TG_linux-aarch64"
 [tasks."build-linux_ppc64le_TG_linux-ppc64le"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/linux_ppc64le_TG_linux-ppc64le.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant linux_ppc64le_TG_linux-ppc64le directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant linux_ppc64le_TG_linux-ppc64le directly (without setup scripts)"
 [tasks."inspect-linux_ppc64le_TG_linux-ppc64le"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_ppc64le_TG_linux-ppc64le.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant linux_ppc64le_TG_linux-ppc64le"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant linux_ppc64le_TG_linux-ppc64le"
 [tasks."build-osx_64_TG_osx-64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/osx_64_TG_osx-64.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant osx_64_TG_osx-64 directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant osx_64_TG_osx-64 directly (without setup scripts)"
 [tasks."inspect-osx_64_TG_osx-64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/osx_64_TG_osx-64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant osx_64_TG_osx-64"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant osx_64_TG_osx-64"
 [tasks."build-osx_64_TG_osx-arm64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/osx_64_TG_osx-arm64.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant osx_64_TG_osx-arm64 directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant osx_64_TG_osx-arm64 directly (without setup scripts)"
 [tasks."inspect-osx_64_TG_osx-arm64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/osx_64_TG_osx-arm64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant osx_64_TG_osx-arm64"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant osx_64_TG_osx-arm64"
 [tasks."build-osx_arm64_TG_osx-arm64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/osx_arm64_TG_osx-arm64.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant osx_arm64_TG_osx-arm64 directly (without setup scripts)"
+description = "Build ocaml-feedstock-5.4.0-altc with variant osx_arm64_TG_osx-arm64 directly (without setup scripts)"
 [tasks."inspect-osx_arm64_TG_osx-arm64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/osx_arm64_TG_osx-arm64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant osx_arm64_TG_osx-arm64"
-[tasks."build-win_64_TG_win-64"]
-cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_TG_win-64.yaml"
-description = "Build ocaml-feedstock-5.4.0 with variant win_64_TG_win-64 directly (without setup scripts)"
-[tasks."inspect-win_64_TG_win-64"]
-cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_TG_win-64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0 packages built for variant win_64_TG_win-64"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant osx_arm64_TG_osx-arm64"
+[tasks."build-win_64_TG_win-64_c_mingw"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_TG_win-64_c_mingw.yaml"
+description = "Build ocaml-feedstock-5.4.0-altc with variant win_64_TG_win-64_c_mingw directly (without setup scripts)"
+[tasks."inspect-win_64_TG_win-64_c_mingw"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_TG_win-64_c_mingw.yaml"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant win_64_TG_win-64_c_mingw"
+[tasks."build-win_64_TG_win-64_c_vs"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_TG_win-64_c_vs.yaml"
+description = "Build ocaml-feedstock-5.4.0-altc with variant win_64_TG_win-64_c_vs directly (without setup scripts)"
+[tasks."inspect-win_64_TG_win-64_c_vs"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_TG_win-64_c_vs.yaml"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant win_64_TG_win-64_c_vs"
 
 [feature.smithy.dependencies]
 conda-smithy = "*"

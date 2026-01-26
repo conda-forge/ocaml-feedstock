@@ -1,5 +1,5 @@
 context:
-  build_num: 1
+  build_number: 0
   name: ocaml
   version: 5.4.0
   flexdll_version: 0.44
@@ -23,7 +23,8 @@ context:
       "powerpc64le-conda-linux-gnu" if TG_ == "linux-ppc64le"             else
       "x86_64-apple-darwin13.4.0"   if TG_ == "osx-64"                    else
       "arm64-apple-darwin20.0.0"    if TG_ == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if TG_ == "win-64"                    else
+      "x86_64-w64-mingw32"          if TG_ == "win-64" and c_ == "mingw_" else                                                 
+      "x86_64-pc-windows"           if TG_ == "win-64" and c_ == "vs_"    else                                                 
       "unknown"
     }}
   # Which platform builds cross-compilers for each target
@@ -34,6 +35,7 @@ context:
       "win-64"   if TG_ == "win-64"                                       else
       target_platform
     }}
+  c_compiler_key: ${{ "m2w64_c" if _c == "_mingw" else "c" }}                                          
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
@@ -55,7 +57,7 @@ source:
       target_directory: flexdll
 
 build:
-  number: ${{ build_num }}
+  number: ${{ build_number }}
 
 outputs:
   # ==========================================================================
@@ -157,8 +159,15 @@ outputs:
     requirements:
       build:
         # --- Common build deps (all cases) ---
-        - ${{ compiler('c') }}
-        - ${{ stdlib('c') }}
+        # - if: _c == "_mingw"
+        #   then:
+        #     - ${{ compiler("m2w64_c") }}
+        #     - ${{ stdlib("m2w64_c") }}
+        #   else:
+        #     - ${{ compiler(c_compiler_key) }}
+        #     - ${{ stdlib(c_compiler_key) }}
+        - ${{ compiler(c_compiler_key) }}
+        - ${{ stdlib(c_compiler_key) }}
         - ${{ m2 }}bash >=5.2
         - ${{ m2 }}file
         - ${{ m2 }}findutils
@@ -173,7 +182,7 @@ outputs:
         # Guard (TG_ != build_platform) prevents self-referential cycle detection
         - if: is_cross_compiler and (linux or osx) and (TG_ != build_platform)
           then:
-            - if: match(version, ">=5.4.0") and (build_num > 1)
+            - if: match(version, ">=5.4.0") and (build_number > 1)
               then:
                 - ocaml_${{ build_platform }} >=5.4
             - if: linux
@@ -188,7 +197,7 @@ outputs:
         - if: is_cross_target
           then:
             - zstd
-            - if: match(version, ">=5.4.0") and (build_num > 1)
+            - if: match(version, ">=5.4.0") and (build_number > 1)
               then:
                 - ocaml_${{ target_platform }} >=5.4
 
@@ -450,11 +459,7 @@ outputs:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
         # C compiler
-        - if: unix
-          then:
-            - c-compiler
-          else:
-            - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - c-compiler
         # Linker and binary tools
         - if: osx
           then:
