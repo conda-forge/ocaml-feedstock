@@ -1,5 +1,5 @@
 @echo off
-REM Test OCaml compilation capabilities on Windows
+REM Test OCaml compilation capabilities on non-unix
 REM Exercises bytecode and native compilation
 
 setlocal enabledelayedexpansion
@@ -10,7 +10,7 @@ if "%VERSION%"=="" (
     exit /b 1
 )
 
-echo === OCaml Compilation Tests (Windows) ===
+echo === OCaml Compilation Tests (non-unix) ===
 
 REM Create test file
 echo print_endline "Hello World"> hi.ml

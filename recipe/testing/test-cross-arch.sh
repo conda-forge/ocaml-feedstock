@@ -29,8 +29,8 @@ case "${TARGET_PLATFORM}" in
     SHARED_EXT="so"
     ;;
   osx-arm64)
-    ARCH_CHECK="ARM64"
-    CHECK_CMD="otool -hv"
+    ARCH_CHECK="arm64"
+    CHECK_CMD="file"
     SHARED_EXT="so"
     ;;
   *)

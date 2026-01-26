@@ -305,8 +305,10 @@ setup_toolchain() {
        _AS="${_CC}"
        _ASM="$(basename "${_CC}") -c"
 
-       _MKDLL="$(basename "${_CC}") -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-       _MKEXE="$(basename "${_CC}") -fuse-ld=lld -Wl,-headerpad_max_install_names"
+       # Use version-min flag to match SDK version (default 10.13 for conda-forge)
+       local _VERSION_MIN="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+       _MKDLL="$(basename "${_CC}") ${_VERSION_MIN} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -fuse-ld=lld -Wl,-headerpad_max_install_names"
        # Include -isysroot in MKDLL/MKEXE when cross-compiling for ARM64
        # OCaml's Makefile uses $(MKEXE) directly without $(LDFLAGS)
        # NOTE: CONDA_BUILD_SYSROOT must be exported to ARM64 SDK path

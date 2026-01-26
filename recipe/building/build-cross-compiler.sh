@@ -161,6 +161,7 @@ EOF
   # but configure needs BUILD flags (x86_64) to compile the cross-compiler binary
   run_logged "cross-configure" ${CONFIGURE[@]} \
     -prefix="${OCAML_CROSS_PREFIX}" \
+    --mandir="${OCAML_CROSS_PREFIX}"/share/man \
     --host="${build_alias}" \
     --target="${target}" \
     --enable-frame-pointers \
@@ -400,6 +401,10 @@ EOF
         fi
       fi
     done
+
+    # Fix install_names to silence rattler-build overlinking warnings
+    # See fix-macos-install-names.sh for details
+    bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
   fi
 
   # Post-install fixes for cross-compiler package
@@ -551,6 +556,41 @@ EOF
   )
 
   echo "  Installed via make installcross to: ${OCAML_CROSS_PREFIX}"
+
+  # ========================================================================
+  # Verify runtime library architecture
+  # ========================================================================
+  echo "  Verifying libasmrun.a architecture (expected: ${CROSS_ARCH})..."
+  if [[ -f "${OCAML_CROSS_LIBDIR}/libasmrun.a" ]]; then
+    _tmpdir=$(mktemp -d)
+    (cd "$_tmpdir" && ar x "${OCAML_CROSS_LIBDIR}/libasmrun.a" 2>/dev/null)
+    _obj=$(ls "$_tmpdir"/*.o 2>/dev/null | head -1)
+    if [[ -n "$_obj" ]]; then
+      if [[ "${target_platform}" == "osx"* ]]; then
+        _arch_info=$(lipo -info "$_obj" 2>/dev/null || file "$_obj")
+      else
+        _arch_info=$(readelf -h "$_obj" 2>/dev/null | grep -i "Machine:" || file "$_obj")
+      fi
+      echo "    libasmrun.a object: $_arch_info"
+      # Check architecture matches target (use | not \| with grep -E)
+      case "${CROSS_ARCH}" in
+        arm64) _expected="arm64|ARM64|AArch64|aarch64" ;;
+        aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
+        power) _expected="PowerPC|ppc64" ;;
+        *) _expected="${CROSS_ARCH}" ;;
+      esac
+      if ! echo "$_arch_info" | grep -qiE "$_expected"; then
+        echo "    ✗ ERROR: libasmrun.a has WRONG architecture!"
+        echo "    Expected: ${CROSS_ARCH}, Got: $_arch_info"
+        rm -rf "$_tmpdir"
+        exit 1
+      fi
+      echo "    ✓ Architecture verified: ${CROSS_ARCH}"
+    fi
+    rm -rf "$_tmpdir"
+  else
+    echo "    WARNING: libasmrun.a not found at ${OCAML_CROSS_LIBDIR}/libasmrun.a"
+  fi
 
   # ========================================================================
   # Generate wrapper scripts

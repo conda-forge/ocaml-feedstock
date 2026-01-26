@@ -1,5 +1,5 @@
 @echo off
-REM Test that CONDA_OCAML_* toolchain variables work correctly on Windows
+REM Test that CONDA_OCAML_* toolchain variables work correctly on non-unix
 setlocal enabledelayedexpansion
 
 echo === Test: CONDA_OCAML_* Toolchain Variables ===
