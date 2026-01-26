@@ -72,7 +72,7 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
 
   NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-windres" true)
-  [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${PREFIX}/Library/bin/windres.exe"
+  [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${BUILD_PREFIX}/Library/bin/windres.exe"
 
   # Set UTF-8 codepage
   export PYTHONUTF8=1

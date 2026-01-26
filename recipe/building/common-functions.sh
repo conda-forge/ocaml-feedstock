@@ -256,15 +256,12 @@ setup_cflags_ldflags() {
       ;;
     CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le)
       # Cross-compiling FOR Linux aarch64/ppc64le
-      if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-        # Cross-platform CI: conda sets proper target CFLAGS
-        export "${name}_CFLAGS=${CFLAGS}"
-        export "${name}_LDFLAGS=${LDFLAGS}"
-      else
-        # Native build creating cross-compilers: use generic flags (no x86_64 -march/-mtune)
-        export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
-        export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
-      fi
+      # NOTE: As of 2026-01-27, conda-forge's cross-compilation setup concatenates
+      # BOTH target AND build (x86_64) flags into $CFLAGS. This causes errors like:
+      #   powerpc64le-conda-linux-gnu-gcc: error: unrecognized argument '-mtune=haswell'
+      # Use generic flags instead - the cross-compiler handles target code generation.
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
       ;;
     CROSS_osx-64_osx-arm64)
       # Cross-compiling FOR macOS ARM64 (on osx-64)

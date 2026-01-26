@@ -160,7 +160,6 @@ tests:
             - flexlink
             - flexlink.byte
             - flexlink.opt
-            - windres
       files:
         - etc/conda/activate.d/ocaml_activate.${{ sh }}
         - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
