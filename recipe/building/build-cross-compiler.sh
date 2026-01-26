@@ -24,16 +24,19 @@ fi
 : "${OCAML_PREFIX:=${PREFIX}}"
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# macOS: Set DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
 # The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
 # Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
 # Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
+# IMPORTANT: Use DYLD_FALLBACK_LIBRARY_PATH, not DYLD_LIBRARY_PATH!
+# DYLD_LIBRARY_PATH overrides system libs (libiconv) causing crashes in
+# tools like sed, make, otool that depend on system libiconv.
 if [[ "${target_platform}" == "osx"* ]]; then
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
   else
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
 fi
@@ -431,19 +434,20 @@ EOF
   # libzstd is in ${PREFIX}/lib/, so relative path is ../../../../lib
   if [[ "${target_platform}" == "osx"* ]]; then
     echo "  Verifying rpath for macOS cross-compiler binaries..."
+    # Use run_macos_tool to avoid DYLD_LIBRARY_PATH conflicts with system tools
     for binary in "${OCAML_CROSS_PREFIX}"/bin/*.opt; do
       if [[ -f "${binary}" ]]; then
         # Check if libzstd is linked via @rpath
-        if otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
+        if run_macos_tool otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
           # Check if rpath already exists (either @executable_path or @loader_path)
-          if otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
-            RPATH=$(otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
+          if run_macos_tool otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
+            RPATH=$(run_macos_tool otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
             echo "    $(basename ${binary}): rpath OK (${RPATH})"
           else
             # No rpath set - add one
             echo "    $(basename ${binary}): adding @loader_path/../../../../lib rpath"
-            if install_name_tool -add_rpath @loader_path/../../../../lib "${binary}" 2>&1; then
-              codesign -f -s - "${binary}" 2>/dev/null || true
+            if run_macos_tool install_name_tool -add_rpath @loader_path/../../../../lib "${binary}" 2>&1; then
+              run_macos_tool codesign -f -s - "${binary}" 2>/dev/null || true
             else
               echo "    WARNING: install_name_tool failed for $(basename ${binary})"
             fi
@@ -451,6 +455,10 @@ EOF
         fi
       fi
     done
+
+    # Fix install_names to silence rattler-build overlinking warnings
+    # See fix-macos-install-names.sh for details
+    bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
   fi
 
   # Post-install fixes for cross-compiler package

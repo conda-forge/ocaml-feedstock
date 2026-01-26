@@ -192,8 +192,8 @@ echo "=== Transferring builds to PREFIX ==="
 
 OCAML_INSTALL_PREFIX="${PREFIX}"
 
-# Windows: Use cp -r instead of tar to avoid path escaping issues
-# The tar command on Windows has issues with paths containing backslashes
+# non-unix: Use cp -r instead of tar to avoid path escaping issues
+# The tar command on non-unix has issues with paths containing backslashes
 if is_unix; then
   makefile_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   
@@ -210,11 +210,11 @@ ${OCAML_INSTALL_PREFIX}/lib/ocaml/stublibs
 ${OCAML_INSTALL_PREFIX}/lib/ocaml
 EOF
 else
-  # Windows: cp -r is more reliable than tar with Windows paths
+  # non-unix: cp -r is more reliable than tar with non-unix paths
   cp -r "${OCAML_NATIVE_INSTALL_PREFIX}/"* "${OCAML_INSTALL_PREFIX}/"
   makefile_config="${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/Makefile.config"
-  # Windows ld.conf - OCaml looks here for stublibs (DLLs)
-  # Convert Unix-style paths (/c/path) to Windows-style (C:/path) for OCaml
+  # non-unix ld.conf - OCaml looks here for stublibs (DLLs)
+  # Convert Unix-style paths (/c/path) to non-unix-style (C:/path) for OCaml
   WIN_OCAMLLIB=$(echo "${OCAML_INSTALL_PREFIX}/Library/lib/ocaml" | sed 's#^/\([a-zA-Z]\)/#\1:/#')
   cat > "${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/ld.conf" << EOF
 ${WIN_OCAMLLIB}/stublibs

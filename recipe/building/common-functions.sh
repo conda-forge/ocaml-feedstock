@@ -1,6 +1,17 @@
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
+# =============================================================================
+# CRITICAL: macOS DYLD_LIBRARY_PATH cleanup
+# =============================================================================
+# conda's libiconv can override /usr/lib/libiconv.2.dylib but lacks symbols
+# (_iconv_close, _iconv_open, _iconv) that system tools depend on.
+# This causes segfaults when running sed, make, or any tool that loads libcups.
+# Unsetting DYLD paths at the start of all build scripts prevents this.
+if [[ "$(uname 2>/dev/null)" == "Darwin" ]]; then
+  unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+fi
+
 # Nagging unix test
 is_unix() {
   [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]
@@ -8,6 +19,16 @@ is_unix() {
 
 is_build_unix() {
   [[ "${build_platform:-${target_platform}}" == "linux-"* || "${build_platform:-${target_platform}}" == "osx-"* ]]
+}
+
+# Run macOS system tools (install_name_tool, otool, codesign) with clean DYLD paths
+# This prevents conda's libiconv from conflicting with system libraries these tools need
+# Usage: run_macos_tool install_name_tool -id "@rpath/foo.so" foo.so
+run_macos_tool() {
+  (
+    unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+    "$@"
+  )
 }
 
 # Logging wrapper - captures stdout/stderr to log files for debugging
@@ -308,8 +329,10 @@ setup_toolchain() {
        _AS="${_CC}"
        _ASM="$(basename "${_CC}") -c"
 
-       _MKDLL="$(basename "${_CC}") -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-       _MKEXE="$(basename "${_CC}") -fuse-ld=lld -Wl,-headerpad_max_install_names"
+       # Use version-min flag to match SDK version (default 10.13 for conda-forge)
+       local _VERSION_MIN="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+       _MKDLL="$(basename "${_CC}") ${_VERSION_MIN} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -fuse-ld=lld -Wl,-headerpad_max_install_names"
        # Include -isysroot in MKDLL/MKEXE when cross-compiling for ARM64
        # OCaml's Makefile uses $(MKEXE) directly without $(LDFLAGS)
        # NOTE: CONDA_BUILD_SYSROOT must be exported to ARM64 SDK path

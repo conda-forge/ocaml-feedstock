@@ -85,11 +85,13 @@ if [[ -z "${NATIVE_ASM:-}" ]]; then
   export NATIVE_ASM
 fi
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# macOS: Set DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
 # (Stage 3 runs native compiler binaries from Stage 1 which are linked against BUILD_PREFIX)
+# IMPORTANT: Use FALLBACK variant - DYLD_LIBRARY_PATH overrides system libs (libiconv)
+# causing crashes in tools like sed, make, otool that depend on system libiconv.
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
-  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  echo "  Set DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}"
+  export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH=${DYLD_FALLBACK_LIBRARY_PATH}"
 fi
 
 echo ""
@@ -352,26 +354,27 @@ run_logged "installcross" "${MAKE[@]}" installcross
 
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
   echo "    Fixing macOS install names..."
+  # Use run_macos_tool to avoid DYLD_LIBRARY_PATH conflicts with system tools
 
   # Fix stublib overlinking
   for lib in "${OCAML_INSTALL_PREFIX}/lib/ocaml/stublibs/"*.so; do
     [[ -f "$lib" ]] || continue
-    for dep in $(otool -L "$lib" 2>/dev/null | grep '\./dll' | awk '{print $1}'); do
-      install_name_tool -change "$dep" "@loader_path/$(basename $dep)" "$lib"
+    for dep in $(run_macos_tool otool -L "$lib" 2>/dev/null | grep '\./dll' | awk '{print $1}'); do
+      run_macos_tool install_name_tool -change "$dep" "@loader_path/$(basename $dep)" "$lib"
     done
   done
 
   # Set correct install_name for runtime libraries
   for rtlib in libasmrun_shared.so libcamlrun_shared.so; do
     [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/${rtlib}" ]] && \
-      install_name_tool -id "@rpath/${rtlib}" "${OCAML_INSTALL_PREFIX}/lib/ocaml/${rtlib}"
+      run_macos_tool install_name_tool -id "@rpath/${rtlib}" "${OCAML_INSTALL_PREFIX}/lib/ocaml/${rtlib}"
   done
 
   # Fix references in all libraries
   for lib in "${OCAML_INSTALL_PREFIX}/lib/ocaml/"*.so "${OCAML_INSTALL_PREFIX}/lib/ocaml/stublibs/"*.so; do
     [[ -f "$lib" ]] || continue
-    install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib" 2>/dev/null || true
-    install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib" 2>/dev/null || true
+    run_macos_tool install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib" 2>/dev/null || true
+    run_macos_tool install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib" 2>/dev/null || true
   done
 fi
 

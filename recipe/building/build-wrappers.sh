@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build conda-ocaml-* wrapper executables for Windows
+# Build conda-ocaml-* wrapper executables for non-unix
 #
 # These wrappers read CONDA_OCAML_* environment variables at runtime,
 # allowing the OCaml compiler to work with different toolchains without
@@ -14,7 +14,7 @@ INSTALL_DIR="${1:-${PREFIX}/Library/bin}"
 # Ensure we have a C compiler
 CC="${CC:-gcc}"
 
-echo "Building conda-ocaml-* wrappers for Windows..."
+echo "Building conda-ocaml-* wrappers for non-unix..."
 echo "  Source: ${WRAPPER_SRC}"
 echo "  Install: ${INSTALL_DIR}"
 echo "  Compiler: ${CC}"
@@ -23,7 +23,7 @@ mkdir -p "${INSTALL_DIR}"
 
 # Define wrappers: TOOL_NAME -> DEFAULT_TOOL
 # These match the Unix conda-ocaml-* scripts
-# NOTE: Do NOT include MKEXE/MKDLL - flexlink handles linking on Windows
+# NOTE: Do NOT include MKEXE/MKDLL - flexlink handles linking on non-unix
 declare -A WRAPPERS=(
     ["CC"]="gcc.exe"
     ["AS"]="as.exe"

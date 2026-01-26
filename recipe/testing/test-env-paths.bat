@@ -1,8 +1,8 @@
 @echo off
-REM Test environment variables for Windows
+REM Test environment variables for non-unix
 REM Verifies OCAMLLIB and PATH are set correctly
 
-echo === Environment Tests (Windows) ===
+echo === Environment Tests (non-unix) ===
 
 echo OCAMLLIB=%OCAMLLIB%
 echo %OCAMLLIB% | findstr /C:"ocaml" >nul && echo   OCAMLLIB contains ocaml: OK

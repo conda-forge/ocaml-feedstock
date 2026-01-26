@@ -86,6 +86,9 @@ fi
 
 # Check rpath on macOS (prevents "@rpath/libzstd.1.dylib not found" at runtime)
 if [[ "$(uname)" == "Darwin" ]]; then
+  # Avoid DYLD_LIBRARY_PATH conflicts with conda's libiconv vs system tools
+  unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+
   echo "Checking macOS rpath for libzstd..."
   OCAMLOPT_BIN="${PREFIX}/bin/ocamlopt.opt"
   if [[ -f "${OCAMLOPT_BIN}" ]]; then
