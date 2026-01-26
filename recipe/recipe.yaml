@@ -209,22 +209,22 @@ outputs:
         - zstd
 
       run:
+        # Minimal runtime deps for native/cross-target
+        # Full C toolchain is in ocaml-compiler package
         - zstd
-        - if: not unix
-          then:
-            - binutils_impl_${{ TG_ }}
 
-        # --- CROSS-COMPILER: C toolchain for target platform ---
+        # --- CROSS-COMPILER ONLY: Include full toolchain ---
+        # Cross-compilers are self-contained for conda-forge recipe builds
         - if: is_cross_compiler and (linux or osx)
           then:
             - if: linux
               then:
-                - gcc_impl_${{ TG_ }}
+                - gcc_impl_${{ TG_ }} >=${{ c_compiler_version }}
                 - binutils_impl_${{ TG_ }}
               else:
-                - clang_impl_${{ TG_ }}
-                - llvm-tools
-                - lld
+                - clang_impl_${{ TG_ }} >=${{ c_compiler_version }}
+                - lld >=${{ c_compiler_version }}
+                - llvm-tools >=${{ c_compiler_version }}
 
     # ========================================================================
     # TESTS
@@ -328,40 +328,47 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/share/man/man1/*
 
       # ----------------------------------------------------------------------
-      # NATIVE: Environment and resource file path validation
+      # Environment and resource file path validation
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and unix
+          - if: is_native or is_cross_target
             then: cd testing && ${{ dot }}test-env-paths.${{ sh }}
-            else: echo "Skipping env path tests"
+          - if: is_cross_compiler
+            then: cd testing && ./test-env-paths.sh cross ${{ cross_target_triplet }}
+          - if: not (is_native or is_cross_target or is_cross_compiler)
+            then: echo "Invalid artifact" && exit 1
         files:
           recipe:
             - testing/test-env-paths.${{ sh }}
         requirements:
           run:
             - binutils
+            # Use native grep on arm64 since no QEMU
             - if: not arm64
               then:
                 - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
-      # NATIVE: OCAML config validation
+      # OCAML config validation
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and unix and not arm64
-            then: cd testing && ./test-config.sh
-            else: echo "Skipping config tests"
+          - if: is_native
+            then: cd testing && ${{ dot }}test-config.${{ sh }}
+          - if: is_cross_target
+            then: cd testing && ./test-config.sh cross-target
+          - if: is_cross_compiler
+            then: cd testing && ./test-config.sh cross ${{ cross_target_triplet }}
+          - if: not (is_native or is_cross_target or is_cross_compiler)
+            then: echo "Invalid artifact" && exit 1
         files:
           recipe:
-            - testing/test-config.sh
+            - testing/test-config.${{ sh }}
         requirements:
           run:
-            - ${{ m2 }}file
-            - if: is_native
-              then:
-                - binutils_impl_${{ target_platform }}
+            # Use native grep on arm64 since no QEMU
             - if: not arm64
               then:
+                - ${{ m2 }}file
                 - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
@@ -390,7 +397,10 @@ outputs:
             - testing/test-tool-versions.${{ sh }}
         requirements:
           run:
-            - ${{ m2 }}grep
+            # Use native grep on arm64 since no QEMU
+            - if: not arm64
+              then:
+                - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
       # NATIVE: Native-only tools test (ocamldoc, ocamldebug)
@@ -404,46 +414,10 @@ outputs:
             - testing/test-native-only-tools.${{ sh }}
         requirements:
           run:
-            - ${{ m2 }}grep
-
-      # ----------------------------------------------------------------------
-      # NATIVE: Compilation tests
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_native
-            then: cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
-            else: echo "Skipping compilation tests"
-        files:
-          recipe:
-            - testing/test-compilation.${{ sh }}
-        requirements:
-          run:
-            - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
-            - ${{ m2 }}file
-            - ${{ m2 }}grep
-            - if: osx
+            # Use native grep on arm64 since no QEMU
+            - if: not arm64
               then:
-                - lld >=${{ c_compiler_version }}
-                - llvm-tools >=${{ c_compiler_version }}
-
-      # ----------------------------------------------------------------------
-      # NATIVE: CONDA_OCAML_* toolchain variable tests
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_native
-            then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
-            else: echo "Toolchain var tests only on native builds"
-        files:
-          recipe:
-            - testing/test-toolchain-vars.${{ sh }}
-        requirements:
-          run:
-            - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
-            - ${{ m2 }}grep
-            - if: osx
-              then:
-                - lld >=${{ c_compiler_version }}
-                - llvm-tools >=${{ c_compiler_version }}
+                - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
       # CROSS-COMPILER: Functional tests
@@ -463,21 +437,70 @@ outputs:
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
-  # Convenience package that bundles OCaml with C compiler
+  # Full OCaml toolchain with C compiler and linker tools
   # Only built when TG_ == target_platform (alongside native compiler)
+  # Platform-specific to include correct linker tools per platform
   # ==========================================================================
   - package:
       name: ocaml-compiler
     build:
       skip: TG_ != target_platform
-      noarch: generic
       script: echo "Toolchain meta-package"
     requirements:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
-        - ${{ compiler('c') }}
+        # C compiler
+        - if: unix
+          then:
+            - c-compiler
+          else:
+            - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        # Linker and binary tools
+        - if: osx
+          then:
+            - lld >=${{ c_compiler_version }}
+            - llvm-tools >=${{ c_compiler_version }}
+          else:
+            - binutils_impl_${{ target_platform }}
     tests:
-      - script: echo "ocaml-compiler toolchain meta-package installed"
+      # ----------------------------------------------------------------------
+      # Basic toolchain verification
+      # ----------------------------------------------------------------------
+      - script:
+          - if: not arm64
+            then: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
+            else: echo "Skip on arm64"
+
+      # ----------------------------------------------------------------------
+      # Compilation tests (requires C toolchain)
+      # Linux cross-targets can run via QEMU, only osx-arm64 cross skipped
+      # ----------------------------------------------------------------------
+      - script:
+          - if: not arm64
+            then: cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
+            else: echo "Skipping compilation tests (osx-arm64 cross-target, no QEMU)"
+        files:
+          recipe:
+            - testing/test-compilation.${{ sh }}
+        requirements:
+          run:
+            - ${{ m2 }}file
+            - ${{ m2 }}grep
+
+      # ----------------------------------------------------------------------
+      # CONDA_OCAML_* toolchain variable tests
+      # Linux cross-targets can run via QEMU, only osx-arm64 cross skipped
+      # ----------------------------------------------------------------------
+      - script:
+          - if: not arm64
+            then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
+            else: echo "Skipping toolchain var tests (osx-arm64 cross-target, no QEMU)"
+        files:
+          recipe:
+            - testing/test-toolchain-vars.${{ sh }}
+        requirements:
+          run:
+            - ${{ m2 }}grep
 
 about:
   homepage: https://ocaml.org/

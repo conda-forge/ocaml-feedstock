@@ -244,6 +244,13 @@ EOF
     ac_cv_func_getentropy=no \
     ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
 
+  # CRITICAL: Unset CC/CFLAGS/LDFLAGS after configure completes
+  # OCaml 5.4.0 configure requires these as env vars, but leaving them set
+  # can cause crossopt to pick up NATIVE values from environment instead of
+  # the CROSS values passed as make arguments. This leads to arch inconsistencies
+  # between stdlib and otherlibs (unix), causing "inconsistent assumptions" errors.
+  unset CC CFLAGS LDFLAGS
+
   # ========================================================================
   # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
   # ========================================================================
@@ -598,10 +605,16 @@ EOF
     echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${makefile_config}"
 
     # Clean any remaining build-time paths in other fields
-    # Pattern: /home/*/build_artifacts/*, /home/*/feedstock_root/*
-    # Replace with ${PREFIX} which conda will relocate
-    sed -i "s|/home/[^/]*/feedstock_root/[^ ]*|${PREFIX}|g" "${makefile_config}"
-    sed -i "s|/home/[^/]*/build_artifacts/[^ ]*|${PREFIX}|g" "${makefile_config}"
+    # Absolute paths starting with /home/
+    sed -i "s|/home/[^/]*/feedstock_root[^ ]*|${PREFIX}|g" "${makefile_config}"
+    sed -i "s|/home/[^/]*/feedstock[^ ]*|${PREFIX}|g" "${makefile_config}"
+    sed -i "s|/home/[^/]*/build_artifacts[^ ]*|${PREFIX}|g" "${makefile_config}"
+    sed -i "s|/home/[^ ]*/rattler-build[^ ]*|${PREFIX}|g" "${makefile_config}"
+    sed -i "s|/home/[^ ]*/conda-bld[^ ]*|${PREFIX}|g" "${makefile_config}"
+    # Relative or other paths containing build_artifacts (CI test environments)
+    sed -i "s|[^ ]*build_artifacts/[^ ]*|${PREFIX}|g" "${makefile_config}"
+    sed -i "s|[^ ]*rattler-build_[^ ]*|${PREFIX}|g" "${makefile_config}"
+    sed -i "s|[^ ]*conda-bld/[^ ]*|${PREFIX}|g" "${makefile_config}"
 
     # Remove -Wl,-rpath paths that point to build directories
     sed -i 's|-Wl,-rpath,[^ ]*rattler-build[^ ]* ||g' "${makefile_config}"
@@ -619,6 +632,17 @@ EOF
     echo "    Removed CONFIGURE_ARGS (contained build-time paths)"
   else
     echo "    WARNING: Makefile.config not found at ${makefile_config}"
+  fi
+
+  # Clean build-time paths from runtime-launch-info
+  echo "  Cleaning build-time paths from runtime-launch-info..."
+  runtime_launch_info="${OCAML_CROSS_LIBDIR}/runtime-launch-info"
+  if [[ -f "${runtime_launch_info}" ]]; then
+    sed -i 's|[^ ]*rattler-build_[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+    sed -i 's|[^ ]*conda-bld[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+    sed -i 's|[^ ]*build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+    sed -i 's|[^ ]*_build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+    echo "    Cleaned build-time paths"
   fi
 
   # Remove unnecessary library files to reduce package size

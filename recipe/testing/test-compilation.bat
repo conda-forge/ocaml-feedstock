@@ -25,8 +25,9 @@ if errorlevel 1 (
 )
 echo   bytecode compile: OK
 
-echo   executing...
-hi.exe | findstr /C:"Hello World" >nul
+echo   executing via ocamlrun...
+REM Windows bytecode executables need ocamlrun (no shebang support)
+ocamlrun hi.exe | findstr /C:"Hello World" >nul
 if errorlevel 1 (
     echo   bytecode execution: FAILED
     exit /b 1
@@ -83,7 +84,7 @@ if errorlevel 1 (
     echo   bytecode link: FAILED
     exit /b 1
 )
-multi.exe | findstr /C:"From Lib" >nul
+ocamlrun multi.exe | findstr /C:"From Lib" >nul
 if errorlevel 1 (
     echo   bytecode multi-file execution: FAILED
     exit /b 1

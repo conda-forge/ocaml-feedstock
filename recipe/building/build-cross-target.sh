@@ -350,6 +350,44 @@ run_logged "installcross" "${MAKE[@]}" installcross
 # Post-install fixes
 # ============================================================================
 
+# Clean hardcoded -L paths from installed Makefile.config
+echo "    Cleaning hardcoded paths from Makefile.config..."
+installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
+if [[ -f "${installed_config}" ]]; then
+  sed -i 's|-L[^ ]*conda-bld[^ ]* ||g' "${installed_config}"
+  sed -i 's|-L[^ ]*rattler-build[^ ]* ||g' "${installed_config}"
+  sed -i 's|-L[^ ]*build_env[^ ]* ||g' "${installed_config}"
+  sed -i 's|-L[^ ]*_build_env[^ ]* ||g' "${installed_config}"
+  sed -i 's|-L/[^ ]*/lib ||g' "${installed_config}"
+  sed -i 's|-Wl,-L[^ ]* ||g' "${installed_config}"
+
+  # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths
+  sed -i '/^CONFIGURE_ARGS=/d' "${installed_config}"
+  echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${installed_config}"
+
+  # Clean any remaining build-time paths (various patterns used by CI systems)
+  # Absolute paths starting with /home/
+  sed -i "s|/home/[^/]*/feedstock_root[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^/]*/feedstock[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^/]*/build_artifacts[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^ ]*/rattler-build[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^ ]*/conda-bld[^ ]*|${PREFIX}|g" "${installed_config}"
+  # Relative or other paths containing build_artifacts (CI test environments)
+  sed -i "s|[^ ]*build_artifacts/[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|[^ ]*rattler-build_[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|[^ ]*conda-bld/[^ ]*|${PREFIX}|g" "${installed_config}"
+fi
+
+# Clean build-time paths from runtime-launch-info
+echo "    Cleaning build-time paths from runtime-launch-info..."
+runtime_launch_info="${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info"
+if [[ -f "${runtime_launch_info}" ]]; then
+  sed -i 's|[^ ]*rattler-build_[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*conda-bld[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*_build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+fi
+
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
   echo "    Fixing macOS install names..."
 

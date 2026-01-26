@@ -377,6 +377,34 @@ if [[ -f "${installed_config}" ]]; then
   sed -i 's|-L/[^ ]*/lib ||g' "${installed_config}"
   # Clean -Wl,-L paths too
   sed -i 's|-Wl,-L[^ ]* ||g' "${installed_config}"
+
+  # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths like /home/*/feedstock_root/*
+  sed -i '/^CONFIGURE_ARGS=/d' "${installed_config}"
+  echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${installed_config}"
+
+  # Clean any remaining build-time paths (various patterns used by CI systems)
+  # Absolute paths starting with /home/
+  sed -i "s|/home/[^/]*/feedstock_root[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^/]*/feedstock[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^/]*/build_artifacts[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^ ]*/rattler-build[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^ ]*/conda-bld[^ ]*|${PREFIX}|g" "${installed_config}"
+  # Relative or other paths containing build_artifacts (CI test environments)
+  sed -i "s|[^ ]*build_artifacts/[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|[^ ]*rattler-build_[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|[^ ]*conda-bld/[^ ]*|${PREFIX}|g" "${installed_config}"
+fi
+
+# Clean build-time paths from runtime-launch-info
+# This file contains paths used during compilation - sanitize any build-time leaks
+echo "  - Cleaning build-time paths from runtime-launch-info..."
+runtime_launch_info="${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info"
+if [[ -f "${runtime_launch_info}" ]]; then
+  # Replace build-time paths with PREFIX placeholder (conda will relocate)
+  sed -i 's|[^ ]*rattler-build_[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*conda-bld[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*_build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
 fi
 
 # Verify rpath for macOS binaries

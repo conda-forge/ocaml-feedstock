@@ -200,15 +200,30 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   # Only copy cross-compiler specific files
   tar -C "${OCAML_XCROSS_INSTALL_PREFIX}" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
 
-  # Fix cross-compiler ld.conf
-  for ldconf in "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/lib/ocaml/ld.conf; do
-    [[ -f "$ldconf" ]] || continue
-    cross_dir=$(dirname $(dirname $(dirname "$ldconf")))
-    cat > "$ldconf" << EOF
-${cross_dir}/lib/ocaml/stublibs
-${cross_dir}/lib/ocaml
+  # Fix cross-compiler Makefile.config and ld.conf
+  for cross_dir in "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/; do
+    [[ -d "$cross_dir" ]] || continue
+    triplet=$(basename "$cross_dir")
+    echo "  Fixing paths for ${triplet}..."
+
+    # Replace staging paths with install paths in Makefile.config
+    makefile_config="${cross_dir}/lib/ocaml/Makefile.config"
+    if [[ -f "$makefile_config" ]]; then
+      sed -i "s#${OCAML_XCROSS_INSTALL_PREFIX}#${OCAML_INSTALL_PREFIX}#g" "$makefile_config"
+      sed -i "s#/.*build_env/bin/##g" "$makefile_config"
+      sed -i 's#$(CC)#$(CONDA_OCAML_CC)#g' "$makefile_config"
+      echo "    Fixed: lib/ocaml-cross-compilers/${triplet}/lib/ocaml/Makefile.config"
+    fi
+
+    # Fix ld.conf
+    ldconf="${cross_dir}/lib/ocaml/ld.conf"
+    if [[ -f "$ldconf" ]]; then
+      cat > "$ldconf" << EOF
+${cross_dir}lib/ocaml/stublibs
+${cross_dir}lib/ocaml
 EOF
-    echo "  Fixed: ${ldconf#${OCAML_INSTALL_PREFIX}/}"
+      echo "    Fixed: lib/ocaml-cross-compilers/${triplet}/lib/ocaml/ld.conf"
+    fi
   done
 fi
 
@@ -379,9 +394,23 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     # Source native compiler env if available (not present in Stage 3 fast path)
     if [[ -f "${SRC_DIR}/_native_compiler_env.sh" ]]; then
       source "${SRC_DIR}/_native_compiler_env.sh"
-    else
-      # Stage 3 fast path: use defaults from BUILD_PREFIX toolchain
-      echo "  (Using BUILD_PREFIX defaults - Stage 3 fast path)"
+    fi
+
+    # Cross-target mode: override with TARGET platform toolchain
+    # The package runs on CROSS_TARGET_PLATFORM, so it needs that platform's tools
+    if [[ "${BUILD_MODE}" == "cross-target" ]]; then
+      echo "  (Using TARGET toolchain: ${CROSS_TARGET_TRIPLET}-*)"
+      export CONDA_OCAML_AR="${CROSS_TARGET_TRIPLET}-ar"
+      export CONDA_OCAML_AS="${CROSS_TARGET_TRIPLET}-as"
+      export CONDA_OCAML_CC="${CROSS_TARGET_TRIPLET}-gcc"
+      export CONDA_OCAML_LD="${CROSS_TARGET_TRIPLET}-ld"
+      export CONDA_OCAML_RANLIB="${CROSS_TARGET_TRIPLET}-ranlib"
+      export CONDA_OCAML_MKEXE="${CROSS_TARGET_TRIPLET}-gcc"
+      export CONDA_OCAML_MKDLL="${CROSS_TARGET_TRIPLET}-gcc -shared"
+      export CONDA_OCAML_WINDRES="${CROSS_TARGET_TRIPLET}-windres"
+    elif [[ -z "${CONDA_OCAML_AR:-}" ]]; then
+      # Stage 3 fast path (native mode): use defaults from BUILD_PREFIX toolchain
+      echo "  (Using BUILD_PREFIX defaults - native mode)"
       export CONDA_OCAML_AR=$(basename "${AR:-ar}")
       export CONDA_OCAML_AS=$(basename "${AS:-as}")
       export CONDA_OCAML_CC=$(basename "${CC:-cc}")
