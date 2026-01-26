@@ -1,59 +1,13 @@
-# ==============================================================================
-# OCaml Multi-Output Variants Configuration (GCC Pattern)
-# ==============================================================================
-#
-# Following ctng-compilers-feedstock pattern:
-# - Only TG_ is a variant key (cleaner filenames)
-# - Triplet and build_platform are derived in recipe.yaml using match()
-#
-# Variant filenames will be clean:
-#   linux_64_TG_linux-64.yaml
-#   linux_64_TG_linux-aarch64.yaml
-#   osx_64_TG_osx-arm64.yaml
-#
-# ==============================================================================
-
-is_:
-  - mingw_  # [not unix]
-  - vs_  # [not unix]
-  - ''  # [unix]
-
-# # Windows-specific overrides
-# c_compiler:  # [not unix]
-#       - vs2022  # [not unix]
-#       - gcc     # [not unix]
-# 
-# c_compiler_version:  # [not unix]
-#       - 2022  # [not unix]
-#       - 14  # [not unix]
-# 
-# c_stdlib:  # [not unix]
-#       - ucrt  # [not unix]
-#       - m2w64-sysroot  # [not unix]
-# 
-# c_stdlib_version:  # [not unix]
-#       - 19  # [not unix]
-#       - 12  # [not unix]
-# 
-# zip_keys:  # [not unix]
-#       - c_compiler  # [not unix]
-#       - c_compiler_version  # [not unix]
-#       - c_stdlib  # [not unix]
-#       - c_stdlib_version  # [not unix]
-    
-# ==============================================================================
-# Target platform matrix (GCC-style: single variant key)
-# ==============================================================================
-# TG_: The target platform this package produces code for
-#
-# The corresponding triplet and build_platform are derived in recipe.yaml
-# using match() expressions - NOT as variant keys (avoids long filenames)
-# ==============================================================================
-
-TG_:
-  - linux-64
-  - linux-aarch64
-  - linux-ppc64le
-  - osx-64
-  - osx-arm64
-  - win-64
+c_stdlib:
+  - sysroot                    # [linux]
+  - macosx_deployment_target   # [osx]
+  - vs                         # [win]
+c_stdlib_version:              # [unix]
+  - 2.17                       # [linux]
+  - 2.17                       # [linux and not ppc64le and os.environ.get("CF_CUDA_ENABLED", "False") == "True"]
+  - 10.13                      # [osx and x86_64]
+  - 11.0                       # [osx and arm64]
+m2w64_c_stdlib:                # [win]
+  - m2w64-sysroot              # [win]
+m2w64_c_stdlib_version:        # [win]
+  - 12                         # [win]

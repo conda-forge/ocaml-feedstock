@@ -16,40 +16,22 @@
 _c:
   - if: not unix
     then:
-      - _vs
-      - _mingw
+      - "_vs"
+      - "_mingw"
     else:
-      - ''
+      - ""
 
-# # Windows-specific overrides
-# c_compiler:
-#   - if: not unix
-#     then:
-#       - vs2022
-#       - gcc
-# 
-# c_compiler_version:
-#   - if: not unix
-#     then:
-#       - 2022
-#       - 14
-# 
+# Explicit c_stdlib to fix "undefined" in CI
 # c_stdlib:
+#   - if: linux
+#     then:
+#       - sysroot
+#   - if: osx
+#     then:
+#       - macosx_deployment_target
 #   - if: not unix
 #     then:
 #       - ucrt
-#       - m2w64-sysroot
-# 
-# c_stdlib_version:
-#   - if: not unix
-#     then:
-#       - 19
-#       - 12
-# 
-# zip_keys:
-#   - if: not unix
-#     then:
-#       - [c_, c_compiler, c_compiler_version, c_stdlib, c_stdlib_version]
 
 # ==============================================================================
 # Target platform matrix (GCC-style: single variant key)

@@ -1,7 +1,7 @@
 About ocaml-feedstock
 =====================
 
-Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/main/LICENSE.txt)
+Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock-5.4.0-altc-feedstock/blob/main/LICENSE.txt)
 
 Home: https://ocaml.org/
 
@@ -41,8 +41,8 @@ Current build status
     <td>
       <details>
         <summary>
-          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main">
+          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main">
           </a>
         </summary>
         <table>
@@ -50,71 +50,71 @@ Current build status
           <tbody><tr>
               <td>linux_64_TG_linux-64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_TG_linux-64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_TG_linux-64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>linux_64_TG_linux-aarch64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_TG_linux-aarch64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_TG_linux-aarch64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>linux_64_TG_linux-ppc64le</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_TG_linux-ppc64le" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_TG_linux-ppc64le" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>linux_aarch64_TG_linux-aarch64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_aarch64_TG_linux-aarch64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_aarch64_TG_linux-aarch64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>linux_ppc64le_TG_linux-ppc64le</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_ppc64le_TG_linux-ppc64le" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_ppc64le_TG_linux-ppc64le" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>osx_64_TG_osx-64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_TG_osx-64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_TG_osx-64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>osx_64_TG_osx-arm64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_TG_osx-arm64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_TG_osx-arm64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>osx_arm64_TG_osx-arm64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_TG_osx-arm64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_TG_osx-arm64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>win_64_TG_win-64_c_mingw</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=win&configuration=win%20win_64_TG_win-64_c_mingw" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_TG_win-64_c_mingw" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>win_64_TG_win-64_c_vs</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=win&configuration=win%20win_64_TG_win-64_c_vs" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_TG_win-64_c_vs" alt="variant">
                 </a>
               </td>
             </tr>

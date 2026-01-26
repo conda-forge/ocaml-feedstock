@@ -32,8 +32,12 @@ source "${RECIPE_DIR}/building/common-functions.sh"
 
 # Compiler activation should set CONDA_TOOLCHAIN_BUILD
 if [[ -z "${CONDA_TOOLCHAIN_BUILD:-}" ]]; then
-  echo "ERROR: CONDA_TOOLCHAIN_BUILD not set (compiler activation failed?)"
-  exit 1
+  if [[ "${CROSS_TARGET_TRIPLET}" == *"-pc-"* ]]; then
+    CONDA_TOOLCHAIN_BUILD="no-pc-toolchain"
+  else
+    echo "ERROR: CONDA_TOOLCHAIN_BUILD not set (compiler activation failed?)"
+    exit 1
+  fi
 fi
 
 # ============================================================================
@@ -71,13 +75,21 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
 
-  NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-windres" true)
-  [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${PREFIX}/Library/bin/windres.exe"
-
+  if [[ "${CROSS_TARGET_TRIPLET}" != *"-pc-"* ]]; then
+    NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-windres" true)
+    [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${BUILD_PREFIX}/Library/bin/windres.exe"
+  else
+    NATIVE_WINDRES="rc.exe"
+  fi
+  
   # Set UTF-8 codepage
   export PYTHONUTF8=1
   # Needed to find zstd
-  export NATIVE_LDFLAGS="-L${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
+  if [[ "${CROSS_TARGET_TRIPLET}" == *"-pc-"* ]]; then
+    export NATIVE_LDFLAGS="/LIBPATH:${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
+  else
+    export NATIVE_LDFLAGS="-L${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
+  fi
 fi
 
 echo "  NATIVE_AR:      ${NATIVE_AR}"
@@ -98,7 +110,7 @@ echo "  NATIVE_RANLIB:  ${NATIVE_RANLIB}"
 export CONDA_OCAML_AR=$(basename "${NATIVE_AR}")
 export CONDA_OCAML_CC=$(basename "${NATIVE_CC}")
 export CONDA_OCAML_LD=$(basename "${NATIVE_LD}")
-export CONDA_OCAML_RANLIB=$(basename "${NATIVE_RANLIB}")
+export CONDA_OCAML_RANLIB=$(basename "${NATIVE_RANLIB:-echo}")
 # Special case, already a basename
 export CONDA_OCAML_AS="${NATIVE_ASM}"
 export CONDA_OCAML_MKEXE="${NATIVE_MKEXE}"
@@ -152,16 +164,29 @@ fi
 # NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as environment variables, not configure args.
 # Passing them as args causes make to misparse flags like -O2 as filenames.
 export CC="${NATIVE_CC}"
-export CFLAGS="${NATIVE_CFLAGS}"
-export LDFLAGS="${NATIVE_LDFLAGS}"
 
-CONFIG_ARGS+=(
-  AR="${NATIVE_AR}"
-  AS="${NATIVE_AS}"
-  LD="${NATIVE_LD}"
-  RANLIB="${NATIVE_RANLIB}"
-  host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
-)
+if [[ "${CROSS_TARGET_TRIPLET}" == *"-pc-"* ]]; then
+  # MSVC: Let configure detect correct flags - don't inject GCC-style flags
+  # cl.exe uses /O2, /LIBPATH: etc. - incompatible with GCC -O2, -L
+  export CFLAGS=""
+  export LDFLAGS="${NATIVE_LDFLAGS}"
+  # Don't pass AS — configure's default for MSVC includes critical flags:
+  #   "ml64 -nologo -Cp -c -Fo" (the trailing -Fo is concatenated with output path)
+  CONFIG_ARGS+=(
+    AR="${NATIVE_AR}"
+    LD="${NATIVE_LD}"
+  )
+else
+  export CFLAGS="${NATIVE_CFLAGS}"
+  export LDFLAGS="${NATIVE_LDFLAGS}"
+  CONFIG_ARGS+=(
+    AR="${NATIVE_AR}"
+    AS="${NATIVE_AS}"
+    LD="${NATIVE_LD}"
+    RANLIB="${NATIVE_RANLIB}"
+    host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
+  )
+fi
 
 if is_unix; then
   CONFIG_ARGS+=(
@@ -171,11 +196,21 @@ if is_unix; then
 else
   CONFIG_ARGS+=(
     --with-flexdll
-    --with-gnu-ld
-    --with-target-bindir="${PREFIX}"/Library/bin
-    windows_UNICODE_MODE=compatible
     WINDRES="${NATIVE_WINDRES}"
   )
+  if [[ "${CROSS_TARGET_TRIPLET}" != *"-pc-"* ]]; then
+    CONFIG_ARGS+=(
+      windows_UNICODE_MODE=compatible
+    )
+  else
+    # MSVC: --build=cygwin (MSYS2 build env), --host=windows (MSVC target)
+    # This is how OCaml detects MSVC mode and uses /Fe: instead of -o
+    CONFIG_ARGS+=(
+      --build=x86_64-pc-cygwin
+      --host="${CROSS_TARGET_TRIPLET}"
+      windows_UNICODE_MODE=compatible
+    )
+  fi
 fi
 
 # ============================================================================
@@ -201,30 +236,7 @@ if is_unix; then
 else
   # Non-unix: Build wrapper .exe files BEFORE configuring
   # These need to exist when config.generated.ml references them
-  echo "  Building conda-ocaml-* wrapper executables to BUILD_PREFIX..."
-  WRAPPER_SRC="${RECIPE_DIR}/building/non-unix-conda-ocaml-wrapper.c"
-  WRAPPER_DIR="${BUILD_PREFIX}/Library/bin"
-  mkdir -p "${WRAPPER_DIR}"
-
-  declare -A WRAPPERS=(
-    ["CC"]="gcc.exe"
-    ["AS"]="as.exe"
-    ["AR"]="ar.exe"
-    ["LD"]="ld.exe"
-    ["RANLIB"]="ranlib.exe"
-    ["WINDRES"]="windres.exe"
-  )
-
-  for tool_name in "${!WRAPPERS[@]}"; do
-    default_tool="${WRAPPERS[$tool_name]}"
-    wrapper_name="conda-ocaml-${tool_name,,}.exe"  # lowercase
-    echo "    Building ${wrapper_name}..."
-    "${NATIVE_CC}" -O2 -o "${WRAPPER_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
-      -DTOOL_NAME="${tool_name}" \
-      -DDEFAULT_TOOL="\"${default_tool}\""
-  done
-  echo "  Wrapper executables built:"
-  ls -la "${WRAPPER_DIR}"/conda-ocaml-*.exe 2>/dev/null || echo "    (none found!)"
+  CC="${NATIVE_CC}" "${RECIPE_DIR}/building/build-wrappers.sh" "${BUILD_PREFIX}/Library/bin"
 fi
 
 # ============================================================================
@@ -233,7 +245,7 @@ fi
 
 echo ""
 echo "  [1/4] Configuring native compiler"
-run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}"
+run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}" || { cat config.log; exit 1; }
 
 # ============================================================================
 # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
@@ -243,6 +255,33 @@ run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_IN
 if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
   echo "  Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
   echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+fi
+
+# ============================================================================
+# MSYS2 compatibility patches for MSVC toolchain
+# ============================================================================
+# MSYS2 causes two issues with MSVC tools in Makefile variables:
+# 1. Path conversion: /link flag → filesystem path of link.exe (breaks cl.exe)
+# 2. Name shadowing: bare "link" → MSYS2 coreutils link (hard link utility)
+if [[ "${CROSS_TARGET_TRIPLET}" == *"-pc-"* ]]; then
+  # MSYS2 path conversion: /link is converted to the filesystem path of link.exe
+  # (e.g., %BUILD_PREFIX%/Library/link), breaking cl.exe's /link flag that tells
+  # it to pass remaining args to the linker. Using -link avoids this — cl.exe
+  # accepts both / and - as option prefixes, but MSYS2 only converts /-prefixed args.
+  echo "  Applying MSYS2 workarounds for MSVC toolchain..."
+  # MSYS2 auto-converts /flag args to Windows paths when spawning non-MSYS2 binaries.
+  # MSVC tools use /nologo, /link, /out: etc. which get mangled. Disable globally.
+  export MSYS2_ARG_CONV_EXCL='*'
+  # MSYS2's /usr/bin/link.exe (coreutils hard link) shadows MSVC's link.exe in PATH.
+  # flexlink and OCaml's build system call bare "link" expecting MSVC's linker.
+  # Hide MSYS2's link to prevent the collision.
+  if [[ -f /usr/bin/link.exe ]]; then
+    echo "  Hiding MSYS2 /usr/bin/link.exe (coreutils) to avoid shadowing MSVC link.exe"
+    mv /usr/bin/link.exe /usr/bin/link.msys2.exe
+  fi
+  # MKLIB: configure uses "link -lib" which is MSVC syntax for "lib.exe".
+  # Even with MSYS2 link hidden, use lib.exe directly for clarity.
+  sed -i 's|^MKLIB=link -lib |MKLIB=lib.exe |' Makefile.config
 fi
 
 # ============================================================================
@@ -271,8 +310,14 @@ if is_unix; then
   sed -i 's/^let mkexe = .*/let mkexe = {|conda-ocaml-mkexe|}/' "$config_file"
   sed -i 's/^let mkdll = .*/let mkdll = {|conda-ocaml-mkdll|}/' "$config_file"
   sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
+elif [[ "${CROSS_TARGET_TRIPLET}" == *"-pc-"* ]]; then
+  # MSVC: Don't override config.generated.ml — configure's defaults include
+  # required flags (e.g., asm = "ml64 -nologo -Cp -c -Fo" where -Fo is
+  # concatenated with the output path). The conda-ocaml wrapper mechanism
+  # doesn't work for MSVC (no .exe wrappers built, flags can't be injected).
+  echo "    Skipping config.generated.ml patching for MSVC (using configure defaults)"
 else
-  # non-unix: Use conda-ocaml-*.exe wrapper executables
+  # MinGW: Use conda-ocaml-*.exe wrapper executables
   # These read CONDA_OCAML_* environment variables at runtime.
   # Unlike Unix shell scripts, non-unix needs actual .exe wrappers because:
   # - CreateProcess doesn't expand %VAR% (only cmd.exe does)
@@ -322,7 +367,7 @@ if [[ "${target_platform}" == "osx"* ]]; then
   # Use @loader_path for relocatable rpath (survives conda relocation)
   # Note: Don't use -L${PREFIX}/lib here - conda-ocaml-mkexe wrapper adds it at runtime
   sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
-elif [[ "${target_platform}" != "linux"* ]]; then
+elif [[ "${target_platform}" != "linux"* ]] && [[ "${CROSS_TARGET_TRIPLET}" != *"-pc-"* ]]; then
   # non-unix: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
   sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
@@ -344,7 +389,7 @@ fi
 # ============================================================================
 
 echo "  [3/4] Compiling native compiler"
-run_logged "world" "${MAKE[@]}" world.opt -j"${CPU_COUNT}"
+run_logged "world" "${MAKE[@]}" world.opt -j"${CPU_COUNT}" || { cat "${LOG_DIR}/world.log"; exit 1; }
 
 # ============================================================================
 # Tests (Optional)
@@ -455,33 +500,13 @@ if is_unix; then
 else
   # non-unix: Build and install wrapper .exe files
   # These are small C programs that read CONDA_OCAML_* env vars at runtime
-  echo "  - Building conda-ocaml-* wrapper executables..."
-  WRAPPER_SRC="${RECIPE_DIR}/building/non-unix-conda-ocaml-wrapper.c"
-  WRAPPER_DIR="${OCAML_INSTALL_PREFIX}/bin"
-  mkdir -p "${WRAPPER_DIR}"
-
-  # Build each wrapper with appropriate defaults
-  declare -A WRAPPERS=(
-    ["CC"]="gcc.exe"
-    ["AS"]="as.exe"
-    ["AR"]="ar.exe"
-    ["LD"]="ld.exe"
-    ["RANLIB"]="ranlib.exe"
-    ["WINDRES"]="windres.exe"
-  )
-
-  for tool_name in "${!WRAPPERS[@]}"; do
-    default_tool="${WRAPPERS[$tool_name]}"
-    wrapper_name="conda-ocaml-${tool_name,,}.exe"  # lowercase
-    echo "    Building ${wrapper_name}..."
-    "${NATIVE_CC}" -O2 -o "${WRAPPER_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
-      -DTOOL_NAME="${tool_name}" \
-      -DDEFAULT_TOOL="\"${default_tool}\""
-  done
+  CC="${NATIVE_CC}" "${RECIPE_DIR}/building/build-wrappers.sh" "${OCAML_INSTALL_PREFIX}/bin"
 fi
 
 # Clean up for potential cross-compiler builds
-run_logged "distclean" "${MAKE[@]}"  distclean
+# Distclean uses xargs which fails on Windows if environment is too large (32KB limit).
+# Run with minimal environment — cleanup only needs PATH and basic shell vars.
+run_logged "distclean" env -i PATH="$PATH" SYSTEMROOT="${SYSTEMROOT:-}" "${MAKE[@]}" distclean || true
 
 echo ""
 echo "============================================================"

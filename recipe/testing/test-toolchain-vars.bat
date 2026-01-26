@@ -48,26 +48,35 @@ echo   CONDA_OCAML_WINDRES= %CONDA_OCAML_WINDRES%
 echo PASS: All CONDA_OCAML_* variables are set
 echo.
 
-REM Test 2: Verify wrapper executables exist
-echo Test 2: Wrapper executables exist in OCAML_PREFIX\bin
+REM Test 2: Verify wrapper scripts exist
+echo Test 2: Wrapper scripts exist in OCAML_PREFIX\bin
 
 set WRAPPER_DIR=%OCAML_PREFIX%\bin
 set WRAPPER_MISSING=0
 
+REM MSVC uses .bat wrappers, MinGW uses .exe wrappers
+if "%CONDA_OCAML_CC%"=="cl.exe" (
+    set WRAPPER_EXT=bat
+    echo   [MSVC mode: checking for .bat wrappers]
+) else (
+    set WRAPPER_EXT=exe
+    echo   [MinGW mode: checking for .exe wrappers]
+)
+
 for %%w in (cc as ar ld ranlib windres) do (
-    if exist "%WRAPPER_DIR%\conda-ocaml-%%w.exe" (
-        echo   conda-ocaml-%%w.exe: OK
+    if exist "%WRAPPER_DIR%\conda-ocaml-%%w.%WRAPPER_EXT%" (
+        echo   conda-ocaml-%%w.%WRAPPER_EXT%: OK
     ) else (
-        echo   conda-ocaml-%%w.exe: MISSING
+        echo   conda-ocaml-%%w.%WRAPPER_EXT%: MISSING
         set WRAPPER_MISSING=1
     )
 )
 
 if %WRAPPER_MISSING% equ 1 (
-    echo FAIL: Some wrapper executables are missing
+    echo FAIL: Some wrapper scripts are missing
     exit /b 1
 )
-echo PASS: All wrapper executables found
+echo PASS: All wrapper scripts found
 echo.
 
 REM Test 3: Verify ocamlopt -config shows wrapper names
@@ -79,12 +88,21 @@ for /f "tokens=*" %%i in ('ocamlopt -config-var asm 2^>nul') do set CONFIG_ASM=%
 echo   c_compiler = %CONFIG_CC%
 echo   asm = %CONFIG_ASM%
 
-REM Check if config shows conda-ocaml-* wrapper names
-echo %CONFIG_CC% | findstr /C:"conda-ocaml" >nul
-if %errorlevel% equ 0 (
-    echo PASS: c_compiler uses conda-ocaml wrapper
+REM Check config - MSVC uses tools directly, MinGW uses conda-ocaml wrappers
+if "%CONDA_OCAML_CC%"=="cl.exe" (
+    echo %CONFIG_CC% | findstr /C:"cl" >nul
+    if !errorlevel! equ 0 (
+        echo PASS: c_compiler uses MSVC cl: %CONFIG_CC%
+    ) else (
+        echo WARN: c_compiler unexpected for MSVC: %CONFIG_CC%
+    )
 ) else (
-    echo WARN: c_compiler may not use wrapper: %CONFIG_CC%
+    echo %CONFIG_CC% | findstr /C:"conda-ocaml" >nul
+    if !errorlevel! equ 0 (
+        echo PASS: c_compiler uses conda-ocaml wrapper
+    ) else (
+        echo WARN: c_compiler may not use wrapper: %CONFIG_CC%
+    )
 )
 echo.
 

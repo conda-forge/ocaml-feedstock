@@ -1,5 +1,5 @@
 context:
-  build_number: 0
+  build_number: 2
   name: ocaml
   version: 5.4.0
   flexdll_version: 0.44
@@ -23,8 +23,8 @@ context:
       "powerpc64le-conda-linux-gnu" if TG_ == "linux-ppc64le"             else
       "x86_64-apple-darwin13.4.0"   if TG_ == "osx-64"                    else
       "arm64-apple-darwin20.0.0"    if TG_ == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if TG_ == "win-64" and c_ == "mingw_" else                                                 
-      "x86_64-pc-windows"           if TG_ == "win-64" and c_ == "vs_"    else                                                 
+      "x86_64-w64-mingw32"          if TG_ == "win-64" and _c == "_mingw" else                                                 
+      "x86_64-pc-windows"           if TG_ == "win-64" and _c != "_mingw" else                                                 
       "unknown"
     }}
   # Which platform builds cross-compilers for each target
@@ -55,6 +55,11 @@ source:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
+  - if: win and _c != "_mingw"
+    then:
+      url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
+      sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
+      target_directory: winpthreads
 
 build:
   number: ${{ build_number }}
@@ -159,15 +164,13 @@ outputs:
     requirements:
       build:
         # --- Common build deps (all cases) ---
-        # - if: _c == "_mingw"
-        #   then:
-        #     - ${{ compiler("m2w64_c") }}
-        #     - ${{ stdlib("m2w64_c") }}
-        #   else:
-        #     - ${{ compiler(c_compiler_key) }}
-        #     - ${{ stdlib(c_compiler_key) }}
-        - ${{ compiler(c_compiler_key) }}
-        - ${{ stdlib(c_compiler_key) }}
+        - if: _c == "_mingw"
+          then:
+            - ${{ compiler("m2w64_c") }}
+            - ${{ stdlib("m2w64_c") }}
+          else:
+            - ${{ compiler("c") }}
+            - ${{ stdlib("c") }}
         - ${{ m2 }}bash >=5.2
         - ${{ m2 }}file
         - ${{ m2 }}findutils
@@ -182,7 +185,7 @@ outputs:
         # Guard (TG_ != build_platform) prevents self-referential cycle detection
         - if: is_cross_compiler and (linux or osx) and (TG_ != build_platform)
           then:
-            - if: match(version, ">=5.4.0") and (build_number > 1)
+            - if: match(version, ">=5.4.0") and (build_number > 2)
               then:
                 - ocaml_${{ build_platform }} >=5.4
             - if: linux
@@ -197,7 +200,7 @@ outputs:
         - if: is_cross_target
           then:
             - zstd
-            - if: match(version, ">=5.4.0") and (build_number > 1)
+            - if: match(version, ">=5.4.0") and (build_number > 2)
               then:
                 - ocaml_${{ target_platform }} >=5.4
 
@@ -254,14 +257,17 @@ outputs:
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
                 - ocaml{c,dep,lex,objinfo,opt}.byte
                 - ocaml{cmt,cp,debug,doc,doc.opt,mktop,optp,prof,run,rund}
-                - if: unix
+                - if: unix or (_c != "_mingw")
                   then:
                     - ocamlruni
-                  else:
+                - if: (_c == "_vs")
+                  then:
+                    - default_amd64.manifest
+                - if: not unix
+                  then:
                     - flexlink
                     - flexlink.byte
                     - flexlink.opt
-                    - windres
                     - conda-ocaml-windres
 
             # CROSS-TARGET: Native toolset (no ocamldebug/ocamldoc)
@@ -294,7 +300,6 @@ outputs:
                 - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
                 - ${{ library }}lib/ocaml/expunge${{ xt }}
                 - ${{ library }}lib/ocaml/ld.conf
-                - ${{ library }}lib/ocaml/libasmrun.a
                 - ${{ library }}lib/ocaml/Makefile.config
                 - ${{ library }}lib/ocaml/runtime-launch-info
                 - ${{ library }}lib/ocaml/sys.ml.in
@@ -305,6 +310,21 @@ outputs:
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
                 - ${{ library }}share/man/man{1,3}/*
+                - if: unix or (_c == "_mingw")
+                  then:
+                    - ${{ library }}lib/ocaml/libasmrun.a
+                  else:
+                    - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
+                    - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
+                    - ${{ library }}lib/ocaml/libasm{run,rund,runi}.lib
+                    - ${{ library }}lib/ocaml/libcaml{run,rund,runi}.lib
+                    - ${{ library }}lib/ocaml/libcamlruntime_{eventsbyt,eventsnat}.lib
+                    - ${{ library }}lib/ocaml/libcamlstr{byt,nat}.lib
+                    - ${{ library }}lib/ocaml/libcomprmarsh.lib
+                    - ${{ library }}lib/ocaml/libthread{s,snat}.lib
+                    - ${{ library }}lib/ocaml/libunix{byt,nat}.lib
+                    - ${{ library }}lib/ocaml/std_exit.obj
+                    - ${{ library }}lib/ocaml/stdlib.lib
                 - if: unix
                   then:
                     - ${{ library }}lib/ocaml/libasmrun_shared.so
@@ -459,13 +479,18 @@ outputs:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
         # C compiler
-        - c-compiler
+        - if: (_c == "_mingw")
+          then:
+            - ${{ m2w64_c_compiler }}_${{ target_platform }}
+          else:
+            - c-compiler
         # Linker and binary tools
         - if: osx
           then:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
-          else:
+        - if: unix or (_c == "_mingw")
+          then:
             - binutils_impl_${{ target_platform }}
     tests:
       # ----------------------------------------------------------------------

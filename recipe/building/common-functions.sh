@@ -51,7 +51,7 @@ run_logged() {
   else
     local rc=$?
     echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
-    tail -15 "${logfile}" | sed "s/^/${indent} /"
+    tail -100 "${logfile}" | sed "s/^/${indent} /"
     return ${rc}
   fi
 }
@@ -361,8 +361,29 @@ setup_toolchain() {
        _ASM=$(basename "${_AS}")
   
        _MKDLL="$(basename "${_CC}")"
-       # -Wl,-E exports symbols for dlopen (required by ocamlnat)
        _MKEXE="$(basename "${_CC}")"
+      ;;
+    *-pc-*)
+       # MSVC tools come from Visual Studio environment (PATH), not conda packages
+       # Verify cl.exe is available (VS environment must be activated)
+       if ! command -v cl.exe &>/dev/null; then
+         echo "ERROR: cl.exe not found in PATH. Visual Studio environment not activated?"
+         echo "  Ensure VS Developer Command Prompt or vcvarsall.bat was run before build."
+         exit 1
+       fi
+       _AR="lib.exe"
+       _AS="ml64.exe"
+       _CC="cl.exe"
+       _LD="link.exe"
+       _NM=""
+       _RANLIB=""
+       _STRIP=""
+
+       _ASM="ml64.exe"
+
+       # MSVC linking is handled by flexlink
+       _MKDLL=""
+       _MKEXE=""
       ;;
     *)
       echo "ERROR: setup_toolchain used with unsupported target: ${target}"
