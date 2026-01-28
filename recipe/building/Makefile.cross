@@ -253,16 +253,40 @@ endif
 	@rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o
 	@rm -f otherlibs/systhreads/*.cmx otherlibs/systhreads/*.cmi otherlibs/systhreads/*.o
 	@rm -f otherlibs/runtime_events/*.cmx otherlibs/runtime_events/*.cmi otherlibs/runtime_events/*.o
-	# CRITICAL: Build otherlibrariesopt with OCAMLLIB pointing to LIBDIR
-	# This overrides Config.standard_library (baked into ocamlopt.opt at configure time)
-	# which points to NATIVE_STDLIB with OLD CRCs from native build.
-	# LIBDIR now has: fresh stdlib.cmxa + native otherlibs for dependencies
-	# BEST_OCAMLOPT must also be overridden to use freshly built cross-compiler.
-	OCAMLLIB="$(LIBDIR)" \
-	  $(MAKE) otherlibrariesopt \
+	# Remove OLD .cmi from LIBDIR subdirs (copied from NATIVE_STDLIB above)
+	# These have OLD CRCs and would cause threads.cmxa vs unix.cmxa mismatch
+	@rm -f "$(LIBDIR)/unix/"*.cmi "$(LIBDIR)/str/"*.cmi "$(LIBDIR)/dynlink/"*.cmi
+	@rm -f "$(LIBDIR)/systhreads/"*.cmi "$(LIBDIR)/runtime_events/"*.cmi
+	# CRITICAL: Build native otherlibs in dependency order with OCAMLLIB pointing to LIBDIR
+	# Build unix FIRST, copy fresh .cmi, then build systhreads which depends on Unix interface
+	@echo "=== Building native otherlibs in dependency order ==="
+	# Build unix first (no external otherlib dependencies)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  BEST_OCAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
 	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	# Copy fresh Unix.cmi to LIBDIR for systhreads dependency
+	@echo "=== Copying fresh Unix.cmi to LIBDIR for systhreads ==="
+	@cp otherlibs/unix/*.cmi "$(LIBDIR)/unix/"
+	# Build str (no Unix dependency)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str allopt \
+	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	@cp otherlibs/str/*.cmi "$(LIBDIR)/str/"
+	# Build dynlink
+	OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-allopt \
+	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+	  $(CROSS_OVERRIDES) $(OLDS)
+	@cp otherlibs/dynlink/*.cmi "$(LIBDIR)/dynlink/" 2>/dev/null || true
+	# Build runtime_events (no external deps)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events allopt \
+	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	@cp otherlibs/runtime_events/*.cmi "$(LIBDIR)/runtime_events/"
+	# Build systhreads LAST (depends on Unix.cmi now in LIBDIR)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads allopt \
+	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	@cp otherlibs/systhreads/*.cmi "$(LIBDIR)/systhreads/"
 	# CRITICAL: Rebuild bytecode otherlibs with OCAMLLIB override
 	# Same CRC issue as native - ocamlc's Config.standard_library points to NATIVE_STDLIB
 	# which has OLD CRCs from native build. Must override to use fresh stdlib from LIBDIR.
@@ -412,16 +436,32 @@ otherlibrariesopt: dynlink-allopt
 # Must pass ALL compiler variables: OCAMLOPT, CAMLOPT, BEST_OCAMLOPT
 .PHONY: otherlibrariesopt-cross
 otherlibrariesopt-cross:
+	# Clean otherlibs to force rebuild with fresh CRCs
+	rm -f otherlibs/unix/*.cmx otherlibs/unix/*.cmi otherlibs/unix/*.o
+	rm -f otherlibs/str/*.cmx otherlibs/str/*.cmi otherlibs/str/*.o
 	rm -f otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o
 	rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o
-	@echo "=== DEBUG: Removing old dynlink files from cross-compiler stdlib ==="
+	rm -f otherlibs/systhreads/*.cmx otherlibs/systhreads/*.cmi otherlibs/systhreads/*.o
+	rm -f otherlibs/runtime_events/*.cmx otherlibs/runtime_events/*.cmi otherlibs/runtime_events/*.o
 	rm -f $(OCAMLLIB)/dynlink*.cmi $(OCAMLLIB)/dynlink*.cmx $(OCAMLLIB)/dynlink*.cmo $(OCAMLLIB)/dynlink*.cma $(OCAMLLIB)/dynlink*.cmxa 2>/dev/null || true
-	@echo "=== DEBUG: OCAMLLIB (make var) = $(OCAMLLIB)"
-	@echo "=== DEBUG: OCAMLLIB (env) = $$OCAMLLIB"
-	@echo "=== DEBUG: ocamlc stdlib = $$(ocamlc -config-var standard_library)"
-	@echo "=== DEBUG: ocamlopt stdlib = $$($(CAMLOPT) -config-var standard_library)"
-	export OCAMLLIB="$(OCAMLLIB)"; echo "=== DEBUG: After export, OCAMLLIB = $$OCAMLLIB"; $(MAKE) dynlink-allopt OCAMLOPT=$(CAMLOPT) CAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) OCAMLLIB=$(OCAMLLIB) OC_NATIVE_COMPFLAGS="-verbose" $(CROSS_OVERRIDES)
-	export OCAMLLIB="$(OCAMLLIB)"; $(MAKE) -C otherlibs allopt OCAMLLIB=$(OCAMLLIB) $(CROSS_OTHERLIBS_OVERRIDES)
+	# Remove OLD .cmi from OCAMLLIB subdirs to prevent CRC mismatch
+	rm -f "$(OCAMLLIB)/unix/"*.cmi "$(OCAMLLIB)/str/"*.cmi "$(OCAMLLIB)/dynlink/"*.cmi 2>/dev/null || true
+	rm -f "$(OCAMLLIB)/threads/"*.cmi "$(OCAMLLIB)/runtime_events/"*.cmi 2>/dev/null || true
+	# Build in dependency order: unix FIRST, then systhreads LAST (depends on Unix interface)
+	@echo "=== Building native otherlibs in dependency order ==="
+	# Build unix first (no external otherlib dependencies)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/unix allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	# Copy fresh Unix.cmi to OCAMLLIB for systhreads dependency
+	@mkdir -p "$(OCAMLLIB)/unix"
+	@cp otherlibs/unix/*.cmi "$(OCAMLLIB)/unix/"
+	# Build str (no Unix dependency)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/str allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	# Build dynlink
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) dynlink-allopt OCAMLOPT=$(CAMLOPT) CAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OVERRIDES)
+	# Build runtime_events (no external deps)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/runtime_events allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	# Build systhreads LAST (depends on Unix.cmi now in OCAMLLIB)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/systhreads allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
 
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)

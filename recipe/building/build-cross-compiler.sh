@@ -10,6 +10,19 @@
 # Source common functions
 source "${RECIPE_DIR}/building/common-functions.sh"
 
+# ============================================================================
+# Early CFLAGS/LDFLAGS Sanitization
+# ============================================================================
+# conda-build can produce CFLAGS with mixed-arch flags even in native builds:
+#   -march=nocona -mtune=haswell (x86) ... duplicated flags ...
+# When building cross-compilers, we pass these flags to the cross-compiler
+# which fails on x86-specific flags.
+# ALWAYS sanitize CFLAGS when building cross-compilers, regardless of
+# CONDA_BUILD_CROSS_COMPILATION setting.
+# Remove x86-specific flags since cross-compilers target ARM/PPC
+# Use "aarch64" as default - the sanitization removes x86 flags for any non-x86 target
+sanitize_and_export_cross_flags "aarch64"
+
 if [[ "${target_platform}" != "linux"* ]] && [[ "${target_platform}" != "osx"* ]]; then
   echo "No cross-compiler recipe for ${target_platform} ... yet"
   return 0
@@ -102,6 +115,13 @@ for target in "${CROSS_TARGETS[@]}"; do
   # Setup cross-toolchain (sets CROSS_CC, CROSS_AS, CROSS_AR, etc.)
   setup_toolchain "CROSS" "${target}"
   setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
+
+  # CRITICAL: Also export CFLAGS/LDFLAGS to environment with clean values
+  # Make inherits environment variables, and CROSS_OVERRIDES in Makefile.cross
+  # uses $(CFLAGS) which could pick up polluted environment values.
+  # By exporting CROSS_CFLAGS as CFLAGS, we ensure consistency.
+  export CFLAGS="${CROSS_CFLAGS}"
+  export LDFLAGS="${CROSS_LDFLAGS}"
 
   # Export CONDA_OCAML_<TARGET_ID>_* variables
   TARGET_ID=$(get_target_id "${target}")
@@ -372,6 +392,26 @@ EOF
     echo "    Cleaning LIBDIR before install..."
     rm -rf "${OCAML_CROSS_LIBDIR}"
 
+    # PRE-INSTALL CRC CHECK: Verify build output before installing
+    echo "    PRE-INSTALL CRC CHECK (build directory):"
+    _pre_unix="${SRC_DIR}/otherlibs/unix/unix.cmxa"
+    _pre_threads="${SRC_DIR}/otherlibs/systhreads/threads.cmxa"
+    if [[ -f "$_pre_unix" ]] && [[ -f "$_pre_threads" ]]; then
+      _pre_unix_crc=$(ocamlobjinfo "$_pre_unix" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
+      _pre_threads_crc=$(ocamlobjinfo "$_pre_threads" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
+      echo "      otherlibs/unix/unix.cmxa Unix CRC:       ${_pre_unix_crc:-NOT_FOUND}"
+      echo "      otherlibs/systhreads/threads.cmxa Unix CRC: ${_pre_threads_crc:-NOT_FOUND}"
+      if [[ -n "$_pre_unix_crc" ]] && [[ -n "$_pre_threads_crc" ]] && [[ "$_pre_unix_crc" != "$_pre_threads_crc" ]]; then
+        echo "      ✗ BUILD OUTPUT ALREADY HAS MISMATCHED CRCs!"
+        echo "      The problem is in the BUILD process, not install."
+        exit 1
+      elif [[ -n "$_pre_unix_crc" ]] && [[ -n "$_pre_threads_crc" ]]; then
+        echo "      ✓ Build output CRCs match"
+      fi
+    else
+      echo "      WARNING: unix.cmxa or threads.cmxa not found in build dir"
+    fi
+
     run_logged "installcross" "${MAKE[@]}" installcross "${INSTALL_ARGS[@]}"
   )
 
@@ -590,6 +630,47 @@ EOF
     rm -rf "$_tmpdir"
   else
     echo "    WARNING: libasmrun.a not found at ${OCAML_CROSS_LIBDIR}/libasmrun.a"
+  fi
+
+  # ========================================================================
+  # FAIL-FAST: Verify CRC consistency between unix.cmxa and threads.cmxa
+  # ========================================================================
+  echo "  Verifying CRC consistency between unix.cmxa and threads.cmxa..."
+
+  _unix_cmxa="${OCAML_CROSS_LIBDIR}/unix/unix.cmxa"
+  _threads_cmxa="${OCAML_CROSS_LIBDIR}/threads/threads.cmxa"
+
+  if [[ -f "$_unix_cmxa" ]] && [[ -f "$_threads_cmxa" ]]; then
+    # Get Unix interface CRC from unix.cmxa
+    _unix_crc=$(ocamlobjinfo "$_unix_cmxa" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
+    # Get Unix interface CRC from threads.cmxa
+    _threads_unix_crc=$(ocamlobjinfo "$_threads_cmxa" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
+
+    echo "    unix.cmxa Unix CRC:    ${_unix_crc:-NOT_FOUND}"
+    echo "    threads.cmxa Unix CRC: ${_threads_unix_crc:-NOT_FOUND}"
+
+    if [[ -n "$_unix_crc" ]] && [[ -n "$_threads_unix_crc" ]]; then
+      if [[ "$_unix_crc" != "$_threads_unix_crc" ]]; then
+        echo "    ✗ ERROR: CRC MISMATCH between unix.cmxa and threads.cmxa!"
+        echo "    This will cause 'inconsistent assumptions over interface Unix' errors"
+        echo "    when linking dune or any program using both unix and threads."
+        echo ""
+        echo "    Debug info:"
+        echo "    unix.cmxa imports:"
+        ocamlobjinfo "$_unix_cmxa" 2>/dev/null | head -30
+        echo ""
+        echo "    threads.cmxa imports:"
+        ocamlobjinfo "$_threads_cmxa" 2>/dev/null | head -30
+        exit 1
+      fi
+      echo "    ✓ CRC consistency verified"
+    else
+      echo "    WARNING: Could not extract Unix CRC from libraries"
+    fi
+  else
+    echo "    WARNING: unix.cmxa or threads.cmxa not found"
+    [[ ! -f "$_unix_cmxa" ]] && echo "      Missing: $_unix_cmxa"
+    [[ ! -f "$_threads_cmxa" ]] && echo "      Missing: $_threads_cmxa"
   fi
 
   # ========================================================================
