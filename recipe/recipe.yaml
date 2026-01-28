@@ -56,12 +56,12 @@ source:
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
-  - if: win
+  - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
-  - if: win and _CC != "_mingw"
+  - if: not unix and _CC != "_mingw"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
       sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
@@ -274,10 +274,10 @@ outputs:
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
                 - ocaml{c,dep,lex,objinfo,opt}.byte
                 - ocaml{cmt,cp,debug,doc,doc.opt,mktop,optp,prof,run,rund}
-                - if: unix or (_c != "_mingw")
+                - if: unix or _CC != "_mingw"
                   then:
                     - ocamlruni
-                - if: (_c == "_vs")
+                - if: _CC == "_vs"
                   then:
                     - default_amd64.manifest
                 - if: not unix
@@ -327,7 +327,7 @@ outputs:
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
                 - ${{ library }}share/man/man{1,3}/*
-                - if: unix or (_c == "_mingw")
+                - if: unix or _CC == "_mingw"
                   then:
                     - ${{ library }}lib/ocaml/libasmrun.a
                   else:
@@ -496,7 +496,7 @@ outputs:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
         # C compiler
-        - if: (_c == "_mingw")
+        - if: _CC == "_mingw"
           then:
             - ${{ m2w64_c_compiler }}_${{ target_platform }}
           else:
@@ -506,7 +506,7 @@ outputs:
           then:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
-        - if: unix or (_c == "_mingw")
+        - if: unix or _CC == "_mingw"
           then:
             - binutils_impl_${{ target_platform }}
     tests:
