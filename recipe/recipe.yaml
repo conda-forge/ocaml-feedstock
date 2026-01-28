@@ -1,5 +1,5 @@
 context:
-  build_num: 5
+  build_num: 6
   name: ocaml
   version: 5.3.0
   flexdll_version: 0.44
@@ -17,6 +17,8 @@ package:
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
     sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+    patches:
+      - patches/0001-fix-atomic-macros-visibility.patch
   - if: win
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
