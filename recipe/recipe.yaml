@@ -1,5 +1,5 @@
 context:
-  build_number: 2
+  build_number: 1
   name: ocaml
   version: 5.4.0
   flexdll_version: 0.44
@@ -13,7 +13,7 @@ context:
   # GCC-style derived values (not variant keys - keeps filenames clean)
   # TG_ comes from variants.yaml
   # ===========================================================================
-  # Mirror variant value in context (needed for env var passthrough on Windows)
+  # Mirror variant value in context (needed for env var passthrough on non-unix)
   pkg_target: ${{ TG_ }}
   # Derive triplet from TG_
   cross_target_triplet: >-
@@ -23,8 +23,8 @@ context:
       "powerpc64le-conda-linux-gnu" if TG_ == "linux-ppc64le"             else
       "x86_64-apple-darwin13.4.0"   if TG_ == "osx-64"                    else
       "arm64-apple-darwin20.0.0"    if TG_ == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if TG_ == "win-64" and _c == "_mingw" else                                                 
-      "x86_64-pc-windows"           if TG_ == "win-64" and _c != "_mingw" else                                                 
+      "x86_64-w64-mingw32"          if TG_ == "win-64" and _CC == "_mingw" else                                                 
+      "x86_64-pc-windows"           if TG_ == "win-64" and _CC != "_mingw" else                                                 
       "unknown"
     }}
   # Which platform builds cross-compilers for each target
@@ -35,7 +35,7 @@ context:
       "win-64"   if TG_ == "win-64"                                       else
       target_platform
     }}
-  c_compiler_key: ${{ "m2w64_c" if _c == "_mingw" else "c" }}                                          
+  c_compiler_key: ${{ "m2w64_c" if _CC == "_mingw" else "c" }}                                          
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
@@ -50,12 +50,18 @@ recipe:
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
     sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
+    patches:
+      # Fix header include order bug where atomic_load_acquire/atomic_store_release
+      # macros are undefined when mlvalues.h is included before platform.h.
+      # The macros were guarded by CAML_INTERNALS, but public headers include
+      # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
+      - patches/fix-camlatomic-include-order.patch
   - if: win
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
-  - if: win and _c != "_mingw"
+  - if: win and _CC != "_mingw"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
       sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
@@ -106,6 +112,9 @@ outputs:
   - package:
       name: ocaml_${{ TG_ }}
     build:
+      string: ${{ _CC ~ "_" if _CC }}h${{ hash }}_${{ build_number }}
+      variant:
+        down_prioritize_variant: ${{ 0 if _CC == "_mingw" else 1 }}
       script:
         env:
           SKIP_MAKE_TESTS: "1"
@@ -162,9 +171,17 @@ outputs:
     # REQUIREMENTS
     # ========================================================================
     requirements:
+      run_exports:
+        strong:
+          - if: _CC == "_mingw"
+            then:
+              - m2w64-gcc-libs
+          - if: _CC == "_vs"
+            then:
+              - vc >=${{ vc }}
       build:
         # --- Common build deps (all cases) ---
-        - if: _c == "_mingw"
+        - if: _CC == "_mingw"
           then:
             - ${{ compiler("m2w64_c") }}
             - ${{ stdlib("m2w64_c") }}
@@ -531,6 +548,49 @@ outputs:
         requirements:
           run:
             - ${{ m2 }}grep
+
+  # ==========================================================================
+  # DEVELOPMENT META-PACKAGE: ocaml-devel
+  # Full OCaml development environment with build tools
+  # Uncomment when opam, dune, ocamlfind, ocamlbuild are available on conda-forge
+  # ==========================================================================
+  # - package:
+  #     name: ocaml-devel_${{ TG_ }}
+  #   build:
+  #     noarch: generic
+  #     skip: TG_ != target_platform
+  #     script: echo "Development environment meta-package"
+  #   requirements:
+  #     run:
+  #       - ${{ pin_subpackage('ocaml-compiler', exact=True) }}
+  #       # Package manager
+  #       - opam
+  #       # Build systems
+  #       - dune
+  #       - ocamlbuild
+  #       # Package finder/installer
+  #       - ocamlfind
+  #   tests:
+  #     # ----------------------------------------------------------------------
+  #     # Verify all development tools are available
+  #     # ----------------------------------------------------------------------
+  #     - script: |
+  #         ocaml -version
+  #         ocamlopt${{ xt }} -version
+  #         opam --version
+  #         dune --version
+  #         ocamlfind -version
+  #         ocamlbuild -version
+  #         echo "ocaml-devel environment ready"
+  #
+  #     # ----------------------------------------------------------------------
+  #     # Test dune project build
+  #     # ----------------------------------------------------------------------
+  #     - script:
+  #         - cd testing && ${{ dot }}test-dune-project.${{ sh }}
+  #       files:
+  #         recipe:
+  #           - testing/test-dune-project.${{ sh }}
 
 about:
   homepage: https://ocaml.org/

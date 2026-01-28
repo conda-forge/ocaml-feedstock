@@ -13,25 +13,13 @@
 #
 # ==============================================================================
 
-_c:
+_CC:
   - if: not unix
     then:
       - "_vs"
       - "_mingw"
     else:
       - ""
-
-# Explicit c_stdlib to fix "undefined" in CI
-# c_stdlib:
-#   - if: linux
-#     then:
-#       - sysroot
-#   - if: osx
-#     then:
-#       - macosx_deployment_target
-#   - if: not unix
-#     then:
-#       - ucrt
 
 # ==============================================================================
 # Target platform matrix (GCC-style: single variant key)
