@@ -2,4 +2,10 @@
 # OCaml shared library linker wrapper - expands CONDA_OCAML_MKDLL environment variable
 # CONDA_OCAML_MKDLL may include flags (e.g., "cc -shared -undefined dynamic_lookup")
 # shellcheck disable=SC2086
-exec ${CONDA_OCAML_MKDLL:-cc -shared} "$@"
+
+# macOS-aware fallback when CONDA_OCAML_MKDLL is not set
+if [[ -z "${CONDA_OCAML_MKDLL:-}" ]] && [[ "$OSTYPE" == darwin* ]]; then
+  exec cc -shared -undefined dynamic_lookup "$@"
+else
+  exec ${CONDA_OCAML_MKDLL:-cc -shared} "$@"
+fi
