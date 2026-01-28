@@ -45,10 +45,10 @@ fi
 CONFIG_ARGS+=(--with-target-bindir="${PREFIX}"/bin)
 declare -a CROSS_TARGETS
 
-# Check if CROSS_TARGET_TRIPLET is explicitly set (gcc pattern: build one target per output)
-if [[ -n "${CROSS_TARGET_TRIPLET:-}" ]]; then
-  echo "  Using explicit CROSS_TARGET_TRIPLET: ${CROSS_TARGET_TRIPLET}"
-  CROSS_TARGETS=("${CROSS_TARGET_TRIPLET}")
+# Check if TARGET_TRIPLET is explicitly set (gcc pattern: build one target per output)
+if [[ -n "${TARGET_TRIPLET:-}" ]]; then
+  echo "  Using explicit TARGET_TRIPLET: ${TARGET_TRIPLET}"
+  CROSS_TARGETS=("${TARGET_TRIPLET}")
 else
   # Legacy behavior: build all cross-compilers for this platform
   case "${target_platform}" in

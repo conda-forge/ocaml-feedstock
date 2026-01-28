@@ -26,7 +26,7 @@ IFS=$'\n\t'
 #
 # Environment variables from recipe.yaml:
 #   CROSS_TARGET_PLATFORM:  Target platform this package produces code for
-#   CROSS_TARGET_TRIPLET: Cross-compiler triplet for this target
+#   TARGET_TRIPLET: Cross-compiler triplet for this target
 #
 # ==============================================================================
 
@@ -79,14 +79,14 @@ fi
 # ==============================================================================
 # BUILD MODE DETECTION
 # ==============================================================================
-# CROSS_TARGET_PLATFORM and CROSS_TARGET_TRIPLET are set by recipe.yaml env section
+# CROSS_TARGET_PLATFORM and TARGET_TRIPLET are set by recipe.yaml env section
 
 echo ""
 echo "============================================================"
 echo "OCaml Build Script - Mode Detection"
 echo "============================================================"
 echo "  CROSS_TARGET_PLATFORM:      ${CROSS_TARGET_PLATFORM:-<not set>}"
-echo "  CROSS_TARGET_TRIPLET:     ${CROSS_TARGET_TRIPLET:-<not set>}"
+echo "  TARGET_TRIPLET:     ${TARGET_TRIPLET:-<not set>}"
 echo "  target_platform: ${target_platform}"
 echo "  build_platform:  ${build_platform:-target_platform}"
 echo "  CONDA_BUILD_CROSS_COMPILATION: ${CONDA_BUILD_CROSS_COMPILATION:-0}"
@@ -97,8 +97,8 @@ if [[ -z "${CROSS_TARGET_PLATFORM:-}" ]]; then
   echo "ERROR: CROSS_TARGET_PLATFORM not set. This should be set by recipe.yaml"
   exit 1
 fi
-if [[ -z "${CROSS_TARGET_TRIPLET:-}" ]]; then
-  echo "ERROR: CROSS_TARGET_TRIPLET not set. This should be set by recipe.yaml"
+if [[ -z "${TARGET_TRIPLET:-}" ]]; then
+  echo "ERROR: TARGET_TRIPLET not set. This should be set by recipe.yaml"
   exit 1
 fi
 
@@ -185,7 +185,7 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
     # Tell cross-compiler builder which target to build
     export CROSS_TARGET_PLATFORM="${CROSS_TARGET_PLATFORM}"
-    export CROSS_TARGET_TRIPLET="${CROSS_TARGET_TRIPLET}"
+    export TARGET_TRIPLET="${TARGET_TRIPLET}"
 
     OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     source "${SRC_DIR}/_native_compiler_env.sh"
@@ -233,7 +233,7 @@ fi
 # ==============================================================================
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   # Determine cross-compiler triplet for this target
-  CROSS_TARGET="${CROSS_TARGET_TRIPLET}"
+  CROSS_TARGET="${TARGET_TRIPLET}"
 
   echo ""
   echo "=== Cross-target build: Using cross-compiler from BUILD_PREFIX ==="
@@ -310,7 +310,7 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
       export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
       export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
       export CROSS_TARGET_PLATFORM="${CROSS_TARGET_PLATFORM}"
-      export CROSS_TARGET_TRIPLET="${CROSS_TARGET_TRIPLET}"
+      export TARGET_TRIPLET="${TARGET_TRIPLET}"
 
       OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
       source "${SRC_DIR}/_native_compiler_env.sh"
@@ -399,15 +399,15 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     # Cross-target mode: override with TARGET platform toolchain
     # The package runs on CROSS_TARGET_PLATFORM, so it needs that platform's tools
     if [[ "${BUILD_MODE}" == "cross-target" ]]; then
-      echo "  (Using TARGET toolchain: ${CROSS_TARGET_TRIPLET}-*)"
-      export CONDA_OCAML_AR="${CROSS_TARGET_TRIPLET}-ar"
-      export CONDA_OCAML_AS="${CROSS_TARGET_TRIPLET}-as"
-      export CONDA_OCAML_CC="${CROSS_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_LD="${CROSS_TARGET_TRIPLET}-ld"
-      export CONDA_OCAML_RANLIB="${CROSS_TARGET_TRIPLET}-ranlib"
-      export CONDA_OCAML_MKEXE="${CROSS_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_MKDLL="${CROSS_TARGET_TRIPLET}-gcc -shared"
-      export CONDA_OCAML_WINDRES="${CROSS_TARGET_TRIPLET}-windres"
+      echo "  (Using TARGET toolchain: ${TARGET_TRIPLET}-*)"
+      export CONDA_OCAML_AR="${TARGET_TRIPLET}-ar"
+      export CONDA_OCAML_AS="${TARGET_TRIPLET}-as"
+      export CONDA_OCAML_CC="${TARGET_TRIPLET}-gcc"
+      export CONDA_OCAML_LD="${TARGET_TRIPLET}-ld"
+      export CONDA_OCAML_RANLIB="${TARGET_TRIPLET}-ranlib"
+      export CONDA_OCAML_MKEXE="${TARGET_TRIPLET}-gcc"
+      export CONDA_OCAML_MKDLL="${TARGET_TRIPLET}-gcc -shared"
+      export CONDA_OCAML_WINDRES="${TARGET_TRIPLET}-windres"
     elif [[ -z "${CONDA_OCAML_AR:-}" ]]; then
       # Stage 3 fast path (native mode): use defaults from BUILD_PREFIX toolchain
       echo "  (Using BUILD_PREFIX defaults - native mode)"

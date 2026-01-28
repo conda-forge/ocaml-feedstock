@@ -16,7 +16,7 @@ context:
   # Mirror variant value in context (needed for env var passthrough on non-unix)
   pkg_target: ${{ TG_ }}
   # Derive triplet from TG_
-  cross_target_triplet: >-
+  target_triplet: >-
     ${{
       "x86_64-conda-linux-gnu"      if TG_ == "linux-64"                  else
       "aarch64-conda-linux-gnu"     if TG_ == "linux-aarch64"             else
@@ -119,7 +119,7 @@ outputs:
         env:
           SKIP_MAKE_TESTS: "1"
           CROSS_TARGET_PLATFORM: ${{ pkg_target }}
-          CROSS_TARGET_TRIPLET: ${{ cross_target_triplet }}
+          TARGET_TRIPLET: ${{ target_triplet }}
       skip: not (is_native or is_cross_compiler or is_cross_target)
       dynamic_linking:
         missing_dso_allowlist:
@@ -303,9 +303,9 @@ outputs:
             # CROSS-COMPILER: Prefixed cross tools
             - if: is_cross_compiler
               then:
-                - ${{ cross_target_triplet }}-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
-                - ${{ cross_target_triplet }}-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
-                - ${{ cross_target_triplet }}-ocaml-{ar,as,cc,ld,mkdll,mkexe,ranlib}
+                - ${{ target_triplet }}-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
+                - ${{ target_triplet }}-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
+                - ${{ target_triplet }}-ocaml-{ar,as,cc,ld,mkdll,mkexe,ranlib}
 
           files:
             - etc/conda/test-files/*
@@ -355,23 +355,23 @@ outputs:
             # CROSS-COMPILER: Cross-compiler layout
             - if: is_cross_compiler
               then:
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt}.opt
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/expunge${{ xt }}
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/ld.conf
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/libasmrun.a
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/libasmrun_shared.so
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/libcamlrun_shared.so
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/Makefile.config
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/runtime-launch-info
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/sys.ml.in
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/caml/domain_state.tbl
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/caml/*.h
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/{compiler-libs,dynlink,profiling,runtime_events,stdlib,str,threads,unix}/*
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/share/doc/ocaml/*
-                - lib/ocaml-cross-compilers/${{ cross_target_triplet }}/share/man/man1/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt}.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun_shared.so
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libcamlrun_shared.so
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/Makefile.config
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime-launch-info
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/sys.ml.in
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/domain_state.tbl
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/*.h
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/{compiler-libs,dynlink,profiling,runtime_events,stdlib,str,threads,unix}/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 
       # ----------------------------------------------------------------------
       # Environment and resource file path validation
@@ -380,7 +380,7 @@ outputs:
           - if: is_native or is_cross_target
             then: cd testing && ${{ dot }}test-env-paths.${{ sh }}
           - if: is_cross_compiler
-            then: cd testing && ./test-env-paths.sh cross ${{ cross_target_triplet }}
+            then: cd testing && ./test-env-paths.sh cross ${{ target_triplet }}
           - if: not (is_native or is_cross_target or is_cross_compiler)
             then: echo "Invalid artifact" && exit 1
         files:
@@ -403,7 +403,7 @@ outputs:
           - if: is_cross_target
             then: cd testing && ./test-config.sh cross-target
           - if: is_cross_compiler
-            then: cd testing && ./test-config.sh cross ${{ cross_target_triplet }}
+            then: cd testing && ./test-config.sh cross ${{ target_triplet }}
           - if: not (is_native or is_cross_target or is_cross_compiler)
             then: echo "Invalid artifact" && exit 1
         files:
@@ -472,7 +472,7 @@ outputs:
           - if: is_cross_compiler
             then: |
               cd testing
-              ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ cross_target_triplet }}
+              ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }}
             else: echo "Not a cross-compiler package"
         files:
           recipe:
