@@ -392,24 +392,22 @@ EOF
     echo "    Cleaning LIBDIR before install..."
     rm -rf "${OCAML_CROSS_LIBDIR}"
 
-    # PRE-INSTALL CRC CHECK: Verify build output before installing
-    echo "    PRE-INSTALL CRC CHECK (build directory):"
+    # PRE-INSTALL: Verify Implementation CRCs match before installing
     _pre_unix="${SRC_DIR}/otherlibs/unix/unix.cmxa"
     _pre_threads="${SRC_DIR}/otherlibs/systhreads/threads.cmxa"
+    _ocamlobjinfo_build="${SRC_DIR}/tools/ocamlobjinfo.opt"
+
     if [[ -f "$_pre_unix" ]] && [[ -f "$_pre_threads" ]]; then
-      _pre_unix_crc=$(ocamlobjinfo "$_pre_unix" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
-      _pre_threads_crc=$(ocamlobjinfo "$_pre_threads" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
-      echo "      otherlibs/unix/unix.cmxa Unix CRC:       ${_pre_unix_crc:-NOT_FOUND}"
-      echo "      otherlibs/systhreads/threads.cmxa Unix CRC: ${_pre_threads_crc:-NOT_FOUND}"
-      if [[ -n "$_pre_unix_crc" ]] && [[ -n "$_pre_threads_crc" ]] && [[ "$_pre_unix_crc" != "$_pre_threads_crc" ]]; then
-        echo "      ✗ BUILD OUTPUT ALREADY HAS MISMATCHED CRCs!"
-        echo "      The problem is in the BUILD process, not install."
-        exit 1
-      elif [[ -n "$_pre_unix_crc" ]] && [[ -n "$_pre_threads_crc" ]]; then
-        echo "      ✓ Build output CRCs match"
+      _pre_unix_impl=$("$_ocamlobjinfo_build" "$_pre_unix" 2>&1 | grep -A1 "^Name: Unix$" | grep "CRC of implementation" | awk '{print $NF}')
+      _pre_threads_impl=$("$_ocamlobjinfo_build" "$_pre_threads" 2>&1 | sed -n '/^Implementations imported:/,/^[A-Z]/p' | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
+
+      if [[ -n "$_pre_unix_impl" ]] && [[ -n "$_pre_threads_impl" ]]; then
+        if [[ "$_pre_unix_impl" != "$_pre_threads_impl" ]]; then
+          echo "    ✗ PRE-INSTALL CRC MISMATCH: unix.cmxa=$_pre_unix_impl threads.cmxa expects=$_pre_threads_impl"
+          exit 1
+        fi
+        echo "    ✓ PRE-INSTALL CRC check passed"
       fi
-    else
-      echo "      WARNING: unix.cmxa or threads.cmxa not found in build dir"
     fi
 
     run_logged "installcross" "${MAKE[@]}" installcross "${INSTALL_ARGS[@]}"
@@ -424,16 +422,16 @@ EOF
     for binary in "${OCAML_CROSS_PREFIX}"/bin/*.opt; do
       if [[ -f "${binary}" ]]; then
         # Check if libzstd is linked via @rpath
-        if otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
+        if otool -L "${binary}" 2>&1 | grep -q "@rpath/libzstd"; then
           # Check if rpath already exists (either @executable_path or @loader_path)
-          if otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
-            RPATH=$(otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
+          if otool -l "${binary}" 2>&1 | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
+            RPATH=$(otool -l "${binary}" 2>&1 | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
             echo "    $(basename ${binary}): rpath OK (${RPATH})"
           else
             # No rpath set - add one
             echo "    $(basename ${binary}): adding @loader_path/../../../../lib rpath"
             if install_name_tool -add_rpath @loader_path/../../../../lib "${binary}" 2>&1; then
-              codesign -f -s - "${binary}" 2>/dev/null || true
+              codesign -f -s - "${binary}" 2>&1 || true
             else
               echo "    WARNING: install_name_tool failed for $(basename ${binary})"
             fi
@@ -482,7 +480,7 @@ EOF
   )
 
   # Remove man pages (not needed in cross-compiler package)
-  rm -rf "${OCAML_CROSS_PREFIX}/man" 2>/dev/null || true
+  rm -rf "${OCAML_CROSS_PREFIX}/man" 2>&1 || true
 
   # Patch Makefile.config for cross-compilation
   # The installed Makefile.config has BUILD machine settings, we need TARGET settings
@@ -581,15 +579,15 @@ EOF
     cd "${OCAML_CROSS_LIBDIR}"
 
     # Remove source files (not needed for compilation)
-    find . -name "*.ml" -type f -delete 2>/dev/null || true
-    find . -name "*.mli" -type f -delete 2>/dev/null || true
+    find . -name "*.ml" -type f -delete 2>&1 || true
+    find . -name "*.mli" -type f -delete 2>&1 || true
 
     # Remove typed trees (only for IDE tooling, not compilation)
-    find . -name "*.cmt" -type f -delete 2>/dev/null || true
-    find . -name "*.cmti" -type f -delete 2>/dev/null || true
+    find . -name "*.cmt" -type f -delete 2>&1 || true
+    find . -name "*.cmti" -type f -delete 2>&1 || true
 
     # Remove legacy annotation files
-    find . -name "*.annot" -type f -delete 2>/dev/null || true
+    find . -name "*.annot" -type f -delete 2>&1 || true
 
     # Note: Keep .cma/.cmo - dune bootstrap may need bytecode libraries
     # Note: Keep .cmx/.cmxa/.a/.cmi/.o - required for native compilation
@@ -603,13 +601,13 @@ EOF
   echo "  Verifying libasmrun.a architecture (expected: ${CROSS_ARCH})..."
   if [[ -f "${OCAML_CROSS_LIBDIR}/libasmrun.a" ]]; then
     _tmpdir=$(mktemp -d)
-    (cd "$_tmpdir" && ar x "${OCAML_CROSS_LIBDIR}/libasmrun.a" 2>/dev/null)
-    _obj=$(ls "$_tmpdir"/*.o 2>/dev/null | head -1)
+    (cd "$_tmpdir" && ar x "${OCAML_CROSS_LIBDIR}/libasmrun.a" 2>&1)
+    _obj=$(ls "$_tmpdir"/*.o 2>&1 | head -1)
     if [[ -n "$_obj" ]]; then
       if [[ "${target_platform}" == "osx"* ]]; then
-        _arch_info=$(lipo -info "$_obj" 2>/dev/null || file "$_obj")
+        _arch_info=$(lipo -info "$_obj" 2>&1 || file "$_obj")
       else
-        _arch_info=$(readelf -h "$_obj" 2>/dev/null | grep -i "Machine:" || file "$_obj")
+        _arch_info=$(readelf -h "$_obj" 2>&1 | grep -i "Machine:" || file "$_obj")
       fi
       echo "    libasmrun.a object: $_arch_info"
       # Check architecture matches target (use | not \| with grep -E)
@@ -635,42 +633,32 @@ EOF
   # ========================================================================
   # FAIL-FAST: Verify CRC consistency between unix.cmxa and threads.cmxa
   # ========================================================================
-  echo "  Verifying CRC consistency between unix.cmxa and threads.cmxa..."
-
+  echo "  Verifying unix.cmxa/threads.cmxa CRC consistency..."
+  _ocamlobjinfo="${SRC_DIR}/tools/ocamlobjinfo.opt"
   _unix_cmxa="${OCAML_CROSS_LIBDIR}/unix/unix.cmxa"
   _threads_cmxa="${OCAML_CROSS_LIBDIR}/threads/threads.cmxa"
 
   if [[ -f "$_unix_cmxa" ]] && [[ -f "$_threads_cmxa" ]]; then
-    # Get Unix interface CRC from unix.cmxa
-    _unix_crc=$(ocamlobjinfo "$_unix_cmxa" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
-    # Get Unix interface CRC from threads.cmxa
-    _threads_unix_crc=$(ocamlobjinfo "$_threads_cmxa" 2>/dev/null | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
+    _unix_impl_crc=$("$_ocamlobjinfo" "$_unix_cmxa" 2>&1 | grep -A1 "^Name: Unix$" | grep "CRC of implementation" | awk '{print $NF}')
+    _threads_expects_impl=$("$_ocamlobjinfo" "$_threads_cmxa" 2>&1 | sed -n '/^Implementations imported:/,/^[A-Z]/p' | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
 
-    echo "    unix.cmxa Unix CRC:    ${_unix_crc:-NOT_FOUND}"
-    echo "    threads.cmxa Unix CRC: ${_threads_unix_crc:-NOT_FOUND}"
-
-    if [[ -n "$_unix_crc" ]] && [[ -n "$_threads_unix_crc" ]]; then
-      if [[ "$_unix_crc" != "$_threads_unix_crc" ]]; then
-        echo "    ✗ ERROR: CRC MISMATCH between unix.cmxa and threads.cmxa!"
-        echo "    This will cause 'inconsistent assumptions over interface Unix' errors"
-        echo "    when linking dune or any program using both unix and threads."
-        echo ""
-        echo "    Debug info:"
-        echo "    unix.cmxa imports:"
-        ocamlobjinfo "$_unix_cmxa" 2>/dev/null | head -30
-        echo ""
-        echo "    threads.cmxa imports:"
-        ocamlobjinfo "$_threads_cmxa" 2>/dev/null | head -30
+    if [[ -n "$_unix_impl_crc" ]] && [[ -n "$_threads_expects_impl" ]]; then
+      if [[ "$_unix_impl_crc" != "$_threads_expects_impl" ]]; then
+        echo "    ✗ FATAL: Implementation CRC mismatch!"
+        echo "      unix.cmxa provides: $_unix_impl_crc"
+        echo "      threads.cmxa expects: $_threads_expects_impl"
+        echo "      This causes 'inconsistent assumptions over implementation Unix'"
         exit 1
       fi
-      echo "    ✓ CRC consistency verified"
+      echo "    ✓ CRC consistency verified ($_unix_impl_crc)"
     else
-      echo "    WARNING: Could not extract Unix CRC from libraries"
+      echo "    WARNING: Could not extract CRCs (unix=$_unix_impl_crc threads=$_threads_expects_impl)"
     fi
   else
-    echo "    WARNING: unix.cmxa or threads.cmxa not found"
+    echo "    ✗ FATAL: Required files not found"
     [[ ! -f "$_unix_cmxa" ]] && echo "      Missing: $_unix_cmxa"
     [[ ! -f "$_threads_cmxa" ]] && echo "      Missing: $_threads_cmxa"
+    exit 1
   fi
 
   # ========================================================================

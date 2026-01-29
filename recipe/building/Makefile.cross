@@ -264,9 +264,13 @@ endif
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
 	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	# Copy fresh Unix.cmi to LIBDIR for systhreads dependency
-	@echo "=== Copying fresh Unix.cmi to LIBDIR for systhreads ==="
+	# Copy fresh Unix.cmi, Unix.cmx AND unix.cmxa to LIBDIR for systhreads dependency
+	# CRITICAL: Unix.cmx contains implementation CRC - without it, VPATH finds NATIVE Unix.cmx
+	# causing threads.cmxa to link against wrong Unix implementation CRC
+	@echo "=== Copying fresh Unix.cmi + Unix.cmx + unix.cmxa to LIBDIR for systhreads ==="
 	@cp otherlibs/unix/*.cmi "$(LIBDIR)/unix/"
+	@cp otherlibs/unix/*.cmx "$(LIBDIR)/unix/" 2>/dev/null || true
+	@cp otherlibs/unix/*.cmxa otherlibs/unix/*.a "$(LIBDIR)/unix/" 2>/dev/null || true
 	# Build str (no Unix dependency)
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
