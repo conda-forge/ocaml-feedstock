@@ -17,6 +17,12 @@ package:
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
     sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
+    patches:
+      # Fix header include order bug where atomic_load_acquire/atomic_store_release
+      # macros are undefined when mlvalues.h is included before platform.h.
+      # The macros were guarded by CAML_INTERNALS, but public headers include
+      # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
+      - patches/fix-camlatomic-include-order.patch
   - if: win
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
