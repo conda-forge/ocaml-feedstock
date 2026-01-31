@@ -48,30 +48,50 @@ echo   CONDA_OCAML_WINDRES= %CONDA_OCAML_WINDRES%
 echo PASS: All CONDA_OCAML_* variables are set
 echo.
 
-REM Test 2: Verify wrapper executables exist
-echo Test 2: Wrapper executables exist in OCAML_PREFIX\bin
+REM Test 2: Verify wrapper files exist (MinGW uses .exe, MSVC uses .bat)
+echo Test 2: Wrapper files exist in OCAML_PREFIX\bin
 
 set WRAPPER_DIR=%OCAML_PREFIX%\bin
 set WRAPPER_MISSING=0
 
-for %%w in (cc as ar ld ranlib windres) do (
-    if exist "%WRAPPER_DIR%\conda-ocaml-%%w.exe" (
-        echo   conda-ocaml-%%w.exe: OK
-    ) else (
-        echo   conda-ocaml-%%w.exe: MISSING
-        set WRAPPER_MISSING=1
+REM Detect toolchain: MSVC uses cl.exe, MinGW uses gcc.exe
+set TOOLCHAIN=mingw
+if "%CONDA_OCAML_CC%"=="cl.exe" set TOOLCHAIN=msvc
+if "%CONDA_OCAML_CC%"=="cl" set TOOLCHAIN=msvc
+
+echo   Detected toolchain: %TOOLCHAIN%
+
+if "%TOOLCHAIN%"=="msvc" (
+    REM MSVC: Check for .bat wrappers
+    for %%w in (cc as ar ld ranlib windres) do (
+        if exist "%WRAPPER_DIR%\conda-ocaml-%%w.bat" (
+            echo   conda-ocaml-%%w.bat: OK
+        ) else (
+            echo   conda-ocaml-%%w.bat: MISSING
+            set WRAPPER_MISSING=1
+        )
+    )
+) else (
+    REM MinGW: Check for .exe wrappers
+    for %%w in (cc as ar ld ranlib windres) do (
+        if exist "%WRAPPER_DIR%\conda-ocaml-%%w.exe" (
+            echo   conda-ocaml-%%w.exe: OK
+        ) else (
+            echo   conda-ocaml-%%w.exe: MISSING
+            set WRAPPER_MISSING=1
+        )
     )
 )
 
 if %WRAPPER_MISSING% equ 1 (
-    echo FAIL: Some wrapper executables are missing
+    echo FAIL: Some wrapper files are missing
     exit /b 1
 )
-echo PASS: All wrapper executables found
+echo PASS: All wrapper files found
 echo.
 
-REM Test 3: Verify ocamlopt -config shows wrapper names
-echo Test 3: ocamlopt -config shows wrapper toolchain configuration
+REM Test 3: Verify ocamlopt -config shows correct toolchain configuration
+echo Test 3: ocamlopt -config shows toolchain configuration
 
 for /f "tokens=*" %%i in ('ocamlopt -config-var c_compiler 2^>nul') do set CONFIG_CC=%%i
 for /f "tokens=*" %%i in ('ocamlopt -config-var asm 2^>nul') do set CONFIG_ASM=%%i
@@ -79,12 +99,23 @@ for /f "tokens=*" %%i in ('ocamlopt -config-var asm 2^>nul') do set CONFIG_ASM=%
 echo   c_compiler = %CONFIG_CC%
 echo   asm = %CONFIG_ASM%
 
-REM Check if config shows conda-ocaml-* wrapper names
-echo %CONFIG_CC% | findstr /C:"conda-ocaml" >nul
-if %errorlevel% equ 0 (
-    echo PASS: c_compiler uses conda-ocaml wrapper
+if "%TOOLCHAIN%"=="msvc" (
+    REM MSVC: config.generated.ml is NOT patched - uses configure defaults
+    REM Expect cl or cl.exe, not conda-ocaml-cc
+    echo %CONFIG_CC% | findstr /C:"cl" >nul
+    if %errorlevel% equ 0 (
+        echo PASS: c_compiler uses MSVC cl.exe ^(expected for MSVC builds^)
+    ) else (
+        echo WARN: c_compiler unexpected value for MSVC: %CONFIG_CC%
+    )
 ) else (
-    echo WARN: c_compiler may not use wrapper: %CONFIG_CC%
+    REM MinGW: Check if config shows conda-ocaml-* wrapper names
+    echo %CONFIG_CC% | findstr /C:"conda-ocaml" >nul
+    if %errorlevel% equ 0 (
+        echo PASS: c_compiler uses conda-ocaml wrapper
+    ) else (
+        echo WARN: c_compiler may not use wrapper: %CONFIG_CC%
+    )
 )
 echo.
 

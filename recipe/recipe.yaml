@@ -9,7 +9,14 @@ context:
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
-  
+  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}
+  cross_target_triplet: >-
+    ${{
+      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else
+      "x86_64-pc-windows"           if not unix and CC_ != "mingw" else
+      "unknown"
+    }}
+
 package:
   name: ocaml
   version: ${{ version }}
@@ -28,12 +35,18 @@ source:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
+  - if: win and CC_ != "mingw"
+    then:
+      url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
+      sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
+      target_directory: winpthreads
 
 build:
   number: ${{ build_num }}
   script:
     env:
       SKIP_MAKE_TESTS: 1
+      CROSS_TARGET_TRIPLET: ${{ cross_target_triplet }}
   dynamic_linking:
     missing_dso_allowlist:
       - if: linux
@@ -78,8 +91,13 @@ requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
   build:
-    - ${{ compiler('c') }}
-    - ${{ stdlib('c') }}
+    - if: CC_ == "mingw"
+      then:
+        - ${{ compiler("m2w64_c") }}
+        - ${{ stdlib("m2w64_c") }}
+      else:
+        - ${{ compiler("c") }}
+        - ${{ stdlib("c") }}
     - ${{ m2 }}bash >=5.2
     - ${{ m2 }}file
     - ${{ m2 }}findutils
@@ -117,16 +135,17 @@ requirements:
     - zstd
   run:
     - zstd
-    - if: unix
+    - if: CC_ == "mingw"
       then:
-        - c-compiler
+        - ${{ m2w64_c_compiler }}_${{ target_platform }}
       else:
-        - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - c-compiler
     - if: osx
       then:
         - lld >=${{ c_compiler_version }}
         - llvm-tools >=${{ c_compiler_version }}
-      else:
+    - if: unix or (CC_ == "mingw")
+      then:
         - binutils_impl_${{ target_platform }}
 
 tests:
@@ -159,10 +178,11 @@ tests:
           then:
             - arm64-apple-darwin20.0.0-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
             - arm64-apple-darwin20.0.0-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
-        - if: unix
+        - if: unix or (CC_ != "mingw")
           then:
             - ocamlruni
-          else:
+        - if: not unix
+          then:
             - flexlink
             - flexlink.byte
             - flexlink.opt
