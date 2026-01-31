@@ -10,7 +10,7 @@ context:
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
   c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}
-  cross_target_triplet: >-
+  target_triplet: >-
     ${{
       "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else
       "x86_64-pc-windows"           if not unix and CC_ != "mingw" else
@@ -46,7 +46,7 @@ build:
   script:
     env:
       SKIP_MAKE_TESTS: 1
-      CROSS_TARGET_TRIPLET: ${{ cross_target_triplet }}
+      TARGET_TRIPLET: ${{ target_triplet }}
   dynamic_linking:
     missing_dso_allowlist:
       - if: linux
@@ -181,6 +181,9 @@ tests:
         - if: unix or (CC_ != "mingw")
           then:
             - ocamlruni
+        - if: (CC_ == "vs")
+          then:
+            - default_amd64.manifest
         - if: not unix
           then:
             - flexlink
@@ -193,7 +196,6 @@ tests:
         
         - ${{ library }}lib/ocaml/expunge${{ xt }}
         - ${{ library }}lib/ocaml/ld.conf
-        - ${{ library }}lib/ocaml/libasmrun.a
         - ${{ library }}lib/ocaml/Makefile.config
         - ${{ library }}lib/ocaml/runtime-launch-info
         - ${{ library }}lib/ocaml/sys.ml.in
@@ -209,6 +211,21 @@ tests:
             - ${{ library }}lib/ocaml/ocamldoc/*
           else:
             - share/man/man1/*
+        - if: unix or (CC_ == "mingw")
+          then:
+            - ${{ library }}lib/ocaml/libasmrun.a
+          else:
+            - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
+            - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
+            - ${{ library }}lib/ocaml/libasm{run,rund,runi}.lib
+            - ${{ library }}lib/ocaml/libcaml{run,rund,runi}.lib
+            - ${{ library }}lib/ocaml/libcamlruntime_{eventsbyt,eventsnat}.lib
+            - ${{ library }}lib/ocaml/libcamlstr{byt,nat}.lib
+            - ${{ library }}lib/ocaml/libcomprmarsh.lib
+            - ${{ library }}lib/ocaml/libthread{s,snat}.lib
+            - ${{ library }}lib/ocaml/libunix{byt,nat}.lib
+            - ${{ library }}lib/ocaml/std_exit.obj
+            - ${{ library }}lib/ocaml/stdlib.lib
         - if: unix
           then:
             - ${{ library }}lib/ocaml/libasmrun_shared.so

@@ -5,7 +5,7 @@
 # allowing the OCaml compiler to work with different toolchains without
 # hardcoding paths.
 #
-# Supports both MinGW (gcc) and MSVC (cl) toolchains based on CROSS_TARGET_TRIPLET.
+# Supports both MinGW (gcc) and MSVC (cl) toolchains based on TARGET_TRIPLET.
 
 set -euo pipefail
 
@@ -14,7 +14,7 @@ WRAPPER_SRC="${SCRIPT_DIR}/non-unix-conda-ocaml-wrapper.c"
 INSTALL_DIR="${1:-${PREFIX}/Library/bin}"
 
 # Detect toolchain from triplet: -w64-mingw32 = MinGW, -pc-windows = MSVC
-TRIPLET="${CROSS_TARGET_TRIPLET:-x86_64-w64-mingw32}"
+TRIPLET="${TARGET_TRIPLET:-x86_64-w64-mingw32}"
 
 echo "Building conda-ocaml-* wrappers for non-unix..."
 echo "  Source: ${WRAPPER_SRC}"
