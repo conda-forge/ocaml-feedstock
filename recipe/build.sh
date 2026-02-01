@@ -40,6 +40,22 @@ fi
 
 source "${RECIPE_DIR}"/building/common-functions.sh
 
+# ============================================================================
+# Early CFLAGS/LDFLAGS Sanitization
+# ============================================================================
+# conda-build cross-compilation can produce CFLAGS with mixed-arch flags:
+#   -march=nocona -mtune=haswell (x86) ... -march=armv8-a (arm)
+# This causes errors like "unknown architecture 'nocona'" on aarch64 compilers.
+# Sanitize at the very start to clean ALL uses of CFLAGS throughout the build.
+if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
+  _target_arch=$(get_arch_for_sanitization "${target_platform}")
+  echo ""
+  echo "=== Sanitizing CFLAGS/LDFLAGS for ${_target_arch} ==="
+  echo "Before: CFLAGS contains $(echo "${CFLAGS:-}" | grep -oE '\-march=[^ ]+' | head -3 | tr '\n' ' ')"
+  sanitize_and_export_cross_flags "${_target_arch}"
+  echo "After:  CFLAGS contains $(echo "${CFLAGS:-}" | grep -oE '\-march=[^ ]+' | head -3 | tr '\n' ' ')"
+fi
+
 # Platform detection (must be after sourcing common-functions.sh for is_unix)
 if is_unix; then
   EXE=""

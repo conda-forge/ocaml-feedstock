@@ -5,7 +5,7 @@
 
 [workspace]
 name = "ocaml-feedstock"
-version = "3.54.1"  # conda-smithy version used to generate this file
+version = "3.54.2"  # conda-smithy version used to generate this file
 description = "Pixi configuration for conda-forge/ocaml-feedstock"
 authors = ["@conda-forge/ocaml"]
 channels = ["conda-forge"]
@@ -53,12 +53,18 @@ description = "Build ocaml-feedstock with variant osx_arm64_ directly (without s
 [tasks."inspect-osx_arm64_"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/osx_arm64_.yaml"
 description = "List contents of ocaml-feedstock packages built for variant osx_arm64_"
-[tasks."build-win_64_"]
-cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_.yaml"
-description = "Build ocaml-feedstock with variant win_64_ directly (without setup scripts)"
-[tasks."inspect-win_64_"]
-cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_.yaml"
-description = "List contents of ocaml-feedstock packages built for variant win_64_"
+[tasks."build-win_64_CC_mingw"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_CC_mingw.yaml"
+description = "Build ocaml-feedstock with variant win_64_CC_mingw directly (without setup scripts)"
+[tasks."inspect-win_64_CC_mingw"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_CC_mingw.yaml"
+description = "List contents of ocaml-feedstock packages built for variant win_64_CC_mingw"
+[tasks."build-win_64_CC_vs"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_CC_vs.yaml"
+description = "Build ocaml-feedstock with variant win_64_CC_vs directly (without setup scripts)"
+[tasks."inspect-win_64_CC_vs"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_CC_vs.yaml"
+description = "List contents of ocaml-feedstock packages built for variant win_64_CC_vs"
 
 [feature.smithy.dependencies]
 conda-smithy = "*"

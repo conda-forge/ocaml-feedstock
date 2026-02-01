@@ -1,5 +1,5 @@
 context:
-  build_num: 5
+  build_number: 6
   name: ocaml
   version: 5.3.0
   flexdll_version: 0.44
@@ -9,6 +9,13 @@ context:
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
+  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}                                          
+  target_triplet: >-
+    ${{
+      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else                                                 
+      "x86_64-pc-windows"           if not unix and CC_ != "mingw" else
+      "unknown"
+    }}
   
 package:
   name: ocaml
@@ -17,17 +24,25 @@ package:
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
     sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
-  - if: win
+    patches:
+      - patches/0001-fix-atomic-macros-visibility.patch
+  - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
+  - if: not unix and CC_ != "mingw"
+    then:
+      url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
+      sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
+      target_directory: winpthreads
 
 build:
-  number: ${{ build_num }}
+  number: ${{ build_number }}
   script:
     env:
       SKIP_MAKE_TESTS: 1
+      TARGET_TRIPLET: ${{ target_triplet }}
   dynamic_linking:
     missing_dso_allowlist:
       - if: linux
@@ -72,8 +87,13 @@ requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
   build:
-    - ${{ compiler('c') }}
-    - ${{ stdlib('c') }}
+    - if: CC_ == "mingw"
+      then:
+        - ${{ compiler("m2w64_c") }}
+        - ${{ stdlib("m2w64_c") }}
+      else:
+        - ${{ compiler("c") }}
+        - ${{ stdlib("c") }}
     - ${{ m2 }}bash >=5.2
     - ${{ m2 }}file
     - ${{ m2 }}findutils
@@ -111,16 +131,17 @@ requirements:
     - zstd
   run:
     - zstd
-    - if: unix
+    - if: CC_ == "mingw"
       then:
-        - c-compiler
+        - ${{ m2w64_c_compiler }}_${{ target_platform }}
       else:
-        - ${{ c_compiler }}_impl_${{ target_platform }} >=${{ c_compiler_version }}
+        - c-compiler
     - if: osx
       then:
         - lld >=${{ c_compiler_version }}
         - llvm-tools >=${{ c_compiler_version }}
-      else:
+    - if: unix or (CC_ == "mingw")
+      then:
         - binutils_impl_${{ target_platform }}
 
 tests:
@@ -153,14 +174,17 @@ tests:
           then:
             - arm64-apple-darwin20.0.0-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
             - arm64-apple-darwin20.0.0-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
-        - if: unix
+        - if: unix or (CC_ != "mingw")
           then:
             - ocamlruni
-          else:
+        - if: (CC_ == "vs")
+          then:
+            - default_amd64.manifest
+        - if: not unix
+          then:
             - flexlink
             - flexlink.byte
             - flexlink.opt
-            - windres
       files:
         - etc/conda/activate.d/ocaml_activate.${{ sh }}
         - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
@@ -168,7 +192,6 @@ tests:
         
         - ${{ library }}lib/ocaml/expunge${{ xt }}
         - ${{ library }}lib/ocaml/ld.conf
-        - ${{ library }}lib/ocaml/libasmrun.a
         - ${{ library }}lib/ocaml/Makefile.config
         - ${{ library }}lib/ocaml/runtime-launch-info
         - ${{ library }}lib/ocaml/sys.ml.in
@@ -184,6 +207,21 @@ tests:
             - ${{ library }}lib/ocaml/ocamldoc/*
           else:
             - share/man/man1/*
+        - if: unix or (CC_ == "mingw")
+          then:
+            - ${{ library }}lib/ocaml/libasmrun.a
+          else:
+            - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
+            - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
+            - ${{ library }}lib/ocaml/libasm{run,rund,runi}.lib
+            - ${{ library }}lib/ocaml/libcaml{run,rund,runi}.lib
+            - ${{ library }}lib/ocaml/libcamlruntime_{eventsbyt,eventsnat}.lib
+            - ${{ library }}lib/ocaml/libcamlstr{byt,nat}.lib
+            - ${{ library }}lib/ocaml/libcomprmarsh.lib
+            - ${{ library }}lib/ocaml/libthread{s,snat}.lib
+            - ${{ library }}lib/ocaml/libunix{byt,nat}.lib
+            - ${{ library }}lib/ocaml/std_exit.obj
+            - ${{ library }}lib/ocaml/stdlib.lib
         - if: unix
           then:
             - ${{ library }}lib/ocaml/libasmrun_shared.so
