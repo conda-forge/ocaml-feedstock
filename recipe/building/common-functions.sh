@@ -500,7 +500,6 @@ setup_toolchain() {
        _ASM=$(basename "${_AS}")
 
        _MKDLL="$(basename "${_CC}")"
-       # -Wl,-E exports symbols for dlopen (required by ocamlnat)
        _MKEXE="$(basename "${_CC}")"
       ;;
     *-pc-*)

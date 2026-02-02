@@ -165,6 +165,26 @@ CONFIG_ARGS+=(
   AR="${NATIVE_AR}"
   LD="${NATIVE_LD}"
 )
+if [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
+  # MSVC: Let configure detect correct flags - don't inject GCC-style flags
+  # cl.exe uses /O2, /LIBPATH: etc. - incompatible with GCC -O2, -L
+  # Don't pass AS — configure's default for MSVC includes critical flags:
+  #   "ml64 -nologo -Cp -c -Fo" (the trailing -Fo is concatenated with output path)
+  # MSVC: --build=cygwin (MSYS2 build env), --host=windows (MSVC target)
+  # This is how OCaml detects MSVC mode and uses /Fe: instead of -o
+  CONFIG_ARGS+=(
+    --build=x86_64-pc-cygwin
+    --host="${TARGET_TRIPLET}"
+    CFLAGS=""
+  )
+else
+  CONFIG_ARGS+=(
+    AS="${NATIVE_AS}"
+    CFLAGS="${NATIVE_CFLAGS}"
+    RANLIB="${NATIVE_RANLIB}"
+    host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
+  )
+fi
 
 if [[ "${TARGET_TRIPLET:-}" == *"-pc-"* ]]; then
   # MSVC: Let configure detect correct flags - don't inject GCC-style flags
@@ -201,9 +221,8 @@ if is_unix; then
 else
   CONFIG_ARGS+=(
     --with-flexdll
-    --with-target-bindir="${PREFIX}"/Library/bin
-    windows_UNICODE_MODE=compatible
     WINDRES="${NATIVE_WINDRES}"
+    windows_UNICODE_MODE=compatible
   )
   if [[ "${TARGET_TRIPLET:-}" != *"-pc-"* ]]; then
     CONFIG_ARGS+=(
@@ -233,8 +252,8 @@ if is_unix; then
   echo "    CONDA_OCAML_MKDLL=${CONDA_OCAML_MKDLL:-<unset>}"
   echo "  PATH includes BUILD_PREFIX/bin: $(echo "$PATH" | grep -q "${BUILD_PREFIX}/bin" && echo "yes" || echo "NO!")"
 else
-  # Non-unix: Build wrapper files BEFORE configuring (uses build-wrappers.sh)
-  # For MinGW: builds .exe wrappers; for MSVC: creates .bat wrappers
+  # Non-unix: Build wrapper .exe files BEFORE configuring
+  # These need to exist when config.generated.ml references them
   CC="${NATIVE_CC}" "${RECIPE_DIR}/building/build-wrappers.sh" "${BUILD_PREFIX}/Library/bin"
 fi
 
@@ -391,7 +410,7 @@ fi
 # ============================================================================
 
 echo "  [3/4] Compiling native compiler"
-run_logged "world" "${MAKE[@]}" world.opt -j"${CPU_COUNT}"
+run_logged "world" "${MAKE[@]}" world.opt -j"${CPU_COUNT}" || { cat "${LOG_DIR}/world.log"; exit 1; }
 
 # ============================================================================
 # Tests (Optional)
@@ -479,7 +498,8 @@ else
 fi
 
 # Clean up for potential cross-compiler builds
-# Use env -i to clear environment (MSYS2 xargs fails with large env)
+# Distclean uses xargs which fails on Windows if environment is too large (32KB limit).
+# Run with minimal environment — cleanup only needs PATH and basic shell vars.
 run_logged "distclean" env -i PATH="$PATH" SYSTEMROOT="${SYSTEMROOT:-}" "${MAKE[@]}" distclean || true
 
 echo ""

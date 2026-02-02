@@ -1,5 +1,5 @@
 context:
-  build_num: 0
+  build_number: 0
   name: ocaml
   version: 5.4.0
   flexdll_version: 0.44
@@ -9,14 +9,14 @@ context:
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
-  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}
+  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}                                          
   target_triplet: >-
     ${{
-      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else
+      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else                                                 
       "x86_64-pc-windows"           if not unix and CC_ != "mingw" else
       "unknown"
     }}
-
+  
 package:
   name: ocaml
   version: ${{ version }}
@@ -30,19 +30,22 @@ source:
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
-  - if: win
+  - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
-  - if: win and CC_ != "mingw"
+  - if: not unix and CC_ != "mingw"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
       sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
       target_directory: winpthreads
 
 build:
-  number: ${{ build_num }}
+  number: ${{ build_number }}
+  string: ${{ CC_ ~ "_" if CC_ }}h${{ hash }}_${{ build_number }}
+  variant:                                                                                                                 
+    down_prioritize_variant: ${{ 0 if CC_ == "mingw" else 1 }}                                                             
   script:
     env:
       SKIP_MAKE_TESTS: 1
@@ -310,8 +313,6 @@ tests:
   # Tool version checks (all platforms)
   # Skip on cross-compiled platforms - QEMU emulation has limitations
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: arm64
           then:
@@ -327,8 +328,6 @@ tests:
 
   # Native-only tools (ocamldoc, ocamldebug)
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: (build_platform == target_platform) and unix
           then: cd testing && ${{ dot }}test-native-only-tools.${{ sh }} ${{ version }}
@@ -343,8 +342,6 @@ tests:
   # Compilation tests (bytecode, native, multi-file)
   # Skip on cross-compiled platforms (aarch64, ppc64le, arm64) - QEMU emulation unstable
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: build_platform != target_platform
           then: echo "Skipping compilation tests (cross-compiled package, QEMU limitation)"
@@ -360,8 +357,6 @@ tests:
 
   # Cross-compiler tests (linux-64 and osx-64 only)
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: (linux and x86_64) or (osx and x86_64)
           then:
@@ -393,8 +388,6 @@ tests:
 
   # CONDA_OCAML_* toolchain variable tests
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: build_platform == target_platform
           then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}

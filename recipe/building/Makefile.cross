@@ -447,6 +447,7 @@ otherlibrariesopt-cross:
 	rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o
 	rm -f otherlibs/systhreads/*.cmx otherlibs/systhreads/*.cmi otherlibs/systhreads/*.o
 	rm -f otherlibs/runtime_events/*.cmx otherlibs/runtime_events/*.cmi otherlibs/runtime_events/*.o
+	rm -f $(OCAMLLIB)/dynlink*.cmi $(OCAMLLIB)/dynlink*.cmx $(OCAMLLIB)/dynlink*.cmo $(OCAMLLIB)/dynlink*.cma $(OCAMLLIB)/dynlink*.cmxa 2>/dev/null || true
 	# Remove OLD .cmi from OCAMLLIB subdirs to prevent CRC mismatch
 	rm -f "$(OCAMLLIB)/unix/"*.cmi "$(OCAMLLIB)/str/"*.cmi "$(OCAMLLIB)/dynlink/"*.cmi 2>/dev/null || true
 	rm -f "$(OCAMLLIB)/threads/"*.cmi "$(OCAMLLIB)/runtime_events/"*.cmi 2>/dev/null || true
