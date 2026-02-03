@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Test environment variables and resource file paths
-# Verifies no build-time paths leaked into installed package
+# Test cross-compiler CRC consistency
+# Verifies unix.cmxa and threads.cmxa have compatible Implementation CRCs
 
 set -euo pipefail
 
@@ -8,32 +8,39 @@ CROSS_COMPILER="${1:-aarch64-conda-linux-gnu-ocamlopt}"
 
 echo "Testing cross-compiler consistency: ${CROSS_COMPILER}"
 
-# Create a simple test program that uses both stdlib and unix
+# Test 1: stdlib + unix (basic consistency)
 cat > /tmp/test_consistency.ml << 'EOF'
-(* This program uses both stdlib (Sys module) and unix library *)
 let () =
-  (* Use Stdlib__Sys via Sys module *)
   Printf.printf "OCaml version: %s\n" Sys.ocaml_version;
-  Printf.printf "Architecture: %s\n" Sys.os_type;
-
-  (* Use Unix module - this forces linking unix.cmxa with stdlib.cmxa *)
   let stats = Unix.stat "." in
-  Printf.printf "Current directory inode: %d\n" stats.Unix.st_ino;
-
-  print_endline "Cross-compiler consistency test PASSED"
+  Printf.printf "inode: %d\n" stats.Unix.st_ino
 EOF
 
-# Try to compile with the cross-compiler
-# This will fail with "inconsistent assumptions" if stdlib and unix are incompatible
-echo "Compiling test program..."
-if ${CROSS_COMPILER} -o /tmp/test_consistency.exe unix.cmxa /tmp/test_consistency.ml; then
-  echo "✓ Compilation succeeded - no inconsistent assumptions"
-  echo "✓ Cross-compiler is consistent"
-  rm -f /tmp/test_consistency.ml /tmp/test_consistency.exe
-  exit 0
+echo "  Test 1: stdlib + unix.cmxa..."
+if ${CROSS_COMPILER} -I +unix -o /tmp/test_consistency.exe unix.cmxa /tmp/test_consistency.ml 2>&1; then
+  echo "    ✓ Passed"
 else
-  echo "✗ Compilation FAILED - cross-compiler has inconsistent assumptions"
-  echo "✗ stdlib.cmxa and unix.cmxa are incompatible"
-  rm -f /tmp/test_consistency.ml
+  echo "    ✗ FAILED: stdlib.cmxa and unix.cmxa are incompatible"
+  rm -f /tmp/test_consistency.ml /tmp/test_consistency.exe
   exit 1
 fi
+
+# Test 2: unix + threads (the bug we fixed - Implementation CRC mismatch)
+cat > /tmp/test_threads.ml << 'EOF'
+let () =
+  let _ = Thread.create (fun () -> Unix.sleep 0) () in
+  print_endline "threads test"
+EOF
+
+echo "  Test 2: unix.cmxa + threads.cmxa..."
+if ${CROSS_COMPILER} -I +unix -I +threads -o /tmp/test_threads.exe unix.cmxa threads.cmxa /tmp/test_threads.ml 2>&1; then
+  echo "    ✓ Passed"
+else
+  echo "    ✗ FAILED: unix.cmxa + threads.cmxa compilation failed (likely CRC mismatch or missing modules)"
+  rm -f /tmp/test_consistency.ml /tmp/test_consistency.exe /tmp/test_threads.ml /tmp/test_threads.exe
+  exit 1
+fi
+
+rm -f /tmp/test_consistency.ml /tmp/test_consistency.exe /tmp/test_threads.ml /tmp/test_threads.exe
+echo "  ✓ Cross-compiler is consistent"
+exit 0

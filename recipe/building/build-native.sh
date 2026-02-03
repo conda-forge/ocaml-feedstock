@@ -197,6 +197,7 @@ else
   CONFIG_ARGS+=(
     --with-flexdll
     WINDRES="${NATIVE_WINDRES}"
+    windows_UNICODE_MODE=compatible
   )
   if [[ "${TARGET_TRIPLET}" != *"-pc-"* ]]; then
     CONFIG_ARGS+=(

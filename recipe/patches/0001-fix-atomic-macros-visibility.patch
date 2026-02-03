@@ -1,0 +1,21 @@
+--- a/runtime/caml/camlatomic.h
++++ b/runtime/caml/camlatomic.h
+@@ -44,8 +44,6 @@ typedef _Atomic intnat atomic_intnat;
+
+ #endif
+
+-#ifdef CAML_INTERNALS
+-
+ /* Loads and stores with acquire, release and relaxed semantics */
+
+ #define atomic_load_acquire(p)                    \
+@@ -56,6 +54,8 @@ typedef _Atomic intnat atomic_intnat;
+ #define atomic_store_relaxed(p, v)                      \
+   atomic_store_explicit((p), (v), memory_order_relaxed)
+
+-#endif /* CAML_INTERNALS */
++/* Note: These atomic convenience macros are always defined (not guarded by
++   CAML_INTERNALS) to avoid header include order issues when platform.h is
++   included after public headers like mlvalues.h. */
+
+ #endif /* CAML_ATOMIC_H */

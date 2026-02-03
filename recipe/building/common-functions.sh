@@ -225,7 +225,147 @@ PYEOF
 }
 
 # ==============================================================================
-# CFLAGS and LDFLAGS
+# CFLAGS and LDFLAGS Sanitization (Portable - can be used in other recipes)
+# ==============================================================================
+
+# Sanitize compiler flags for cross-compilation
+# Removes duplicates and architecture-inappropriate flags
+# Usage: sanitize_cross_cflags "aarch64" "${CFLAGS}"
+# Usage: sanitize_cross_ldflags "${LDFLAGS}"
+#
+# Problem: conda-build cross-compilation sometimes produces CFLAGS like:
+#   -march=nocona -mtune=haswell ... -march=armv8-a -mtune=cortex-a72 ...
+# This causes errors when the cross-compiler sees incompatible arch flags.
+#
+# This function:
+#   1. Removes x86-specific flags when targeting ARM/PPC
+#   2. Removes ARM-specific flags when targeting x86
+#   3. Removes duplicate flags while preserving order
+#   4. Keeps the LAST occurrence of conflicting flags (target-specific)
+
+# Architecture-specific flags to filter
+_X86_ARCH_FLAGS="-march=nocona|-march=core2|-march=haswell|-march=skylake|-march=x86-64"
+_X86_TUNE_FLAGS="-mtune=nocona|-mtune=core2|-mtune=haswell|-mtune=skylake|-mtune=generic"
+_X86_FEATURE_FLAGS="-mssse3|-msse4|-msse4.1|-msse4.2|-mavx|-mavx2|-mfma"
+
+_ARM_ARCH_FLAGS="-march=armv8-a|-march=armv8.1-a|-march=armv8.2-a|-march=native"
+_ARM_TUNE_FLAGS="-mtune=cortex-a53|-mtune=cortex-a72|-mtune=neoverse-n1|-mtune=native"
+
+_PPC_ARCH_FLAGS="-mcpu=power8|-mcpu=power9|-mcpu=power10"
+_PPC_TUNE_FLAGS="-mtune=power8|-mtune=power9|-mtune=power10"
+
+sanitize_cross_cflags() {
+  local target_arch="$1"
+  shift
+  local flags="$*"
+
+  # Determine which architecture flags to remove based on target
+  local remove_pattern=""
+  case "${target_arch}" in
+    aarch64|arm64|armv8*)
+      # Targeting ARM: remove x86 and PPC flags
+      remove_pattern="${_X86_ARCH_FLAGS}|${_X86_TUNE_FLAGS}|${_X86_FEATURE_FLAGS}|${_PPC_ARCH_FLAGS}|${_PPC_TUNE_FLAGS}"
+      ;;
+    powerpc64le|ppc64le|power*)
+      # Targeting PPC: remove x86 and ARM flags
+      remove_pattern="${_X86_ARCH_FLAGS}|${_X86_TUNE_FLAGS}|${_X86_FEATURE_FLAGS}|${_ARM_ARCH_FLAGS}|${_ARM_TUNE_FLAGS}"
+      ;;
+    x86_64|amd64|i686)
+      # Targeting x86: remove ARM and PPC flags
+      remove_pattern="${_ARM_ARCH_FLAGS}|${_ARM_TUNE_FLAGS}|${_PPC_ARCH_FLAGS}|${_PPC_TUNE_FLAGS}"
+      ;;
+    *)
+      # Unknown target: remove all architecture-specific flags to be safe
+      remove_pattern="${_X86_ARCH_FLAGS}|${_X86_TUNE_FLAGS}|${_X86_FEATURE_FLAGS}|${_ARM_ARCH_FLAGS}|${_ARM_TUNE_FLAGS}|${_PPC_ARCH_FLAGS}|${_PPC_TUNE_FLAGS}"
+      ;;
+  esac
+
+  # Process flags: remove inappropriate arch flags and deduplicate
+  local result=""
+  local seen=""
+
+  for flag in ${flags}; do
+    # Skip if this flag matches the remove pattern
+    # Use printf instead of echo to handle flags starting with '-' safely
+    if printf '%s\n' "${flag}" | grep -qE "^(${remove_pattern})$"; then
+      continue
+    fi
+
+    # Skip duplicates (keep first occurrence for most flags)
+    if printf ' %s ' "${seen}" | grep -qF " ${flag} "; then
+      continue
+    fi
+
+    seen="${seen} ${flag}"
+    result="${result:+${result} }${flag}"
+  done
+
+  echo "${result}"
+}
+
+sanitize_cross_ldflags() {
+  local flags="$*"
+
+  # LDFLAGS typically don't have arch-specific flags, but may have duplicates
+  # Process flags: deduplicate while preserving order
+  local result=""
+  local seen=""
+
+  for flag in ${flags}; do
+    # Skip duplicates
+    if echo " ${seen} " | grep -qF " ${flag} "; then
+      continue
+    fi
+
+    seen="${seen} ${flag}"
+    result="${result:+${result} }${flag}"
+  done
+
+  echo "${result}"
+}
+
+# Convenience function: sanitize both CFLAGS and LDFLAGS and export them
+# Usage: sanitize_and_export_cross_flags "aarch64"
+# Modifies: CFLAGS, LDFLAGS environment variables
+sanitize_and_export_cross_flags() {
+  local target_arch="$1"
+
+  if [[ -n "${CFLAGS:-}" ]]; then
+    CFLAGS=$(sanitize_cross_cflags "${target_arch}" "${CFLAGS}")
+    export CFLAGS
+  fi
+
+  if [[ -n "${LDFLAGS:-}" ]]; then
+    LDFLAGS=$(sanitize_cross_ldflags "${LDFLAGS}")
+    export LDFLAGS
+  fi
+}
+
+# Get target architecture from conda target triplet or platform
+# Usage: get_arch_from_triplet "aarch64-conda-linux-gnu" → "aarch64"
+# Usage: get_arch_from_platform "linux-aarch64" → "aarch64"
+get_arch_for_sanitization() {
+  local input="$1"
+
+  case "${input}" in
+    aarch64-*|linux-aarch64|osx-arm64|arm64-*)
+      echo "aarch64"
+      ;;
+    powerpc64le-*|linux-ppc64le|ppc64le-*)
+      echo "powerpc64le"
+      ;;
+    x86_64-*|linux-64|osx-64)
+      echo "x86_64"
+      ;;
+    *)
+      # Extract first component as fallback
+      echo "${input%%-*}"
+      ;;
+  esac
+}
+
+# ==============================================================================
+# CFLAGS and LDFLAGS Setup
 # ==============================================================================
 
 # Get native CFLAGS/LDFLAGS for the current platform
@@ -247,30 +387,18 @@ setup_cflags_ldflags() {
       ;;
     CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le)
       # Cross-compiling FOR Linux aarch64/ppc64le
-      if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-        # Cross-platform CI: conda sets proper target CFLAGS
-        export "${name}_CFLAGS=${CFLAGS}"
-        export "${name}_LDFLAGS=${LDFLAGS}"
-      else
-        # Native build creating cross-compilers: use generic flags (no x86_64 -march/-mtune)
-        export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
-        export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
-      fi
+      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted with
+      # mixed build/target flags that cause -march=nocona on aarch64 cross-compiler
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
       ;;
     CROSS_osx-64_osx-arm64)
       # Cross-compiling FOR macOS ARM64 (on osx-64)
-      if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-        # Cross-platform CI: conda sets proper target CFLAGS
-        export "${name}_CFLAGS=${CFLAGS}"
-        export "${name}_LDFLAGS=${LDFLAGS}"
-      else
-        # Native osx-64 build creating arm64 cross-compiler: use macOS-compatible flags
-        # CRITICAL: Both CFLAGS and LDFLAGS need -isysroot for the ARM64 SDK!
-        # Without -isysroot in LDFLAGS, linker can't find basic C functions (open, stat, etc.)
-        setup_macos_sysroot
-        export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
-        export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
-      fi
+      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted
+      # CRITICAL: Both CFLAGS and LDFLAGS need -isysroot for the ARM64 SDK!
+      setup_macos_sysroot
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
+      export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
       ;;
     NATIVE_osx-64_osx-arm64)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
