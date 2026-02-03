@@ -1,5 +1,5 @@
 context:
-  build_number: 7
+  build_number: 8
   name: ocaml
   version: 5.3.0
   flexdll_version: 0.44
@@ -9,14 +9,14 @@ context:
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
-  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}                                          
+  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}
   target_triplet: >-
     ${{
-      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else                                                 
+      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else
       "x86_64-pc-windows"           if not unix and CC_ != "mingw" else
       "unknown"
     }}
-  
+
 package:
   name: ocaml
   version: ${{ version }}
@@ -40,8 +40,8 @@ source:
 build:
   number: ${{ build_number }}
   string: ${{ CC_ ~ "_" if CC_ }}h${{ hash }}_${{ build_number }}
-  variant:                                                                                                                 
-    down_prioritize_variant: ${{ 0 if CC_ == "mingw" else 1 }}                                                             
+  variant:
+    down_prioritize_variant: ${{ 0 if CC_ == "mingw" else 1 }}
   script:
     env:
       SKIP_MAKE_TESTS: 1
@@ -89,12 +89,12 @@ build:
 requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
-    - if: CC_ == "mingw"                                                                                                     
-      then:                                                                                                                  
-        - ${{ compiler("m2w64_c") }}                                                                                         
-    - if: CC_ != "mingw" and not unix                                                                                        
-      then:                                                                                                                  
-        - ${{ compiler("c") }}                                                                                               
+    - if: CC_ == "mingw"
+      then:
+        - m2w64-gcc-libs
+    - if: CC_ == "vs"
+      then:
+        - vc >=${{ vc }}
   build:
     - if: CC_ == "mingw"
       then:
@@ -140,7 +140,7 @@ requirements:
     - zstd
   run:
     - zstd
-    - if: CC_ == "mingw"
+    - if: CC_ == "mingw_"
       then:
         - ${{ m2w64_c_compiler }}_${{ target_platform }}
       else:
@@ -198,7 +198,7 @@ tests:
         - etc/conda/activate.d/ocaml_activate.${{ sh }}
         - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
         - etc/conda/test-files/*
-        
+
         - ${{ library }}lib/ocaml/expunge${{ xt }}
         - ${{ library }}lib/ocaml/ld.conf
         - ${{ library }}lib/ocaml/Makefile.config
