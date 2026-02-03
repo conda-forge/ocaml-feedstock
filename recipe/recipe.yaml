@@ -92,7 +92,15 @@ build:
 
 requirements:
   run_exports:
-    - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+    weak:
+      - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+    strong:
+      - if: CC_ == "mingw"
+        then:
+          - m2w64-gcc-libs
+      - if: CC_ == "vs"
+        then:
+          - vc >=${{ vc }}
   build:
     - if: CC_ == "mingw"
       then:
