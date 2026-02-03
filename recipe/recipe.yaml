@@ -93,10 +93,10 @@ requirements:
     strong:
       - if: CC_ == "mingw"
         then:
-          - m2w64-gcc-libs
+          - ${{ stdlib("m2w64_c") }}
       - if: CC_ == "vs"
         then:
-          - vc >=${{ vc }}
+          - ${{ stdlib("c") }}
   build:
     - if: CC_ == "mingw"
       then:
