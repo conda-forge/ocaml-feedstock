@@ -1,5 +1,5 @@
 context:
-  build_number: 6
+  build_number: 7
   name: ocaml
   version: 5.3.0
   flexdll_version: 0.44
@@ -39,6 +39,9 @@ source:
 
 build:
   number: ${{ build_number }}
+  string: ${{ CC_ ~ "_" if CC_ }}h${{ hash }}_${{ build_number }}
+  variant:                                                                                                                 
+    down_prioritize_variant: ${{ 0 if CC_ == "mingw" else 1 }}                                                             
   script:
     env:
       SKIP_MAKE_TESTS: 1
@@ -86,6 +89,12 @@ build:
 requirements:
   run_exports:
     - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+    - if: CC_ == "mingw"                                                                                                     
+      then:                                                                                                                  
+        - ${{ compiler("m2w64_c") }}                                                                                         
+    - if: CC_ != "mingw" and not unix                                                                                        
+      then:                                                                                                                  
+        - ${{ compiler("c") }}                                                                                               
   build:
     - if: CC_ == "mingw"
       then:
