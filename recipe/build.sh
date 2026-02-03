@@ -307,7 +307,11 @@ echo "=== Installing activation scripts ==="
     export CONDA_OCAML_LD=$(basename "${LD:-ld}")
     export CONDA_OCAML_RANLIB=$(basename "${RANLIB:-ranlib}")
     export CONDA_OCAML_MKEXE="${CC:-cc}"
-    export CONDA_OCAML_MKDLL="${CC:-cc} -shared"
+    if [[ "${target_platform}" == osx-* ]]; then
+      export CONDA_OCAML_MKDLL="${CC:-cc} -shared -undefined dynamic_lookup"
+    else
+      export CONDA_OCAML_MKDLL="${CC:-cc} -shared"
+    fi
     export CONDA_OCAML_WINDRES="${WINDRES:-windres}"
   fi
 
