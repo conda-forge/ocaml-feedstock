@@ -175,10 +175,10 @@ outputs:
         strong:
           - if: _CC == "_mingw"
             then:
-              - m2w64-gcc-libs
+              - ${{ stdlib("m2w64_c") }}
           - if: _CC == "_vs"
             then:
-              - vc >=${{ vc }}
+              - ${{ stdlib("c") }}
       build:
         # --- Common build deps (all cases) ---
         - if: _CC == "_mingw"
