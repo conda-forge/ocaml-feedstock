@@ -495,6 +495,8 @@ if is_unix; then
   for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
   done
+  # NOTE: macOS ocamlmklib wrapper is created in build.sh AFTER cross-compiler builds
+  # (the native ocamlmklib is used during cross-compiler build and must remain unwrapped)
 else
   # non-unix: Build and install wrapper .exe files
   # These are small C programs that read CONDA_OCAML_* env vars at runtime
