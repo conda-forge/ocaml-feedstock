@@ -88,6 +88,8 @@ outputs:
       run_exports:
         - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
     tests:
+      - package_contents:
+          strict: true
       - script:
           - if: build_platform == target_platform
             then: ocaml -version
@@ -510,6 +512,12 @@ outputs:
           then:
             - binutils_impl_${{ target_platform }}
     tests:
+      # ----------------------------------------------------------------------
+      # Package contents (metapackage - no files)
+      # ----------------------------------------------------------------------
+      - package_contents:
+          strict: true
+
       # ----------------------------------------------------------------------
       # Basic toolchain verification
       # ----------------------------------------------------------------------
