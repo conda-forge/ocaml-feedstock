@@ -98,6 +98,7 @@ echo "  NATIVE_ASM:     ${NATIVE_ASM}"
 echo "  NATIVE_CC:      ${NATIVE_CC}"
 echo "  NATIVE_CFLAGS:  ${NATIVE_CFLAGS}"
 echo "  NATIVE_LD:      ${NATIVE_LD}"
+echo "  NATIVE_STRIP:   ${NATIVE_STRIP}"
 echo "  NATIVE_LDFLAGS: ${NATIVE_LDFLAGS}"
 echo "  NATIVE_RANLIB:  ${NATIVE_RANLIB}"
 
@@ -204,6 +205,9 @@ else
   export CC="${NATIVE_CC}"
   export CFLAGS="${NATIVE_CFLAGS}"
   export LDFLAGS="${NATIVE_LDFLAGS}"
+  # STRIP must match the native toolchain during cross-compilation
+  # Otherwise conda-build's STRIP (target arch) can't process native binaries
+  export STRIP="${NATIVE_STRIP}"
 
   CONFIG_ARGS+=(
     AS="${NATIVE_AS}"
