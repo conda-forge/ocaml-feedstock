@@ -165,6 +165,7 @@ fi
 # NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as environment variables, not configure args.
 # Passing them as args causes make to misparse flags like -O2 as filenames.
 export CC="${NATIVE_CC}"
+export STRIP="${NATIVE_STRIP}"
 
 if [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
   # MSVC: Let configure detect correct flags - don't inject GCC-style flags
