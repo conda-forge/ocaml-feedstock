@@ -235,6 +235,7 @@ EOF
   export CC="${NATIVE_CC}"
   export CFLAGS="${NATIVE_CFLAGS}"
   export LDFLAGS="${NATIVE_LDFLAGS}"
+  export STRIP="${NATIVE_STRIP}"
 
   # Per-target configure args (frame pointers not supported on PPC)
   declare -a TARGET_CONFIG_ARGS=()
