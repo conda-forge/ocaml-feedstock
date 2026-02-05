@@ -9,14 +9,14 @@ context:
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
-  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}                                          
+  c_compiler_key: ${{ "m2w64_c" if CC_ == "mingw" else "c" }}
   target_triplet: >-
     ${{
-      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else                                                 
+      "x86_64-w64-mingw32"          if not unix and CC_ == "mingw" else
       "x86_64-pc-windows"           if not unix and CC_ != "mingw" else
       "unknown"
     }}
-  
+
 package:
   name: ocaml
   version: ${{ version }}
@@ -44,8 +44,8 @@ source:
 build:
   number: ${{ build_number }}
   string: ${{ CC_ ~ "_" if CC_ }}h${{ hash }}_${{ build_number }}
-  variant:                                                                                                                 
-    down_prioritize_variant: ${{ 0 if CC_ == "mingw" else 1 }}                                                             
+  variant:
+    down_prioritize_variant: ${{ 0 if CC_ == "mingw" else 1 }}
   script:
     env:
       SKIP_MAKE_TESTS: 1
@@ -97,10 +97,10 @@ requirements:
     strong:
       - if: CC_ == "mingw"
         then:
-          - m2w64-gcc-libs
+          - ${{ stdlib("m2w64_c") }}
       - if: CC_ == "vs"
         then:
-          - vc >=${{ vc }}
+          - ${{ stdlib("c") }}
   build:
     - if: CC_ == "mingw"
       then:
@@ -204,7 +204,7 @@ tests:
         - etc/conda/activate.d/ocaml_activate.${{ sh }}
         - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
         - etc/conda/test-files/*
-        
+
         - ${{ library }}lib/ocaml/expunge${{ xt }}
         - ${{ library }}lib/ocaml/ld.conf
         - ${{ library }}lib/ocaml/Makefile.config
