@@ -432,7 +432,12 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       export CONDA_OCAML_CC=$(basename "${CC:-cc}")
       export CONDA_OCAML_LD=$(basename "${LD:-ld}")
       export CONDA_OCAML_RANLIB=$(basename "${RANLIB:-ranlib}")
-      export CONDA_OCAML_MKEXE="${CC:-cc}"
+      # macOS needs rpath for downstream binaries to find libzstd
+      if [[ "${target_platform}" == osx-* ]]; then
+        export CONDA_OCAML_MKEXE="${CC:-cc} -Wl,-rpath,@executable_path/../lib"
+      else
+        export CONDA_OCAML_MKEXE="${CC:-cc}"
+      fi
       # macOS needs -undefined dynamic_lookup to defer symbol resolution to runtime
       if [[ "${target_platform}" == osx-* ]]; then
         export CONDA_OCAML_MKDLL="${CC:-cc} -shared -undefined dynamic_lookup"
