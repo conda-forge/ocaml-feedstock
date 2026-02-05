@@ -575,8 +575,19 @@ export CONDA_OCAML_LD="\${CONDA_OCAML_${target_id}_LD:-${DEFAULT_LD}}"
 export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${target_id}_RANLIB:-${DEFAULT_RANLIB}}"
 export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${target_id}_MKDLL:-${DEFAULT_MKDLL}}"
 export CONDA_OCAML_MKEXE="\${CONDA_OCAML_${target_id}_MKEXE:-${DEFAULT_MKEXE}}"
+WRAPPER
+
+  # macOS targets need -ldopt for ocamlmklib to add -undefined dynamic_lookup
+  # This allows _caml_* symbols to remain unresolved until runtime
+  if [[ "${tool}" == "ocamlmklib" ]] && [[ "${target}" == arm64-apple-darwin* ]]; then
+    cat >> "${wrapper_path}" << WRAPPER
+exec "\${prefix}/lib/ocaml-cross-compilers/${target}/bin/${tool}.opt" -ldopt "-Wl,-undefined,dynamic_lookup" "\$@"
+WRAPPER
+  else
+    cat >> "${wrapper_path}" << WRAPPER
 exec "\${prefix}/lib/ocaml-cross-compilers/${target}/bin/${tool}.opt" "\$@"
 WRAPPER
+  fi
   chmod +x "${wrapper_path}"
 
   echo "     Created wrapper: ${wrapper_path}"

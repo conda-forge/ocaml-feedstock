@@ -447,6 +447,25 @@ if is_unix; then
   for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
   done
+
+  # macOS: Create ocamlmklib wrapper to add -undefined dynamic_lookup
+  # This allows downstream packages (opam, dune) to build stub libraries without
+  # needing their own workarounds for unresolved _caml_* symbols
+  if [[ "${target_platform}" == osx-* ]]; then
+    echo "  - Creating macOS ocamlmklib wrapper..."
+    real_ocamlmklib="${OCAML_INSTALL_PREFIX}/bin/ocamlmklib"
+    if [[ -f "${real_ocamlmklib}" ]] && [[ ! -f "${real_ocamlmklib}.real" ]]; then
+      mv "${real_ocamlmklib}" "${real_ocamlmklib}.real"
+      cat > "${real_ocamlmklib}" << 'WRAPPER_EOF'
+#!/bin/bash
+# Wrapper to add -undefined dynamic_lookup for macOS shared lib creation
+# This allows _caml_* symbols to remain unresolved until runtime
+exec "${0}.real" -ldopt "-Wl,-undefined,dynamic_lookup" "$@"
+WRAPPER_EOF
+      chmod +x "${real_ocamlmklib}"
+      echo "    Created wrapper: ocamlmklib -> ocamlmklib.real"
+    fi
+  fi
 else
   # non-unix: Build and install wrapper .exe files
   # These are small C programs that read CONDA_OCAML_* env vars at runtime
