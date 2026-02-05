@@ -513,10 +513,12 @@ outputs:
             - binutils_impl_${{ target_platform }}
     tests:
       # ----------------------------------------------------------------------
-      # Package contents (metapackage - no files)
+      # Package contents (metapackage - only test files)
       # ----------------------------------------------------------------------
       - package_contents:
           strict: true
+          files:
+            - etc/conda/test-files/ocaml-compiler/*/testing/*
 
       # ----------------------------------------------------------------------
       # Basic toolchain verification
