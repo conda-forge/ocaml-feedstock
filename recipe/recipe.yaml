@@ -185,6 +185,10 @@ tests:
             - aarch64-conda-linux-gnu-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
             - powerpc64le-conda-linux-gnu-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
             - powerpc64le-conda-linux-gnu-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
+        - if: osx
+          then:
+            # macOS wrapper for -undefined dynamic_lookup
+            - ocamlmklib.real
         - if: osx and x86_64
           then:
             - arm64-apple-darwin20.0.0-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
