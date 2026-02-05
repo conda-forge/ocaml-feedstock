@@ -3,8 +3,20 @@
 # CONDA_OCAML_MKEXE may include flags (e.g., "cc -Wl,-E")
 # Automatically adds -L${CONDA_PREFIX}/lib for runtime library search (relocatable)
 # shellcheck disable=SC2086
-if [[ -n "${CONDA_PREFIX:-}" ]]; then
-  exec ${CONDA_OCAML_MKEXE:-cc} -L"${CONDA_PREFIX}/lib" "$@"
+
+# Determine base command: use CONDA_OCAML_MKEXE if set, otherwise platform-aware default
+if [[ -n "${CONDA_OCAML_MKEXE:-}" ]]; then
+  MKEXE_CMD="${CONDA_OCAML_MKEXE}"
+elif [[ "$OSTYPE" == darwin* ]]; then
+  # macOS needs rpath for downstream binaries to find libzstd
+  MKEXE_CMD="cc -Wl,-rpath,@executable_path/../lib"
 else
-  exec ${CONDA_OCAML_MKEXE:-cc} "$@"
+  MKEXE_CMD="cc"
+fi
+
+# Add -L for library search path if CONDA_PREFIX is set
+if [[ -n "${CONDA_PREFIX:-}" ]]; then
+  exec ${MKEXE_CMD} -L"${CONDA_PREFIX}/lib" "$@"
+else
+  exec ${MKEXE_CMD} "$@"
 fi
