@@ -276,6 +276,9 @@ outputs:
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
                 - ocaml{c,dep,lex,objinfo,opt}.byte
                 - ocaml{cmt,cp,debug,doc,doc.opt,mktop,optp,prof,run,rund}
+                - if: osx
+                  then:
+                    - ocamlmklib.real
                 - if: unix or _CC != "_mingw"
                   then:
                     - ocamlruni
@@ -298,6 +301,9 @@ outputs:
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
                 - ocaml{c,dep,lex,objinfo,opt}.byte
                 - ocaml{cmt,cp,mktop,optp,prof,run,rund}
+                - if: osx
+                  then:
+                    - ocamlmklib.real
                 - if: unix
                   then:
                     - ocamlruni
