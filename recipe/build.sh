@@ -501,3 +501,29 @@ echo ""
 echo "============================================================"
 echo "Build complete: ${PKG_NAME} (${BUILD_MODE} mode)"
 echo "============================================================"
+
+# ==============================================================================
+# macOS: Create ocamlmklib wrapper (MUST be after all builds complete)
+# ==============================================================================
+# This wrapper adds -ldopt "-Wl,-undefined,dynamic_lookup" so downstream packages
+# (opam, dune) can build stub libraries without their own workarounds.
+# NOTE: This runs AFTER cross-compiler builds because the native ocamlmklib
+# is used during cross-compilation and must remain unwrapped until now.
+if [[ "${target_platform}" == osx-* ]]; then
+  echo ""
+  echo "=== Creating macOS ocamlmklib wrapper ==="
+  real_ocamlmklib="${PREFIX}/bin/ocamlmklib"
+  if [[ -f "${real_ocamlmklib}" ]] && [[ ! -f "${real_ocamlmklib}.real" ]]; then
+    mv "${real_ocamlmklib}" "${real_ocamlmklib}.real"
+    cat > "${real_ocamlmklib}" << 'WRAPPER_EOF'
+#!/bin/bash
+# Wrapper to add -undefined dynamic_lookup for macOS shared lib creation
+# This allows _caml_* symbols to remain unresolved until runtime
+exec "${0}.real" -ldopt "-Wl,-undefined,dynamic_lookup" "$@"
+WRAPPER_EOF
+    chmod +x "${real_ocamlmklib}"
+    echo "  Created wrapper: ocamlmklib -> ocamlmklib.real"
+  else
+    echo "  Skipped: ocamlmklib wrapper already exists or ocamlmklib not found"
+  fi
+fi
