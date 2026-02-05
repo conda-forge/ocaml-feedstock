@@ -344,6 +344,31 @@ echo "=== Installing activation scripts ==="
   done
 )
 
+# ==============================================================================
+# macOS: Create ocamlmklib wrapper for -undefined dynamic_lookup
+# ==============================================================================
+# On macOS, downstream packages (like opam) using ocamlmklib to create shared
+# libraries with C stubs need -undefined dynamic_lookup to defer OCaml runtime
+# symbol resolution until runtime. Without this, the linker fails with:
+#   Undefined symbols for architecture arm64: "_caml_alloc"...
+if [[ "${target_platform}" == osx-* ]]; then
+  echo ""
+  echo "=== Creating macOS ocamlmklib wrapper ==="
+  real_ocamlmklib="${PREFIX}/bin/ocamlmklib"
+
+  if [[ -f "${real_ocamlmklib}" ]] && [[ ! -f "${real_ocamlmklib}.real" ]]; then
+    mv "${real_ocamlmklib}" "${real_ocamlmklib}.real"
+    cat > "${real_ocamlmklib}" << 'WRAPPER_EOF'
+#!/bin/bash
+# Wrapper to add -undefined dynamic_lookup for macOS shared lib creation
+# This allows _caml_* symbols to remain unresolved until runtime
+exec "${0}.real" -ldopt "-Wl,-undefined,dynamic_lookup" "$@"
+WRAPPER_EOF
+    chmod +x "${real_ocamlmklib}"
+    echo "  Created wrapper: ${real_ocamlmklib}"
+  fi
+fi
+
 echo ""
 echo "============================================================"
 echo "Native platform build complete: ${target_platform}"
