@@ -267,15 +267,20 @@ EOF
   # NOTE: stdlib pre-build removed - was causing inconsistent assumptions
   # Let crossopt handle stdlib build entirely with consistent variables
 
-  # Clean native runtime files so crossopt rebuilds them for TARGET arch
+  # Clean runtime files so crossopt rebuilds them for TARGET arch
+  # Native runtime (for native code execution):
   # - libasmrun*.a: native runtime static libraries
   # - libasmrun_shared.so: native runtime shared library
   # - amd64*.o: x86_64 assembly objects (crossopt needs arm64*.o)
   # - *.nd.o, *.ni.o, *.npic.o: native code object files (need CROSS CC)
-  # - stdlib/*.cmi: bytecode interface files (have ARCH-specific metadata)
-  echo "     Cleaning native runtime and stdlib for crossopt rebuild..."
+  # Bytecode runtime (for -output-complete-exe standalone executables):
+  # - libcamlrun*.a: bytecode runtime static libraries
+  # - libcamlrun_shared.so: bytecode runtime shared library
+  # - *.b.o: bytecode runtime object files (need CROSS CC for target arch)
+  echo "     Cleaning runtime files for crossopt rebuild..."
   rm -f runtime/libasmrun*.a runtime/libasmrun_shared.so
-  rm -f runtime/amd64*.o runtime/*.nd.o runtime/*.ni.o runtime/*.npic.o
+  rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so
+  rm -f runtime/amd64*.o runtime/*.nd.o runtime/*.ni.o runtime/*.npic.o runtime/*.b.o
   rm -f runtime/libcomprmarsh.a  # Also needs CROSS tools
 
   # CRITICAL: Clean stdlib .cmi files - they contain arch-specific metadata
