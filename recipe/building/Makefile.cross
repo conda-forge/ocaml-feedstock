@@ -201,6 +201,18 @@ endif
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
+	# CRITICAL FIX: Rebuild bytecode runtime static libraries for TARGET architecture
+	# runtime-all above builds libcamlrun for BUILD (x86_64), but -output-complete-exe
+	# links libcamlrun into TARGET executables, so it must be TARGET arch.
+	# Build all static library variants (install expects all four):
+	#   libcamlrun.a   - standard (from *.b.o)
+	#   libcamlrund.a  - debug (from *.bd.o)
+	#   libcamlruni.a  - instrumented (from *.bi.o)
+	#   libcamlrun_pic.a - PIC (from *.bpic.o)
+	# Skip shared library - would need target zstd which isn't available.
+	@echo "=== Rebuilding bytecode runtime static libraries for TARGET architecture ==="
+	rm -f runtime/libcamlrun*.a runtime/*.b.o runtime/*.bd.o runtime/*.bi.o runtime/*.bpic.o
+	$(MAKE) runtime/libcamlrun.a runtime/libcamlrund.a runtime/libcamlruni.a runtime/libcamlrun_pic.a $(RUNTIME_VARS) $(OLDS)
 	# Build native compilers (BUILD platform binaries) using CAMLOPT from PATH
 	# Set CONDA_OCAML_* env vars so ocamlopt finds NATIVE tools (not cross-tools)
 	# NATIVE_ASM includes "-c" for macOS clang (space-separated, hence quoted)
