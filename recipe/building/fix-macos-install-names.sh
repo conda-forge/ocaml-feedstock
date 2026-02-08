@@ -14,6 +14,12 @@
 
 set -euo pipefail
 
+# CRITICAL: Unset DYLD_* variables before running macOS system tools
+# Conda sets these to find its libraries, but this causes macOS tools
+# (install_name_tool, otool, codesign) to load wrong libiconv, causing segfaults.
+# The tools work fine with system libraries when these are unset.
+unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+
 OCAML_LIB="${1:?Usage: fix-macos-install-names.sh <ocaml_lib_dir>}"
 
 if [[ ! -d "${OCAML_LIB}" ]]; then
