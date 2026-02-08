@@ -217,8 +217,10 @@ endif
 	@echo "=== Rebuilding bytecode runtime libraries for TARGET architecture ==="
 	rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so runtime/*.b.o runtime/*.bd.o runtime/*.bi.o runtime/*.bpic.o
 	$(MAKE) runtime/libcamlrun.a runtime/libcamlrund.a runtime/libcamlruni.a runtime/libcamlrun_pic.a $(RUNTIME_VARS) $(OLDS)
-	# Build shared library with target-arch zstd (BYTECCLIBS includes zstd via configure)
-	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) ZSTD_LIBS="$(TARGET_ZSTD_LIBS)" $(OLDS)
+	# Build shared library with target-arch zstd
+	# BYTECCLIBS includes -lzstd from configure, but searches wrong path ($PREFIX/lib has x86_64)
+	# Prepend TARGET_ZSTD_LIBS to LDFLAGS so target-arch zstd is found first
+	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) LDFLAGS="$(TARGET_ZSTD_LIBS) $(LDFLAGS)" $(OLDS)
 	# Build native compilers (BUILD platform binaries) using CAMLOPT from PATH
 	# Set CONDA_OCAML_* env vars so ocamlopt finds NATIVE tools (not cross-tools)
 	# NATIVE_ASM includes "-c" for macOS clang (space-separated, hence quoted)
