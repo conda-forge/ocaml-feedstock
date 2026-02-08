@@ -58,19 +58,26 @@ setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_
 
 # Platform-specific overrides
 if [[ "${target_platform}" == "osx"* ]]; then
-  # macOS: Set library paths for zstd at compile-time and runtime
+  # macOS: Symlink libzstd to install prefix so OCaml finds it via rpath
+  # This avoids DYLD_* which can pollute environment for macOS system tools.
   # Cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
   # Native build: PREFIX has x86_64 libs (same arch)
-  # IMPORTANT: Use DYLD_FALLBACK_LIBRARY_PATH, not DYLD_LIBRARY_PATH!
-  # DYLD_LIBRARY_PATH overrides system libs (libiconv) causing crashes in
-  # tools like sed, make, otool that depend on system libiconv.
+  ZSTD_SOURCE_LIB="${PREFIX}/lib"
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-    export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
-  else
-    export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+    ZSTD_SOURCE_LIB="${BUILD_PREFIX}/lib"
   fi
+  # Symlink libzstd to where OCaml's rpath looks (OCAML_INSTALL_PREFIX/lib)
+  echo "Symlinking libzstd from ${ZSTD_SOURCE_LIB} to ${OCAML_INSTALL_PREFIX}/lib..."
+  mkdir -p "${OCAML_INSTALL_PREFIX}/lib"
+  for lib in "${ZSTD_SOURCE_LIB}"/libzstd*.dylib; do
+    if [[ -f "${lib}" ]]; then
+      libname=$(basename "${lib}")
+      if [[ ! -e "${OCAML_INSTALL_PREFIX}/lib/${libname}" ]]; then
+        ln -sf "${lib}" "${OCAML_INSTALL_PREFIX}/lib/${libname}"
+        echo "  Linked: ${libname}"
+      fi
+    fi
+  done
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
