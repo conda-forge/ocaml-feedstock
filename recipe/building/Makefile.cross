@@ -208,7 +208,7 @@ endif
 	# ocamlrun binary stays BUILD arch since it's already up-to-date (make skips it).
 	# libasmrun also already up-to-date from runtimeopt above (make skips it).
 	@echo "=== Rebuilding bytecode runtime for TARGET architecture ==="
-	rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so runtime/*.b.o
+	rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so runtime/*.b.o runtime/*.bd.o runtime/*.bi.o runtime/*.bpic.o
 	$(MAKE) runtime-all $(RUNTIME_VARS) $(OLDS)
 	# Build native compilers (BUILD platform binaries) using CAMLOPT from PATH
 	# Set CONDA_OCAML_* env vars so ocamlopt finds NATIVE tools (not cross-tools)
@@ -382,7 +382,7 @@ crosscompiledopt:
 	# runtime-all above builds libcamlrun for BUILD (x86_64), but -output-complete-exe
 	# links libcamlrun into TARGET executables, so it must be TARGET arch.
 	@echo "=== Rebuilding bytecode runtime for TARGET architecture ==="
-	rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so runtime/*.b.o
+	rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so runtime/*.b.o runtime/*.bd.o runtime/*.bi.o runtime/*.bpic.o
 	$(MAKE) runtime-all $(RUNTIME_VARS) $(OLDS)
 	# Clean dynlink to prevent .cmi inconsistencies
 	rm -f otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o
