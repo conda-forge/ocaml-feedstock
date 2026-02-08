@@ -313,13 +313,15 @@ EOF
   # NOTE: stdlib pre-build removed - was causing inconsistent assumptions
   # Let crossopt handle stdlib build entirely with consistent variables
 
-  # Clean native runtime files so crossopt rebuilds them for TARGET arch
-  # - libasmrun*.a: native runtime static libraries
+  # Clean native runtime files so crossopt's runtimeopt rebuilds them for TARGET arch
+  # - libasmrun*.a: native runtime static libraries (TARGET arch needed)
   # - libasmrun_shared.so: native runtime shared library
-  # - amd64*.o: x86_64 assembly objects (crossopt needs arm64*.o)
+  # - amd64*.o: x86_64 assembly objects (crossopt needs arm64*.o or power*.o)
   # - *.nd.o, *.ni.o, *.npic.o: native code object files (need CROSS CC)
-  # - stdlib/*.cmi: bytecode interface files (have ARCH-specific metadata)
-  echo "     Cleaning native runtime and stdlib for crossopt rebuild..."
+  # NOTE: libcamlrun*.a (bytecode runtime) is cleaned and rebuilt for TARGET
+  # in Makefile.cross AFTER runtimeopt, since crossopt's runtime-all rebuilds
+  # it with BUILD tools (it's linked into -output-complete-exe TARGET binaries).
+  echo "     Cleaning native runtime files for crossopt rebuild..."
   rm -f runtime/libasmrun*.a runtime/libasmrun_shared.so
   rm -f runtime/amd64*.o runtime/*.nd.o runtime/*.ni.o runtime/*.npic.o
   rm -f runtime/libcomprmarsh.a  # Also needs CROSS tools
