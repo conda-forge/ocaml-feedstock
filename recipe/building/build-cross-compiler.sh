@@ -174,9 +174,10 @@ EOF
   # against target-arch zstd. Create a conda env with target-platform zstd.
   TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
   echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
-  conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>/dev/null || true
-  # Get CONDA_PREFIX from the env, filtering out any conda INFO messages
-  TARGET_ZSTD_LIB=$(conda run -n "${TARGET_ZSTD_ENV}" --no-capture-output printenv CONDA_PREFIX 2>/dev/null)/lib
+  conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
+  # Get env path from conda info (envs are in $CONDA_PREFIX/envs/ or default location)
+  CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
+  TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
   TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
   echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
 
