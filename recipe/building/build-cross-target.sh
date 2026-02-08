@@ -104,11 +104,12 @@ if [[ -z "${NATIVE_ASM:-}" ]]; then
   export NATIVE_ASM
 fi
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
-# (Stage 3 runs native compiler binaries from Stage 1 which are linked against BUILD_PREFIX)
+# macOS: Use DYLD_FALLBACK_LIBRARY_PATH so cross-compiler finds libzstd at runtime
+# (Stage 3 runs cross-compiler binaries from Stage 2)
+# IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
-  export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-  echo "  Set DYLD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}"
+  export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 fi
 
 echo ""

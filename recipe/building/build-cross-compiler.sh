@@ -37,18 +37,19 @@ fi
 : "${OCAML_PREFIX:=${PREFIX}}"
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# macOS: Use DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
+# IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
 # The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
 # Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
 # Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
+# Note: fix-macos-install-names.sh unsets DYLD_* before running system tools to avoid iconv issues
 if [[ "${target_platform}" == "osx"* ]]; then
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
   else
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
   fi
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 fi
 
 # Define cross targets based on build platform
@@ -170,18 +171,12 @@ EOF
   # Install target-arch zstd for shared library linking
   # ========================================================================
   # The bytecode runtime shared library (libcamlrun_shared.so) needs to link
-  # against target-arch zstd. Create a minimal env with target zstd.
-  TARGET_ZSTD_PREFIX="${SRC_DIR}/_target_zstd_${CROSS_PLATFORM}"
-  if [[ ! -d "${TARGET_ZSTD_PREFIX}" ]]; then
-    echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
-    # Use mamba if available (faster), fall back to conda
-    if command -v mamba &> /dev/null; then
-      mamba create -p "${TARGET_ZSTD_PREFIX}" --subdir "${CROSS_PLATFORM}" zstd -y --quiet
-    else
-      conda create -p "${TARGET_ZSTD_PREFIX}" --subdir "${CROSS_PLATFORM}" zstd -y --quiet
-    fi
-  fi
-  TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_PREFIX}/lib -lzstd"
+  # against target-arch zstd. Create a conda env with target-platform zstd.
+  TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
+  echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
+  conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet || true
+  TARGET_ZSTD_LIB=$(conda run -n "${TARGET_ZSTD_ENV}" bash -c 'echo $CONDA_PREFIX/lib')
+  TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
   echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
 
   # ========================================================================
