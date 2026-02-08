@@ -58,19 +58,17 @@ setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_
 
 # Platform-specific overrides
 if [[ "${target_platform}" == "osx"* ]]; then
-  # macOS: Set library paths for zstd at compile-time and runtime
+  # macOS: Use DYLD_FALLBACK_LIBRARY_PATH so OCaml can find libzstd at runtime
+  # IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
   # Cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
   # Native build: PREFIX has x86_64 libs (same arch)
-  # IMPORTANT: Use DYLD_FALLBACK_LIBRARY_PATH, not DYLD_LIBRARY_PATH!
-  # DYLD_LIBRARY_PATH overrides system libs (libiconv) causing crashes in
-  # tools like sed, make, otool that depend on system libiconv.
+  # Note: fix-macos-install-names.sh unsets DYLD_* before running system tools
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
     export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
   else
     export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."

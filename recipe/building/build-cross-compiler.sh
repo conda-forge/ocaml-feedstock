@@ -37,18 +37,19 @@ fi
 : "${OCAML_PREFIX:=${PREFIX}}"
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# macOS: Use DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
+# IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
 # The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
 # Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
 # Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
+# Note: fix-macos-install-names.sh unsets DYLD_* before running system tools to avoid iconv issues
 if [[ "${target_platform}" == "osx"* ]]; then
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
   else
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
   fi
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 fi
 
 # Define cross targets based on build platform
@@ -267,13 +268,15 @@ EOF
   # NOTE: stdlib pre-build removed - was causing inconsistent assumptions
   # Let crossopt handle stdlib build entirely with consistent variables
 
-  # Clean native runtime files so crossopt rebuilds them for TARGET arch
-  # - libasmrun*.a: native runtime static libraries
+  # Clean native runtime files so crossopt's runtimeopt rebuilds them for TARGET arch
+  # - libasmrun*.a: native runtime static libraries (TARGET arch needed)
   # - libasmrun_shared.so: native runtime shared library
-  # - amd64*.o: x86_64 assembly objects (crossopt needs arm64*.o)
+  # - amd64*.o: x86_64 assembly objects (crossopt needs arm64*.o or power*.o)
   # - *.nd.o, *.ni.o, *.npic.o: native code object files (need CROSS CC)
-  # - stdlib/*.cmi: bytecode interface files (have ARCH-specific metadata)
-  echo "     Cleaning native runtime and stdlib for crossopt rebuild..."
+  # NOTE: libcamlrun*.a (bytecode runtime) is cleaned and rebuilt for TARGET
+  # in Makefile.cross AFTER runtimeopt, since crossopt's runtime-all rebuilds
+  # it with BUILD tools (it's linked into -output-complete-exe TARGET binaries).
+  echo "     Cleaning native runtime files for crossopt rebuild..."
   rm -f runtime/libasmrun*.a runtime/libasmrun_shared.so
   rm -f runtime/amd64*.o runtime/*.nd.o runtime/*.ni.o runtime/*.npic.o
   rm -f runtime/libcomprmarsh.a  # Also needs CROSS tools

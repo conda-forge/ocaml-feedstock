@@ -238,6 +238,68 @@ TESTEOF
   rm -f "${TEST_ML}"
 
   # ---------------------------------------------------------------------------
+  # Test 7b: Runtime library architecture (libcamlrun.a, libasmrun.a)
+  # ---------------------------------------------------------------------------
+  # This prevents "-output-complete-exe" from linking wrong-arch runtime
+  echo "  [7b/14] Runtime library architecture..."
+  RUNTIME_LIBS=("${OCAML_CROSS_LIBDIR}/libcamlrun.a" "${OCAML_CROSS_LIBDIR}/libasmrun.a")
+  for rtlib in "${RUNTIME_LIBS[@]}"; do
+    if [[ -f "${rtlib}" ]]; then
+      rtname=$(basename "${rtlib}")
+      case "$(uname)" in
+        Darwin)
+          # On macOS, use lipo -archs to check architecture
+          rtlib_arch=$(lipo -archs "${rtlib}" 2>/dev/null || echo "unknown")
+          case "${CROSS_ARCH}" in
+            arm64)
+              if echo "${rtlib_arch}" | grep -q "arm64"; then
+                echo "    ✓ ${rtname}: ${rtlib_arch}"
+              else
+                echo "    ✗ ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected arm64)"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
+              fi
+              ;;
+            *)
+              echo "    ~ ${rtname}: ${rtlib_arch} (no check for ${CROSS_ARCH})"
+              ;;
+          esac
+          ;;
+        Linux)
+          # On Linux, use file or readelf
+          if command -v readelf >/dev/null 2>&1; then
+            rtlib_arch=$(readelf -h "${rtlib}" 2>/dev/null | grep -i machine | head -1 || echo "unknown")
+            case "${CROSS_ARCH}" in
+              arm64)
+                if echo "${rtlib_arch}" | grep -qi "aarch64"; then
+                  echo "    ✓ ${rtname}: AArch64"
+                else
+                  echo "    ✗ ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              power)
+                if echo "${rtlib_arch}" | grep -qi "powerpc\|ppc64"; then
+                  echo "    ✓ ${rtname}: PowerPC64"
+                else
+                  echo "    ✗ ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              *)
+                echo "    ~ ${rtname}: ${rtlib_arch}"
+                ;;
+            esac
+          else
+            echo "    ~ ${rtname}: SKIP (readelf not available)"
+          fi
+          ;;
+      esac
+    else
+      echo "    ~ ${rtname}: not found (may be OK)"
+    fi
+  done
+
+  # ---------------------------------------------------------------------------
   # Test 8: Stdlib/Unix consistency (prevents "inconsistent assumptions" error)
   # ---------------------------------------------------------------------------
   echo "  [8/14] Stdlib__Sys consistency check..."
