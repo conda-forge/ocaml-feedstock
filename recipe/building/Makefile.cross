@@ -26,6 +26,10 @@
 ZSTD_LIBS ?= $(shell ocamlopt -config-var compression_c_libraries)
 HOST_ZSTD_LIBS=ZSTD_LIBS=$(ZSTD_LIBS)
 
+# TARGET_ZSTD_LIBS is for linking target-arch shared libraries (libcamlrun_shared.so)
+# This points to a conda env with target-arch zstd installed via --subdir
+TARGET_ZSTD_LIBS ?= $(ZSTD_LIBS)
+
 # The build system adds various include directories which pertain to the current
 # tree, including -I runtime, which is necessary for -custom executables.
 # ocamltest is always a -custom executable, but some others (ocamldoc; the
@@ -201,7 +205,7 @@ endif
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
-	# CRITICAL FIX: Rebuild bytecode runtime static libraries for TARGET architecture
+	# CRITICAL FIX: Rebuild bytecode runtime libraries for TARGET architecture
 	# runtime-all above builds libcamlrun for BUILD (x86_64), but -output-complete-exe
 	# links libcamlrun into TARGET executables, so it must be TARGET arch.
 	# Build all static library variants (install expects all four):
@@ -209,10 +213,12 @@ endif
 	#   libcamlrund.a  - debug (from *.bd.o)
 	#   libcamlruni.a  - instrumented (from *.bi.o)
 	#   libcamlrun_pic.a - PIC (from *.bpic.o)
-	# Skip shared library - would need target zstd which isn't available.
-	@echo "=== Rebuilding bytecode runtime static libraries for TARGET architecture ==="
-	rm -f runtime/libcamlrun*.a runtime/*.b.o runtime/*.bd.o runtime/*.bi.o runtime/*.bpic.o
+	# Also build shared library using TARGET_ZSTD_LIBS (target-arch zstd from conda env)
+	@echo "=== Rebuilding bytecode runtime libraries for TARGET architecture ==="
+	rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so runtime/*.b.o runtime/*.bd.o runtime/*.bi.o runtime/*.bpic.o
 	$(MAKE) runtime/libcamlrun.a runtime/libcamlrund.a runtime/libcamlruni.a runtime/libcamlrun_pic.a $(RUNTIME_VARS) $(OLDS)
+	# Build shared library with target-arch zstd (BYTECCLIBS includes zstd via configure)
+	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) ZSTD_LIBS="$(TARGET_ZSTD_LIBS)" $(OLDS)
 	# Build native compilers (BUILD platform binaries) using CAMLOPT from PATH
 	# Set CONDA_OCAML_* env vars so ocamlopt finds NATIVE tools (not cross-tools)
 	# NATIVE_ASM includes "-c" for macOS clang (space-separated, hence quoted)

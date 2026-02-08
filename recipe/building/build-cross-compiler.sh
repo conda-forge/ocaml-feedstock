@@ -167,6 +167,24 @@ EOF
   mkdir -p "${OCAML_CROSS_PREFIX}/bin" "${OCAML_CROSS_LIBDIR}"
 
   # ========================================================================
+  # Install target-arch zstd for shared library linking
+  # ========================================================================
+  # The bytecode runtime shared library (libcamlrun_shared.so) needs to link
+  # against target-arch zstd. Create a minimal env with target zstd.
+  TARGET_ZSTD_PREFIX="${SRC_DIR}/_target_zstd_${CROSS_PLATFORM}"
+  if [[ ! -d "${TARGET_ZSTD_PREFIX}" ]]; then
+    echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
+    # Use mamba if available (faster), fall back to conda
+    if command -v mamba &> /dev/null; then
+      mamba create -p "${TARGET_ZSTD_PREFIX}" --subdir "${CROSS_PLATFORM}" zstd -y --quiet
+    else
+      conda create -p "${TARGET_ZSTD_PREFIX}" --subdir "${CROSS_PLATFORM}" zstd -y --quiet
+    fi
+  fi
+  TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_PREFIX}/lib -lzstd"
+  echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
+
+  # ========================================================================
   # Clean and configure
   # ========================================================================
 
@@ -334,7 +352,8 @@ EOF
       RANLIB="${CROSS_RANLIB}"
       STRIP="${CROSS_STRIP}"
       ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
-      
+      TARGET_ZSTD_LIBS="${TARGET_ZSTD_LIBS}"
+
       SAK_AR="${NATIVE_AR}"
       SAK_CC="${NATIVE_CC}"
       SAK_CFLAGS="${NATIVE_CFLAGS}"
