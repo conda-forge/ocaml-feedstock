@@ -104,18 +104,12 @@ if [[ -z "${NATIVE_ASM:-}" ]]; then
   export NATIVE_ASM
 fi
 
-# macOS: Symlink libzstd so cross-compiler finds it via rpath
-# (Stage 3 runs cross-compiler binaries from Stage 2 which have rpath to their install prefix)
-# Avoid DYLD_LIBRARY_PATH which pollutes environment for macOS system tools.
+# macOS: Use DYLD_FALLBACK_LIBRARY_PATH so cross-compiler finds libzstd at runtime
+# (Stage 3 runs cross-compiler binaries from Stage 2)
+# IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
-  # Cross-compiler is in BUILD_PREFIX, symlink libzstd there
-  echo "Symlinking libzstd to ${BUILD_PREFIX}/lib for cross-compiler..."
-  for lib in "${BUILD_PREFIX}"/lib/libzstd*.dylib; do
-    if [[ -f "${lib}" ]]; then
-      echo "  Found: $(basename "${lib}")"
-    fi
-  done
-  # libzstd should already be in BUILD_PREFIX/lib from host deps, just verify
+  export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 fi
 
 echo ""

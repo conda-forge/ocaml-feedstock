@@ -37,29 +37,19 @@ fi
 : "${OCAML_PREFIX:=${PREFIX}}"
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
-# macOS: Symlink libzstd to OCaml's lib directory so native compiler finds it via rpath
-# This avoids DYLD_LIBRARY_PATH which pollutes the environment and breaks macOS system tools
-# (install_name_tool, otool, codesign load wrong libiconv and segfault).
+# macOS: Use DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
+# IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
 # The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
 # Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
 # Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
+# Note: fix-macos-install-names.sh unsets DYLD_* before running system tools to avoid iconv issues
 if [[ "${target_platform}" == "osx"* ]]; then
-  ZSTD_SOURCE_LIB="${PREFIX}/lib"
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-    ZSTD_SOURCE_LIB="${BUILD_PREFIX}/lib"
+    export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+  else
+    export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
   fi
-  # Symlink libzstd to where OCaml's rpath looks (OCAML_PREFIX/lib)
-  # The binaries have @rpath set to ../lib relative to bin/
-  echo "Symlinking libzstd from ${ZSTD_SOURCE_LIB} to ${OCAML_PREFIX}/lib..."
-  for lib in "${ZSTD_SOURCE_LIB}"/libzstd*.dylib; do
-    if [[ -f "${lib}" ]]; then
-      libname=$(basename "${lib}")
-      if [[ ! -e "${OCAML_PREFIX}/lib/${libname}" ]]; then
-        ln -sf "${lib}" "${OCAML_PREFIX}/lib/${libname}"
-        echo "  Linked: ${libname}"
-      fi
-    fi
-  done
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 fi
 
 # Define cross targets based on build platform
