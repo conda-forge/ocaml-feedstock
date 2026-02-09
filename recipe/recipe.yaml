@@ -26,6 +26,7 @@ source:
     sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
     patches:
       - patches/0001-fix-atomic-macros-visibility.patch
+      - patches/0002-ocamlmklib-conda-env-vars.patch
   - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
