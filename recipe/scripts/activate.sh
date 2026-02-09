@@ -50,7 +50,6 @@ fi
 
 if [ $? -ne 0 ]; then
   echo "ERROR: $(_get_sourced_filename) failed, see above for details"
-#exit 1
 else
   if [ "${CONDA_BUILD:-0}" = "1" ]; then
     if [ -f /tmp/new-env-$$.txt ]; then
