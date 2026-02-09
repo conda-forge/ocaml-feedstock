@@ -168,6 +168,20 @@ EOF
   mkdir -p "${OCAML_CROSS_PREFIX}/bin" "${OCAML_CROSS_LIBDIR}"
 
   # ========================================================================
+  # Install target-arch zstd for shared library linking
+  # ========================================================================
+  # The bytecode runtime shared library (libcamlrun_shared.so) needs to link
+  # against target-arch zstd. Create a conda env with target-platform zstd.
+  TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
+  echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
+  conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
+  # Get env path from conda info (envs are in $CONDA_PREFIX/envs/ or default location)
+  CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
+  TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
+  TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
+  echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
+
+  # ========================================================================
   # Clean and configure
   # ========================================================================
 
@@ -335,7 +349,8 @@ EOF
       RANLIB="${CROSS_RANLIB}"
       STRIP="${CROSS_STRIP}"
       ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
-      
+      TARGET_ZSTD_LIBS="${TARGET_ZSTD_LIBS}"
+
       SAK_AR="${NATIVE_AR}"
       SAK_CC="${NATIVE_CC}"
       SAK_CFLAGS="${NATIVE_CFLAGS}"
