@@ -9,10 +9,11 @@ This patch adds support for CONDA_OCAML_AR and CONDA_OCAML_MKDLL
 environment variables, falling back to Config values when not set.
 This maintains backward compatibility while enabling cross-compilation.
 
-Note: Config.mkexe is not used in ocamlmklib.ml, so no patch needed for it.
+Note: This patch is only applied on Unix. Windows uses flexlink which
+has complex behavior that shouldn't be overridden.
 ---
- tools/ocamlmklib.ml | 16 ++++++++++++++--
- 1 file changed, 14 insertions(+), 2 deletions(-)
+ tools/ocamlmklib.ml | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
 
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 --- a/tools/ocamlmklib.ml
@@ -45,13 +46,12 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 
  (* PR#4783: under Windows, don't use absolute paths because we do
     not know where the binary distribution will be installed. *)
-@@ -207,7 +219,7 @@ let build_libs () =
-   if !c_objs <> [] then begin
+@@ -202,7 +214,7 @@ let build_libs () =
      if !dynlink then begin
        let retcode = command
--          (Printf.sprintf "%s %s -o %s %s %s %s %s %s %s"
+           (Printf.sprintf "%s %s -o %s %s %s %s %s %s %s"
 -             Config.mkdll
-+          (Printf.sprintf "%s %s -o %s %s %s %s %s %s %s"
 +             conda_mkdll
               (if !debug then "-g" else "")
               (prepostfix "dll" !output_c Config.ext_dll)
+              (String.concat " " !c_objs)

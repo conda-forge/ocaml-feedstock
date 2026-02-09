@@ -71,25 +71,16 @@ def test_ar_override(testdir: Path, stub_obj: Path):
     """Test 5: CONDA_OCAML_AR override is respected."""
     print("\nTest 5: CONDA_OCAML_AR override is respected")
 
-    # Create wrapper script based on platform
-    if sys.platform == "win32":
-        wrapper_path = testdir / "ar-wrapper.bat"
-        log_path = testdir / "ar-wrapper.log"
-        wrapper_content = f"""@echo off
-echo AR_WRAPPER_INVOKED: %* >> "{log_path}"
-ar %*
-"""
-    else:
-        wrapper_path = testdir / "ar-wrapper"
-        log_path = testdir / "ar-wrapper.log"
-        wrapper_content = f"""#!/bin/bash
+    # Create wrapper script
+    wrapper_path = testdir / "ar-wrapper"
+    log_path = testdir / "ar-wrapper.log"
+    wrapper_content = f"""#!/bin/bash
 echo "AR_WRAPPER_INVOKED: $@" >> "{log_path}"
 exec ar "$@"
 """
 
     wrapper_path.write_text(wrapper_content)
-    if sys.platform != "win32":
-        wrapper_path.chmod(0o755)
+    wrapper_path.chmod(0o755)
 
     # Clear log
     if log_path.exists():
@@ -131,26 +122,16 @@ def test_mkdll_override(testdir: Path, stub_obj: Path):
     """Test 6: CONDA_OCAML_MKDLL override is respected."""
     print("\nTest 6: CONDA_OCAML_MKDLL override is respected")
 
-    # Create wrapper script based on platform
-    if sys.platform == "win32":
-        wrapper_path = testdir / "mkdll-wrapper.bat"
-        log_path = testdir / "mkdll-wrapper.log"
-        # On Windows, mkdll is typically flexlink
-        wrapper_content = f"""@echo off
-echo MKDLL_WRAPPER_INVOKED: %* >> "{log_path}"
-gcc -shared %*
-"""
-    else:
-        wrapper_path = testdir / "mkdll-wrapper"
-        log_path = testdir / "mkdll-wrapper.log"
-        wrapper_content = f"""#!/bin/bash
+    # Create wrapper script
+    wrapper_path = testdir / "mkdll-wrapper"
+    log_path = testdir / "mkdll-wrapper.log"
+    wrapper_content = f"""#!/bin/bash
 echo "MKDLL_WRAPPER_INVOKED: $@" >> "{log_path}"
 exec cc -shared "$@"
 """
 
     wrapper_path.write_text(wrapper_content)
-    if sys.platform != "win32":
-        wrapper_path.chmod(0o755)
+    wrapper_path.chmod(0o755)
 
     # Clear log
     if log_path.exists():
@@ -228,18 +209,13 @@ CAMLprim value test_stub(value unit) {
 """)
     print(f"  Created {stub_c}")
 
-    # Compile stub.c
+    # Compile stub.c (Unix only - test is skipped on Windows)
     conda_prefix = os.environ.get("CONDA_PREFIX", "")
     include_dir = Path(conda_prefix) / "lib" / "ocaml"
 
-    if sys.platform == "win32":
-        cc = "cl"
-        cmd = [cc, "/c", f"/I{include_dir}", "/Fo:stub.obj", str(stub_c)]
-        stub_obj = testdir / "stub.obj"
-    else:
-        cc = "cc"
-        cmd = [cc, f"-I{include_dir}", "-c", "-o", "stub.o", str(stub_c)]
-        stub_obj = testdir / "stub.o"
+    cc = "cc"
+    cmd = [cc, f"-I{include_dir}", "-c", "-o", "stub.o", str(stub_c)]
+    stub_obj = testdir / "stub.o"
 
     print(f"  Compiling: {' '.join(cmd)}")
     rc, stdout, stderr = run_cmd(cmd)
@@ -256,6 +232,14 @@ CAMLprim value test_stub(value unit) {
 
 def main():
     print("=== Test: ocamlmklib CONDA_OCAML_* Environment Variables ===")
+
+    # Skip on Windows - patch is not applied (flexlink handles DLL creation)
+    if sys.platform == "win32":
+        print("\nSKIP: This test only applies to Unix platforms.")
+        print("On Windows, the ocamlmklib patch is not applied because")
+        print("flexlink handles DLL creation with special behavior.")
+        print("\n=== Test skipped (Windows) ===")
+        return 0
 
     # Test 1: Check ocamlmklib exists
     if not test_ocamlmklib_available():
