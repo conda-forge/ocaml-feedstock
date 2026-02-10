@@ -1,6 +1,6 @@
 --- a/runtime/caml/camlatomic.h
 +++ b/runtime/caml/camlatomic.h
-@@ -34,9 +34,17 @@ using std::memory_order_seq_cst;
+@@ -34,9 +34,17 @@
  }
  #endif
 
@@ -21,7 +21,7 @@
 
  #define atomic_load_acquire(p)                    \
    atomic_load_explicit((p), memory_order_acquire)
-@@ -47,6 +55,8 @@ using std::memory_order_seq_cst;
+@@ -47,6 +55,8 @@
  #define atomic_store_relaxed(p, v)                      \
    atomic_store_explicit((p), (v), memory_order_relaxed)
 
