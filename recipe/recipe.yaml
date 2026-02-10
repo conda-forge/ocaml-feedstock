@@ -56,6 +56,9 @@ source:
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
+      # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
+      - if: unix
+        then: patches/0002-ocamlmklib-conda-env-vars.patch
   - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
