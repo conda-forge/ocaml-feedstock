@@ -37,18 +37,19 @@ fi
 : "${OCAML_PREFIX:=${PREFIX}}"
 : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
 
-# macOS: Set DYLD_LIBRARY_PATH so native compiler can find libzstd at runtime
+# macOS: Use DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
+# IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
 # The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
 # Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
 # Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
+# Note: fix-macos-install-names.sh unsets DYLD_* before running system tools to avoid iconv issues
 if [[ "${target_platform}" == "osx"* ]]; then
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-    export DYLD_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
   else
-    export DYLD_LIBRARY_PATH="${PREFIX}/lib:${DYLD_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
+    export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
   fi
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 fi
 
 # Define cross targets based on build platform
@@ -57,15 +58,13 @@ declare -a CROSS_TARGETS
 case "${target_platform}" in
   linux-64)
     CROSS_TARGETS=("aarch64-conda-linux-gnu" "powerpc64le-conda-linux-gnu")
-    CONFIG_ARGS+=(--enable-frame-pointers)
+    # Frame pointers configured per-target (PPC doesn't support them)
     ;;
   linux-aarch64)
     CROSS_TARGETS=("aarch64-conda-linux-gnu")
-    CONFIG_ARGS+=(--enable-frame-pointers)
     ;;
   linux-ppc64le)
     CROSS_TARGETS=("powerpc64le-conda-linux-gnu")
-    CONFIG_ARGS+=(--enable-frame-pointers)
     ;;
   osx-*)
     CROSS_TARGETS=("arm64-apple-darwin20.0.0")
@@ -83,6 +82,12 @@ echo "============================================================"
 echo "  Native OCaml (source):    ${OCAML_PREFIX}"
 echo "  Cross install (dest):     ${OCAML_INSTALL_PREFIX}"
 echo "  Native ocamlopt:          ${OCAML_PREFIX}/bin/ocamlopt"
+
+# CRITICAL: Add native OCaml to PATH so configure can find ocamlc
+# Configure checks "if the installed OCaml compiler can build the cross compiler"
+PATH="${OCAML_PREFIX}/bin:${PATH}"
+hash -r
+echo "  PATH updated to include: ${OCAML_PREFIX}/bin"
 
 for target in "${CROSS_TARGETS[@]}"; do
   echo ""
@@ -116,12 +121,17 @@ for target in "${CROSS_TARGETS[@]}"; do
   setup_toolchain "CROSS" "${target}"
   setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
 
-  # CRITICAL: Also export CFLAGS/LDFLAGS to environment with clean values
-  # Make inherits environment variables, and CROSS_OVERRIDES in Makefile.cross
-  # uses $(CFLAGS) which could pick up polluted environment values.
-  # By exporting CROSS_CFLAGS as CFLAGS, we ensure consistency.
-  export CFLAGS="${CROSS_CFLAGS}"
-  export LDFLAGS="${CROSS_LDFLAGS}"
+  # Platform-specific settings for cross-compiler
+  # NEEDS_DL: glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
+  # This is used by apply_cross_patches() to add -ldl to Makefile.config
+  # CROSS_PLATFORM is "linux-aarch64", "linux-ppc64le", "osx-arm64", etc.
+  NEEDS_DL=0
+  case "${CROSS_PLATFORM}" in
+    linux-*)
+      NEEDS_DL=1
+      ;;
+  esac
+  export NEEDS_DL
 
   # Export CONDA_OCAML_<TARGET_ID>_* variables
   TARGET_ID=$(get_target_id "${target}")
@@ -167,6 +177,20 @@ EOF
   mkdir -p "${OCAML_CROSS_PREFIX}/bin" "${OCAML_CROSS_LIBDIR}"
 
   # ========================================================================
+  # Install target-arch zstd for shared library linking
+  # ========================================================================
+  # The bytecode runtime shared library (libcamlrun_shared.so) needs to link
+  # against target-arch zstd. Create a conda env with target-platform zstd.
+  TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
+  echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
+  conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
+  # Get env path from conda info (envs are in $CONDA_PREFIX/envs/ or default location)
+  CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
+  TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
+  TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
+  echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
+
+  # ========================================================================
   # Clean and configure
   # ========================================================================
 
@@ -179,24 +203,42 @@ EOF
   # ac_cv_func_getentropy=no: conda-forge uses glibc 2.17 sysroot which lacks getentropy
   # CRITICAL: Override CFLAGS/LDFLAGS - conda-build sets them for TARGET (ppc64le)
   # but configure needs BUILD flags (x86_64) to compile the cross-compiler binary
+  # NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as env vars, not configure args.
+  export CC="${NATIVE_CC}"
+  export CFLAGS="${NATIVE_CFLAGS}"
+  export LDFLAGS="${NATIVE_LDFLAGS}"
+
+  # Per-target configure args (frame pointers not supported on PPC)
+  declare -a TARGET_CONFIG_ARGS=()
+  case "${CROSS_ARCH}" in
+    arm64|amd64)
+      TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
+      ;;
+  esac
+
   run_logged "cross-configure" ${CONFIGURE[@]} \
     -prefix="${OCAML_CROSS_PREFIX}" \
     --mandir="${OCAML_CROSS_PREFIX}"/share/man \
     --host="${build_alias}" \
     --target="${target}" \
-    --enable-frame-pointers \
     "${CONFIG_ARGS[@]}" \
+    "${TARGET_CONFIG_ARGS[@]}" \
     AR="${CROSS_AR}" \
     AS="${NATIVE_AS}" \
-    CC="${NATIVE_CC}" \
-    CFLAGS="${NATIVE_CFLAGS}" \
     LD="${NATIVE_LD}" \
-    LDFLAGS="${NATIVE_LDFLAGS}" \
     NM="${CROSS_NM}" \
     RANLIB="${CROSS_RANLIB}" \
     STRIP="${CROSS_STRIP}" \
     ac_cv_func_getentropy=no \
     ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
+
+  # ========================================================================
+  # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
+  # ========================================================================
+  if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
+    echo "    Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
+    echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+  fi
 
   # ========================================================================
   # Patch config.generated.ml
@@ -233,6 +275,22 @@ EOF
   # Patch native_pack_linker to use cross-linker via wrapper
   sed -i "s#^let native_pack_linker = .*#let native_pack_linker = {|conda-ocaml-ld -r -o |}#" "$config_file"
 
+  # CRITICAL: Patch native_c_libraries to include -ldl for Linux targets
+  # glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym/dlerror
+  # This value is BAKED INTO the compiler binary, not read from Makefile.config!
+  if [[ "${NEEDS_DL}" == "1" ]]; then
+    # Add -ldl to native_c_libraries if not already present
+    if ! grep -q '"-ldl"' "$config_file"; then
+      sed -i 's#^let native_c_libraries = {|\(.*\)|}#let native_c_libraries = {|\1 -ldl|}#' "$config_file"
+      echo "    Patched native_c_libraries: added -ldl"
+    fi
+    # Also patch bytecomp_c_libraries for bytecode
+    if ! grep -q 'bytecomp_c_libraries.*-ldl' "$config_file"; then
+      sed -i 's#^let bytecomp_c_libraries = {|\(.*\)|}#let bytecomp_c_libraries = {|\1 -ldl|}#' "$config_file"
+      echo "    Patched bytecomp_c_libraries: added -ldl"
+    fi
+  fi
+
   echo "    Patched architecture=${CROSS_ARCH}"
   [[ -n "${CROSS_MODEL}" ]] && echo "    Patched model=${CROSS_MODEL}"
   echo "    Patched native_pack_linker=conda-ocaml-ld -r -o"
@@ -267,13 +325,15 @@ EOF
   # NOTE: stdlib pre-build removed - was causing inconsistent assumptions
   # Let crossopt handle stdlib build entirely with consistent variables
 
-  # Clean native runtime files so crossopt rebuilds them for TARGET arch
-  # - libasmrun*.a: native runtime static libraries
+  # Clean native runtime files so crossopt's runtimeopt rebuilds them for TARGET arch
+  # - libasmrun*.a: native runtime static libraries (TARGET arch needed)
   # - libasmrun_shared.so: native runtime shared library
-  # - amd64*.o: x86_64 assembly objects (crossopt needs arm64*.o)
+  # - amd64*.o: x86_64 assembly objects (crossopt needs arm64*.o or power*.o)
   # - *.nd.o, *.ni.o, *.npic.o: native code object files (need CROSS CC)
-  # - stdlib/*.cmi: bytecode interface files (have ARCH-specific metadata)
-  echo "     Cleaning native runtime and stdlib for crossopt rebuild..."
+  # NOTE: libcamlrun*.a (bytecode runtime) is cleaned and rebuilt for TARGET
+  # in Makefile.cross AFTER runtimeopt, since crossopt's runtime-all rebuilds
+  # it with BUILD tools (it's linked into -output-complete-exe TARGET binaries).
+  echo "     Cleaning native runtime files for crossopt rebuild..."
   rm -f runtime/libasmrun*.a runtime/libasmrun_shared.so
   rm -f runtime/amd64*.o runtime/*.nd.o runtime/*.ni.o runtime/*.npic.o
   rm -f runtime/libcomprmarsh.a  # Also needs CROSS tools
@@ -332,7 +392,8 @@ EOF
       RANLIB="${CROSS_RANLIB}"
       STRIP="${CROSS_STRIP}"
       ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
-      
+      TARGET_ZSTD_LIBS="${TARGET_ZSTD_LIBS}"
+
       SAK_AR="${NATIVE_AR}"
       SAK_CC="${NATIVE_CC}"
       SAK_CFLAGS="${NATIVE_CFLAGS}"
@@ -419,19 +480,20 @@ EOF
   # libzstd is in ${PREFIX}/lib/, so relative path is ../../../../lib
   if [[ "${target_platform}" == "osx"* ]]; then
     echo "  Verifying rpath for macOS cross-compiler binaries..."
+    # Use run_macos_tool to avoid DYLD_LIBRARY_PATH conflicts with system tools
     for binary in "${OCAML_CROSS_PREFIX}"/bin/*.opt; do
       if [[ -f "${binary}" ]]; then
         # Check if libzstd is linked via @rpath
-        if otool -L "${binary}" 2>&1 | grep -q "@rpath/libzstd"; then
+        if run_macos_tool otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
           # Check if rpath already exists (either @executable_path or @loader_path)
-          if otool -l "${binary}" 2>&1 | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
-            RPATH=$(otool -l "${binary}" 2>&1 | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
+          if run_macos_tool otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
+            RPATH=$(run_macos_tool otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
             echo "    $(basename ${binary}): rpath OK (${RPATH})"
           else
             # No rpath set - add one
             echo "    $(basename ${binary}): adding @loader_path/../../../../lib rpath"
-            if install_name_tool -add_rpath @loader_path/../../../../lib "${binary}" 2>&1; then
-              codesign -f -s - "${binary}" 2>&1 || true
+            if run_macos_tool install_name_tool -add_rpath @loader_path/../../../../lib "${binary}" 2>&1; then
+              run_macos_tool codesign -f -s - "${binary}" 2>/dev/null || true
             else
               echo "    WARNING: install_name_tool failed for $(basename ${binary})"
             fi

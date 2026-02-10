@@ -1,6 +1,17 @@
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
+# =============================================================================
+# CRITICAL: macOS DYLD_LIBRARY_PATH cleanup
+# =============================================================================
+# conda's libiconv can override /usr/lib/libiconv.2.dylib but lacks symbols
+# (_iconv_close, _iconv_open, _iconv) that system tools depend on.
+# This causes segfaults when running sed, make, or any tool that loads libcups.
+# Unsetting DYLD paths at the start of all build scripts prevents this.
+if [[ "$(uname 2>/dev/null)" == "Darwin" ]]; then
+  unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+fi
+
 # Nagging unix test
 is_unix() {
   [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]
@@ -8,6 +19,16 @@ is_unix() {
 
 is_build_unix() {
   [[ "${build_platform:-${target_platform}}" == "linux-"* || "${build_platform:-${target_platform}}" == "osx-"* ]]
+}
+
+# Run macOS system tools (install_name_tool, otool, codesign) with clean DYLD paths
+# This prevents conda's libiconv from conflicting with system libraries these tools need
+# Usage: run_macos_tool install_name_tool -id "@rpath/foo.so" foo.so
+run_macos_tool() {
+  (
+    unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+    "$@"
+  )
 }
 
 # Logging wrapper - captures stdout/stderr to log files for debugging
@@ -56,7 +77,10 @@ apply_cross_patches() {
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
+    # glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
+    # Patch both BYTECCLIBS (bytecode runtime) and NATIVECCLIBS (native runtime)
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
+    sed -i 's/^\(NATIVECCLIBS=.*\)$/\1 -ldl/' Makefile.config
   fi
 }
 
@@ -372,8 +396,10 @@ setup_cflags_ldflags() {
       ;;
     CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le)
       # Cross-compiling FOR Linux aarch64/ppc64le
-      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted with
-      # mixed build/target flags that cause -march=nocona on aarch64 cross-compiler
+      # NOTE: As of 2026-01-27, conda-forge's cross-compilation setup concatenates
+      # BOTH target AND build (x86_64) flags into $CFLAGS. This causes errors like:
+      #   powerpc64le-conda-linux-gnu-gcc: error: unrecognized argument '-mtune=haswell'
+      # Use generic flags instead - the cross-compiler handles target code generation.
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
       ;;
@@ -436,7 +462,8 @@ setup_toolchain() {
        # Use version-min flag to match SDK version (default 10.13 for conda-forge)
        local _VERSION_MIN="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
        _MKDLL="$(basename "${_CC}") ${_VERSION_MIN} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+       # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
+       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
        # Include -isysroot in MKDLL/MKEXE when cross-compiling for ARM64
        # OCaml's Makefile uses $(MKEXE) directly without $(LDFLAGS)
        # NOTE: CONDA_BUILD_SYSROOT must be exported to ARM64 SDK path
@@ -472,7 +499,7 @@ setup_toolchain() {
        _STRIP=$(find_tool "${target}-strip" true)
 
        _ASM=$(basename "${_AS}")
-  
+
        _MKDLL="$(basename "${_CC}")"
        _MKEXE="$(basename "${_CC}")"
       ;;
@@ -530,8 +557,9 @@ get_cross_tool_defaults() {
 
   if [[ "${target}" == "arm64-"* ]]; then
     # macOS: use lld linker and headerpad for install_name_tool compatibility
+    # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
     DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup \${LDFLAGS}"
-    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names \${LDFLAGS}"
+    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib \${LDFLAGS}"
   else
     # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
     DEFAULT_MKDLL="${DEFAULT_CC} -shared \${LDFLAGS}"
@@ -573,8 +601,19 @@ export CONDA_OCAML_LD="\${CONDA_OCAML_${target_id}_LD:-${DEFAULT_LD}}"
 export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${target_id}_RANLIB:-${DEFAULT_RANLIB}}"
 export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${target_id}_MKDLL:-${DEFAULT_MKDLL}}"
 export CONDA_OCAML_MKEXE="\${CONDA_OCAML_${target_id}_MKEXE:-${DEFAULT_MKEXE}}"
+WRAPPER
+
+  # macOS targets need -ldopt for ocamlmklib to add -undefined dynamic_lookup
+  # This allows _caml_* symbols to remain unresolved until runtime
+  if [[ "${tool}" == "ocamlmklib" ]] && [[ "${target}" == arm64-apple-darwin* ]]; then
+    cat >> "${wrapper_path}" << WRAPPER
+exec "\${prefix}/lib/ocaml-cross-compilers/${target}/bin/${tool}.opt" -ldopt "-Wl,-undefined,dynamic_lookup" "\$@"
+WRAPPER
+  else
+    cat >> "${wrapper_path}" << WRAPPER
 exec "\${prefix}/lib/ocaml-cross-compilers/${target}/bin/${tool}.opt" "\$@"
 WRAPPER
+  fi
   chmod +x "${wrapper_path}"
 
   echo "     Created wrapper: ${wrapper_path}"
