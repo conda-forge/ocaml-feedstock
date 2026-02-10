@@ -1,7 +1,7 @@
 context:
-  build_number: 12
+  build_number: 0
   name: ocaml
-  version: 5.3.0
+  version: 5.4.0
   flexdll_version: 0.44
   dot: ${{ "./" if unix }}
   library: ${{ "Library/" if not unix }}
@@ -23,8 +23,12 @@ package:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: eb9eab2f21758d3cfb1e78c7f83f0b4dd6302824316aba4abee047a5a4f85029
+    sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
     patches:
+      # Fix header include order bug where atomic_load_acquire/atomic_store_release
+      # macros are undefined when mlvalues.h is included before platform.h.
+      # The macros were guarded by CAML_INTERNALS, but public headers include
+      # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/0001-fix-atomic-macros-visibility.patch
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
@@ -187,6 +191,10 @@ tests:
             - aarch64-conda-linux-gnu-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
             - powerpc64le-conda-linux-gnu-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
             - powerpc64le-conda-linux-gnu-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
+        - if: osx
+          then:
+            # macOS wrapper for -undefined dynamic_lookup
+            - ocamlmklib.real
         - if: osx and x86_64
           then:
             - arm64-apple-darwin20.0.0-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
@@ -323,8 +331,6 @@ tests:
   # Tool version checks (all platforms)
   # Skip on cross-compiled platforms - QEMU emulation has limitations
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: arm64
           then:
@@ -340,8 +346,6 @@ tests:
 
   # Native-only tools (ocamldoc, ocamldebug)
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: (build_platform == target_platform) and unix
           then: cd testing && ${{ dot }}test-native-only-tools.${{ sh }} ${{ version }}
@@ -356,8 +360,6 @@ tests:
   # Compilation tests (bytecode, native, multi-file)
   # Skip on cross-compiled platforms (aarch64, ppc64le, arm64) - QEMU emulation unstable
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: build_platform != target_platform
           then: echo "Skipping compilation tests (cross-compiled package, QEMU limitation)"
@@ -373,8 +375,6 @@ tests:
 
   # Cross-compiler tests (linux-64 and osx-64 only)
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: (linux and x86_64) or (osx and x86_64)
           then:
@@ -406,8 +406,6 @@ tests:
 
   # CONDA_OCAML_* toolchain variable tests
   - script:
-      env:
-        OCAMLRUNPARAM: "s=4M,o=1000"
       content:
         - if: build_platform == target_platform
           then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}

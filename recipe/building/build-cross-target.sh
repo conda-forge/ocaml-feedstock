@@ -181,6 +181,11 @@ hash -r
 echo ""
 echo "  [1/5] Configuring for ${host_alias} ==="
 
+# NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as env vars, not configure args.
+export CC="${CROSS_CC}"
+export CFLAGS="${CROSS_CFLAGS}"
+export LDFLAGS="${CROSS_LDFLAGS}"
+
 CONFIG_ARGS+=(
   -prefix="${OCAML_INSTALL_PREFIX}"
   -mandir="${OCAML_INSTALL_PREFIX}"/share/man
@@ -189,11 +194,8 @@ CONFIG_ARGS+=(
   --target="${host_alias}"
   AR="${CROSS_AR}"
   AS="${CROSS_AS}"
-  CC="${CROSS_CC}"
   LD="${CROSS_LD}"
   RANLIB="${CROSS_RANLIB}"
-  CFLAGS="${CROSS_CFLAGS}"
-  LDFLAGS="${CROSS_LDFLAGS}"
 )
 
 if [[ "${DISABLE_GETENTROPY}" == "1" ]]; then
@@ -207,6 +209,14 @@ for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib c
 done
 
 run_logged "stage3_configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}"
+
+# ============================================================================
+# Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
+# ============================================================================
+if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
+  echo "  Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
+  echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+fi
 
 # ============================================================================
 # Patch configuration
@@ -362,26 +372,27 @@ run_logged "installcross" "${MAKE[@]}" installcross
 
 if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
   echo "    Fixing macOS install names..."
+  # Use run_macos_tool to avoid DYLD_LIBRARY_PATH conflicts with system tools
 
   # Fix stublib overlinking
   for lib in "${OCAML_INSTALL_PREFIX}/lib/ocaml/stublibs/"*.so; do
     [[ -f "$lib" ]] || continue
-    for dep in $(otool -L "$lib" 2>/dev/null | grep '\./dll' | awk '{print $1}'); do
-      install_name_tool -change "$dep" "@loader_path/$(basename $dep)" "$lib"
+    for dep in $(run_macos_tool otool -L "$lib" 2>/dev/null | grep '\./dll' | awk '{print $1}'); do
+      run_macos_tool install_name_tool -change "$dep" "@loader_path/$(basename $dep)" "$lib"
     done
   done
 
   # Set correct install_name for runtime libraries
   for rtlib in libasmrun_shared.so libcamlrun_shared.so; do
     [[ -f "${OCAML_INSTALL_PREFIX}/lib/ocaml/${rtlib}" ]] && \
-      install_name_tool -id "@rpath/${rtlib}" "${OCAML_INSTALL_PREFIX}/lib/ocaml/${rtlib}"
+      run_macos_tool install_name_tool -id "@rpath/${rtlib}" "${OCAML_INSTALL_PREFIX}/lib/ocaml/${rtlib}"
   done
 
   # Fix references in all libraries
   for lib in "${OCAML_INSTALL_PREFIX}/lib/ocaml/"*.so "${OCAML_INSTALL_PREFIX}/lib/ocaml/stublibs/"*.so; do
     [[ -f "$lib" ]] || continue
-    install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib" 2>/dev/null || true
-    install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib" 2>/dev/null || true
+    run_macos_tool install_name_tool -change "runtime/libasmrun_shared.so" "@rpath/libasmrun_shared.so" "$lib" 2>/dev/null || true
+    run_macos_tool install_name_tool -change "runtime/libcamlrun_shared.so" "@rpath/libcamlrun_shared.so" "$lib" 2>/dev/null || true
   done
 fi
 

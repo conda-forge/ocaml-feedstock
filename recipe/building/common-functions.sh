@@ -1,6 +1,17 @@
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
+# =============================================================================
+# CRITICAL: macOS DYLD_LIBRARY_PATH cleanup
+# =============================================================================
+# conda's libiconv can override /usr/lib/libiconv.2.dylib but lacks symbols
+# (_iconv_close, _iconv_open, _iconv) that system tools depend on.
+# This causes segfaults when running sed, make, or any tool that loads libcups.
+# Unsetting DYLD paths at the start of all build scripts prevents this.
+if [[ "$(uname 2>/dev/null)" == "Darwin" ]]; then
+  unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+fi
+
 # Nagging unix test
 is_unix() {
   [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]
@@ -8,6 +19,16 @@ is_unix() {
 
 is_build_unix() {
   [[ "${build_platform:-${target_platform}}" == "linux-"* || "${build_platform:-${target_platform}}" == "osx-"* ]]
+}
+
+# Run macOS system tools (install_name_tool, otool, codesign) with clean DYLD paths
+# This prevents conda's libiconv from conflicting with system libraries these tools need
+# Usage: run_macos_tool install_name_tool -id "@rpath/foo.so" foo.so
+run_macos_tool() {
+  (
+    unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+    "$@"
+  )
 }
 
 # Logging wrapper - captures stdout/stderr to log files for debugging
@@ -56,7 +77,10 @@ apply_cross_patches() {
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
+    # glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
+    # Patch both BYTECCLIBS (bytecode runtime) and NATIVECCLIBS (native runtime)
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
+    sed -i 's/^\(NATIVECCLIBS=.*\)$/\1 -ldl/' Makefile.config
   fi
 }
 
@@ -372,8 +396,10 @@ setup_cflags_ldflags() {
       ;;
     CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le)
       # Cross-compiling FOR Linux aarch64/ppc64le
-      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted with
-      # mixed build/target flags that cause -march=nocona on aarch64 cross-compiler
+      # NOTE: As of 2026-01-27, conda-forge's cross-compilation setup concatenates
+      # BOTH target AND build (x86_64) flags into $CFLAGS. This causes errors like:
+      #   powerpc64le-conda-linux-gnu-gcc: error: unrecognized argument '-mtune=haswell'
+      # Use generic flags instead - the cross-compiler handles target code generation.
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
       ;;
@@ -473,7 +499,7 @@ setup_toolchain() {
        _STRIP=$(find_tool "${target}-strip" true)
 
        _ASM=$(basename "${_AS}")
-  
+
        _MKDLL="$(basename "${_CC}")"
        _MKEXE="$(basename "${_CC}")"
       ;;
