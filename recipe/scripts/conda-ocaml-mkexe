@@ -3,8 +3,16 @@
 # CONDA_OCAML_MKEXE may include flags (e.g., "cc -Wl,-E")
 # Automatically adds -L${CONDA_PREFIX}/lib for runtime library search (relocatable)
 # shellcheck disable=SC2086
-if [[ -n "${CONDA_PREFIX:-}" ]]; then
-  exec ${CONDA_OCAML_MKEXE:-cc} -L"${CONDA_PREFIX}/lib" "$@"
+
+# macOS-aware fallback when CONDA_OCAML_MKEXE is not set
+if [[ -z "${CONDA_OCAML_MKEXE:-}" ]] && [[ "$OSTYPE" == darwin* ]]; then
+  FALLBACK_MKEXE="cc -Wl,-rpath,@executable_path/../lib"
 else
-  exec ${CONDA_OCAML_MKEXE:-cc} "$@"
+  FALLBACK_MKEXE="${CONDA_OCAML_MKEXE:-cc}"
+fi
+
+if [[ -n "${CONDA_PREFIX:-}" ]]; then
+  exec ${FALLBACK_MKEXE} -L"${CONDA_PREFIX}/lib" "$@"
+else
+  exec ${FALLBACK_MKEXE} "$@"
 fi

@@ -58,19 +58,17 @@ setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_
 
 # Platform-specific overrides
 if [[ "${target_platform}" == "osx"* ]]; then
-  # macOS: Set library paths for zstd at compile-time and runtime
+  # macOS: Use DYLD_FALLBACK_LIBRARY_PATH so OCaml can find libzstd at runtime
+  # IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
   # Cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
   # Native build: PREFIX has x86_64 libs (same arch)
-  # IMPORTANT: Use DYLD_FALLBACK_LIBRARY_PATH, not DYLD_LIBRARY_PATH!
-  # DYLD_LIBRARY_PATH overrides system libs (libiconv) causing crashes in
-  # tools like sed, make, otool that depend on system libiconv.
+  # Note: fix-macos-install-names.sh unsets DYLD_* before running system tools
   if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
     export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
   else
     export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
-    export LIBRARY_PATH="${PREFIX}/lib:${LIBRARY_PATH:-}"
   fi
+  echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
 elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
@@ -131,6 +129,7 @@ export NATIVE_CFLAGS="${NATIVE_CFLAGS}"
 export NATIVE_LD="${NATIVE_LD}"
 export NATIVE_LDFLAGS="${NATIVE_LDFLAGS}"
 export NATIVE_RANLIB="${NATIVE_RANLIB}"
+export NATIVE_STRIP="${NATIVE_STRIP}"
 export NATIVE_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"
 
 # CONDA_OCAML_* for runtime
@@ -161,28 +160,29 @@ else
 fi
 
 # Add toolchain to configure args
-CONFIG_ARGS+=(
-  AR="${NATIVE_AR}"
-  CC="${NATIVE_CC}"
-  LD="${NATIVE_LD}"
-  LDFLAGS="${NATIVE_LDFLAGS}"
-)
+# NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as environment variables, not configure args.
+# Passing them as args causes make to misparse flags like -O2 as filenames.
+export CC="${NATIVE_CC}"
+export STRIP="${NATIVE_STRIP}"
+
 if [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
   # MSVC: Let configure detect correct flags - don't inject GCC-style flags
   # cl.exe uses /O2, /LIBPATH: etc. - incompatible with GCC -O2, -L
+  export CFLAGS=""
+  export LDFLAGS="${NATIVE_LDFLAGS}"
   # Don't pass AS — configure's default for MSVC includes critical flags:
   #   "ml64 -nologo -Cp -c -Fo" (the trailing -Fo is concatenated with output path)
-  # MSVC: --build=cygwin (MSYS2 build env), --host=windows (MSVC target)
-  # This is how OCaml detects MSVC mode and uses /Fe: instead of -o
   CONFIG_ARGS+=(
-    --build=x86_64-pc-cygwin
-    --host="${TARGET_TRIPLET}"
-    CFLAGS=""
+    AR="${NATIVE_AR}"
+    LD="${NATIVE_LD}"
   )
 else
+  export CFLAGS="${NATIVE_CFLAGS}"
+  export LDFLAGS="${NATIVE_LDFLAGS}"
   CONFIG_ARGS+=(
+    AR="${NATIVE_AR}"
     AS="${NATIVE_AS}"
-    CFLAGS="${NATIVE_CFLAGS}"
+    LD="${NATIVE_LD}"
     RANLIB="${NATIVE_RANLIB}"
     host_alias="${build_alias:-${host_alias:-${CONDA_TOOLCHAIN_BUILD}}}"
   )
@@ -199,6 +199,19 @@ else
     WINDRES="${NATIVE_WINDRES}"
     windows_UNICODE_MODE=compatible
   )
+  if [[ "${TARGET_TRIPLET}" != *"-pc-"* ]]; then
+    CONFIG_ARGS+=(
+      windows_UNICODE_MODE=compatible
+    )
+  else
+    # MSVC: --build=cygwin (MSYS2 build env), --host=windows (MSVC target)
+    # This is how OCaml detects MSVC mode and uses /Fe: instead of -o
+    CONFIG_ARGS+=(
+      --build=x86_64-pc-cygwin
+      --host="${TARGET_TRIPLET}"
+      windows_UNICODE_MODE=compatible
+    )
+  fi
 fi
 
 # ============================================================================
@@ -234,6 +247,16 @@ fi
 echo ""
 echo "  [1/4] Configuring native compiler"
 run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}" || { cat config.log; exit 1; }
+
+# ============================================================================
+# Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
+# ============================================================================
+# OCaml 5.4.0 uses CHECKSTACK_CC but doesn't define it - causes build failure
+# Error: "make[2]: O2: No such file or directory" (flags executed as commands)
+if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
+  echo "  Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
+  echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+fi
 
 # ============================================================================
 # MSYS2 compatibility patches for MSVC toolchain
@@ -403,6 +426,34 @@ if [[ -f "${installed_config}" ]]; then
   sed -i 's|-L/[^ ]*/lib ||g' "${installed_config}"
   # Clean -Wl,-L paths too
   sed -i 's|-Wl,-L[^ ]* ||g' "${installed_config}"
+
+  # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths like /home/*/feedstock_root/*
+  sed -i '/^CONFIGURE_ARGS=/d' "${installed_config}"
+  echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${installed_config}"
+
+  # Clean any remaining build-time paths (various patterns used by CI systems)
+  # Absolute paths starting with /home/
+  sed -i "s|/home/[^/]*/feedstock_root[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^/]*/feedstock[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^/]*/build_artifacts[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^ ]*/rattler-build[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|/home/[^ ]*/conda-bld[^ ]*|${PREFIX}|g" "${installed_config}"
+  # Relative or other paths containing build_artifacts (CI test environments)
+  sed -i "s|[^ ]*build_artifacts/[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|[^ ]*rattler-build_[^ ]*|${PREFIX}|g" "${installed_config}"
+  sed -i "s|[^ ]*conda-bld/[^ ]*|${PREFIX}|g" "${installed_config}"
+fi
+
+# Clean build-time paths from runtime-launch-info
+# This file contains paths used during compilation - sanitize any build-time leaks
+echo "  - Cleaning build-time paths from runtime-launch-info..."
+runtime_launch_info="${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info"
+if [[ -f "${runtime_launch_info}" ]]; then
+  # Replace build-time paths with PREFIX placeholder (conda will relocate)
+  sed -i 's|[^ ]*rattler-build_[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*conda-bld[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*_build_env[^ ]*/|'"${PREFIX}"'/|g' "${runtime_launch_info}"
 fi
 
 # Verify rpath for macOS binaries
@@ -447,6 +498,8 @@ if is_unix; then
   for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${OCAML_INSTALL_PREFIX}/bin/${wrapper}"
   done
+  # NOTE: macOS ocamlmklib wrapper is created in build.sh AFTER cross-compiler builds
+  # (the native ocamlmklib is used during cross-compiler build and must remain unwrapped)
 else
   # non-unix: Build and install wrapper .exe files
   # These are small C programs that read CONDA_OCAML_* env vars at runtime

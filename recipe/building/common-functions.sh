@@ -1,6 +1,18 @@
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
+# =============================================================================
+# CRITICAL: macOS DYLD_LIBRARY_PATH cleanup
+# =============================================================================
+# conda's libiconv can override /usr/lib/libiconv.2.dylib but lacks symbols
+# (_iconv_close, _iconv_open, _iconv) that system tools depend on.
+# This causes segfaults when running sed, make, or any tool that loads libcups.
+# Unsetting DYLD_LIBRARY_PATH at the start prevents this - scripts should use
+# DYLD_FALLBACK_LIBRARY_PATH instead (searched AFTER system paths).
+if [[ "$(uname 2>/dev/null)" == "Darwin" ]]; then
+  unset DYLD_LIBRARY_PATH 2>/dev/null || true
+fi
+
 # Nagging unix test
 is_unix() {
   [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]
@@ -39,7 +51,7 @@ run_logged() {
   else
     local rc=$?
     echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
-    tail -15 "${logfile}" | sed "s/^/${indent} /"
+    tail -100 "${logfile}" | sed "s/^/${indent} /"
     return ${rc}
   fi
 }
@@ -56,7 +68,10 @@ apply_cross_patches() {
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
+    # glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
+    # Patch both BYTECCLIBS (bytecode runtime) and NATIVECCLIBS (native runtime)
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
+    sed -i 's/^\(NATIVECCLIBS=.*\)$/\1 -ldl/' Makefile.config
   fi
 }
 
@@ -436,7 +451,8 @@ setup_toolchain() {
        # Use version-min flag to match SDK version (default 10.13 for conda-forge)
        local _VERSION_MIN="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
        _MKDLL="$(basename "${_CC}") ${_VERSION_MIN} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
-       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -fuse-ld=lld -Wl,-headerpad_max_install_names"
+       # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
+       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
        # Include -isysroot in MKDLL/MKEXE when cross-compiling for ARM64
        # OCaml's Makefile uses $(MKEXE) directly without $(LDFLAGS)
        # NOTE: CONDA_BUILD_SYSROOT must be exported to ARM64 SDK path
@@ -530,8 +546,9 @@ get_cross_tool_defaults() {
 
   if [[ "${target}" == "arm64-"* ]]; then
     # macOS: use lld linker and headerpad for install_name_tool compatibility
+    # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
     DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup \${LDFLAGS}"
-    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names \${LDFLAGS}"
+    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib \${LDFLAGS}"
   else
     # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
     DEFAULT_MKDLL="${DEFAULT_CC} -shared \${LDFLAGS}"
@@ -573,8 +590,19 @@ export CONDA_OCAML_LD="\${CONDA_OCAML_${target_id}_LD:-${DEFAULT_LD}}"
 export CONDA_OCAML_RANLIB="\${CONDA_OCAML_${target_id}_RANLIB:-${DEFAULT_RANLIB}}"
 export CONDA_OCAML_MKDLL="\${CONDA_OCAML_${target_id}_MKDLL:-${DEFAULT_MKDLL}}"
 export CONDA_OCAML_MKEXE="\${CONDA_OCAML_${target_id}_MKEXE:-${DEFAULT_MKEXE}}"
+WRAPPER
+
+  # macOS targets need -ldopt for ocamlmklib to add -undefined dynamic_lookup
+  # This allows _caml_* symbols to remain unresolved until runtime
+  if [[ "${tool}" == "ocamlmklib" ]] && [[ "${target}" == arm64-apple-darwin* ]]; then
+    cat >> "${wrapper_path}" << WRAPPER
+exec "\${prefix}/lib/ocaml-cross-compilers/${target}/bin/${tool}.opt" -ldopt "-Wl,-undefined,dynamic_lookup" "\$@"
+WRAPPER
+  else
+    cat >> "${wrapper_path}" << WRAPPER
 exec "\${prefix}/lib/ocaml-cross-compilers/${target}/bin/${tool}.opt" "\$@"
 WRAPPER
+  fi
   chmod +x "${wrapper_path}"
 
   echo "     Created wrapper: ${wrapper_path}"
