@@ -29,7 +29,6 @@ source:
       # macros are undefined when mlvalues.h is included before platform.h.
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
-      - patches/fix-camlatomic-include-order.patch
       - patches/0001-fix-atomic-macros-visibility.patch
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
