@@ -3,12 +3,9 @@
 # CONDA_OCAML_MKDLL may include flags (e.g., "cc -shared -undefined dynamic_lookup")
 # shellcheck disable=SC2086
 
-# Use CONDA_OCAML_MKDLL if set, otherwise use platform-appropriate default
-if [[ -n "${CONDA_OCAML_MKDLL:-}" ]]; then
-  exec ${CONDA_OCAML_MKDLL} "$@"
-elif [[ "$OSTYPE" == darwin* ]]; then
-  # macOS needs -undefined dynamic_lookup for OCaml stub libraries
+# macOS-aware fallback when CONDA_OCAML_MKDLL is not set
+if [[ -z "${CONDA_OCAML_MKDLL:-}" ]] && [[ "$OSTYPE" == darwin* ]]; then
   exec cc -shared -undefined dynamic_lookup "$@"
 else
-  exec cc -shared "$@"
+  exec ${CONDA_OCAML_MKDLL:-cc -shared} "$@"
 fi
