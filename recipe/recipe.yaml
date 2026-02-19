@@ -115,13 +115,11 @@ outputs:
       name: ocaml_${{ cross_target_platform }}
     build:
       string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
-      variant:
-        down_prioritize_variant: ${{ 0 if (not unix and c_compiler == "gcc") else 1 }}
       script:
         env:
           SKIP_MAKE_TESTS: "1"
-          CROSS_TARGET_PLATFORM: ${{ cross_target_platform }}
-          TARGET_TRIPLET: ${{ target_triplet }}
+          OCAML_TARGET_PLATFORM: "${{ cross_target_platform }}"
+          OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
       dynamic_linking:
         missing_dso_allowlist:

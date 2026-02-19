@@ -12,21 +12,21 @@ IFS=$'\n\t'
 # Build behavior depends on BUILD platform:
 #
 # MODE="native":
-#   CROSS_TARGET_PLATFORM == target_platform (e.g., ocaml_linux-64 on linux-64)
+#   OCAML_TARGET_PLATFORM == target_platform (e.g., ocaml_linux-64 on linux-64)
 #   → Build native OCaml compiler
 #
 # MODE="cross-compiler":
-#   CROSS_TARGET_PLATFORM != target_platform (e.g., ocaml_linux-aarch64 on linux-64)
+#   OCAML_TARGET_PLATFORM != target_platform (e.g., ocaml_linux-aarch64 on linux-64)
 #   → Build cross-compiler (native binaries producing target code)
 #
 # MODE="cross-target":
-#   CROSS_TARGET_PLATFORM == target_platform AND CONDA_BUILD_CROSS_COMPILATION == 1
+#   OCAML_TARGET_PLATFORM == target_platform AND CONDA_BUILD_CROSS_COMPILATION == 1
 #   (e.g., ocaml_linux-aarch64 built ON linux-aarch64 via cross-compilation)
 #   → Build using cross-compiler from BUILD_PREFIX
 #
 # Environment variables from recipe.yaml:
-#   CROSS_TARGET_PLATFORM:  Target platform this package produces code for
-#   TARGET_TRIPLET: Cross-compiler triplet for this target
+#   OCAML_TARGET_PLATFORM:  Target platform this package produces code for
+#   OCAML_TARGET_TRIPLET: Cross-compiler triplet for this target
 #
 # ==============================================================================
 
@@ -95,50 +95,50 @@ fi
 # ==============================================================================
 # BUILD MODE DETECTION
 # ==============================================================================
-# CROSS_TARGET_PLATFORM and TARGET_TRIPLET are set by recipe.yaml env section
+# OCAML_TARGET_PLATFORM and OCAML_TARGET_TRIPLET are set by recipe.yaml env section
 
 echo ""
 echo "============================================================"
 echo "OCaml Build Script - Mode Detection"
 echo "============================================================"
-echo "  CROSS_TARGET_PLATFORM:      ${CROSS_TARGET_PLATFORM:-<not set>}"
-echo "  TARGET_TRIPLET:     ${TARGET_TRIPLET:-<not set>}"
-echo "  target_platform: ${target_platform}"
-echo "  build_platform:  ${build_platform:-target_platform}"
+echo "  OCAML_TARGET_PLATFORM:         ${OCAML_TARGET_PLATFORM:-<not set>}"
+echo "  OCAML_TARGET_TRIPLET:                ${OCAML_TARGET_TRIPLET:-<not set>}"
+echo "  target_platform:               ${target_platform}"
+echo "  build_platform:                ${build_platform:-${target_platform}}"
 echo "  CONDA_BUILD_CROSS_COMPILATION: ${CONDA_BUILD_CROSS_COMPILATION:-0}"
 echo "============================================================"
 
 # Validate required environment variables
-if [[ -z "${CROSS_TARGET_PLATFORM:-}" ]]; then
-  echo "ERROR: CROSS_TARGET_PLATFORM not set. This should be set by recipe.yaml"
+if [[ -z "${OCAML_TARGET_PLATFORM:-}" ]]; then
+  echo "ERROR: OCAML_TARGET_PLATFORM not set. This should be set by recipe.yaml"
   exit 1
 fi
-if [[ -z "${TARGET_TRIPLET:-}" ]]; then
-  echo "ERROR: TARGET_TRIPLET not set. This should be set by recipe.yaml"
+if [[ -z "${OCAML_TARGET_TRIPLET:-}" ]]; then
+  echo "ERROR: OCAML_TARGET_TRIPLET not set. This should be set by recipe.yaml"
   exit 1
 fi
 
 # Determine build mode
-if [[ "${CROSS_TARGET_PLATFORM}" != "${target_platform}" ]]; then
+if [[ "${OCAML_TARGET_PLATFORM}" != "${target_platform}" ]]; then
   # Building cross-compiler (e.g., ocaml_linux-aarch64 on linux-64)
   BUILD_MODE="cross-compiler"
   echo ""
   echo ">>> BUILD MODE: cross-compiler"
-  echo ">>> Building ${CROSS_TARGET_PLATFORM} cross-compiler on ${target_platform}"
+  echo ">>> Building ${OCAML_TARGET_PLATFORM} cross-compiler on ${target_platform}"
   echo ""
 elif [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
   # Building cross-compiled native (e.g., ocaml_linux-aarch64 ON linux-aarch64)
   BUILD_MODE="cross-target"
   echo ""
   echo ">>> BUILD MODE: cross-target"
-  echo ">>> Cross-compiling ${CROSS_TARGET_PLATFORM} native compiler from ${build_platform:-target_platform}"
+  echo ">>> Cross-compiling ${OCAML_TARGET_PLATFORM} native compiler from ${build_platform:-${target_platform}}"
   echo ""
 else
   # Building native (e.g., ocaml_linux-64 on linux-64)
   BUILD_MODE="native"
   echo ""
   echo ">>> BUILD MODE: native"
-  echo ">>> Building native ${CROSS_TARGET_PLATFORM} compiler"
+  echo ">>> Building native ${OCAML_TARGET_PLATFORM} compiler"
   echo ""
 fi
 
@@ -194,14 +194,14 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     source "${RECIPE_DIR}"/building/build-native.sh
   )
 
-  # Stage 2: Build cross-compiler for CROSS_TARGET_PLATFORM
+  # Stage 2: Build cross-compiler for OCAML_TARGET_PLATFORM
   OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
   (
     export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
     export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
     # Tell cross-compiler builder which target to build
-    export CROSS_TARGET_PLATFORM="${CROSS_TARGET_PLATFORM}"
-    export TARGET_TRIPLET="${TARGET_TRIPLET}"
+    export OCAML_TARGET_PLATFORM="${OCAML_TARGET_PLATFORM}"
+    export OCAML_TARGET_TRIPLET="${OCAML_TARGET_TRIPLET}"
 
     OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     source "${SRC_DIR}/_native_compiler_env.sh"
@@ -249,7 +249,7 @@ fi
 # ==============================================================================
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   # Determine cross-compiler triplet for this target
-  CROSS_TARGET="${TARGET_TRIPLET}"
+  CROSS_TARGET="${OCAML_TARGET_TRIPLET}"
 
   echo ""
   echo "=== Cross-target build: Using cross-compiler from BUILD_PREFIX ==="
@@ -325,8 +325,8 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
     (
       export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
       export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
-      export CROSS_TARGET_PLATFORM="${CROSS_TARGET_PLATFORM}"
-      export TARGET_TRIPLET="${TARGET_TRIPLET}"
+      export OCAML_TARGET_PLATFORM="${OCAML_TARGET_PLATFORM}"
+      export OCAML_TARGET_TRIPLET="${OCAML_TARGET_TRIPLET}"
 
       OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
       source "${SRC_DIR}/_native_compiler_env.sh"
@@ -341,7 +341,7 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
 
       OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
       source "${SRC_DIR}/_native_compiler_env.sh"
-      source "${SRC_DIR}/_xcross_compiler_${CROSS_TARGET_PLATFORM}_env.sh"
+      source "${SRC_DIR}/_xcross_compiler_${OCAML_TARGET_PLATFORM}_env.sh"
       source "${RECIPE_DIR}"/building/build-cross-target.sh
     )
   fi
@@ -413,17 +413,17 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     fi
 
     # Cross-target mode: override with TARGET platform toolchain
-    # The package runs on CROSS_TARGET_PLATFORM, so it needs that platform's tools
+    # The package runs on OCAML_TARGET_PLATFORM, so it needs that platform's tools
     if [[ "${BUILD_MODE}" == "cross-target" ]]; then
-      echo "  (Using TARGET toolchain: ${TARGET_TRIPLET}-*)"
-      export CONDA_OCAML_AR="${TARGET_TRIPLET}-ar"
-      export CONDA_OCAML_AS="${TARGET_TRIPLET}-as"
-      export CONDA_OCAML_CC="${TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_LD="${TARGET_TRIPLET}-ld"
-      export CONDA_OCAML_RANLIB="${TARGET_TRIPLET}-ranlib"
-      export CONDA_OCAML_MKEXE="${TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_MKDLL="${TARGET_TRIPLET}-gcc -shared"
-      export CONDA_OCAML_WINDRES="${TARGET_TRIPLET}-windres"
+      echo "  (Using TARGET toolchain: ${OCAML_TARGET_TRIPLET}-*)"
+      export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
+      export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
+      export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
+      export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
+      export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
+      export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
+      export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
+      export CONDA_OCAML_WINDRES="${OCAML_TARGET_TRIPLET}-windres"
     elif [[ -z "${CONDA_OCAML_AR:-}" ]]; then
       # Stage 3 fast path (native mode): use defaults from BUILD_PREFIX toolchain
       echo "  (Using BUILD_PREFIX defaults - native mode)"

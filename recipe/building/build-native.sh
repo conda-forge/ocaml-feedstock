@@ -32,7 +32,7 @@ source "${RECIPE_DIR}/building/common-functions.sh"
 
 # Compiler activation should set CONDA_TOOLCHAIN_BUILD
 if [[ -z "${CONDA_TOOLCHAIN_BUILD:-}" ]]; then
-  if [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
+  if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
     CONDA_TOOLCHAIN_BUILD="no-pc-toolchain"
   else
     echo "ERROR: CONDA_TOOLCHAIN_BUILD not set (compiler activation failed?)"
@@ -73,7 +73,7 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   [[ ${OCAML_INSTALL_PREFIX} != *"Library"* ]] && OCAML_INSTALL_PREFIX="${OCAML_INSTALL_PREFIX}"/Library
   echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
 
-  if [[ "${TARGET_TRIPLET}" != *"-pc-"* ]]; then
+  if [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
     NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-windres" true)
     [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${BUILD_PREFIX}/Library/bin/windres.exe"
   else
@@ -83,7 +83,7 @@ elif [[ "${target_platform}" != "linux"* ]]; then
   # Set UTF-8 codepage
   export PYTHONUTF8=1
   # Needed to find zstd
-  if [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
+  if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
     export NATIVE_LDFLAGS="/LIBPATH:${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
   else
     export NATIVE_LDFLAGS="-L${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
@@ -165,7 +165,7 @@ fi
 export CC="${NATIVE_CC}"
 export STRIP="${NATIVE_STRIP}"
 
-if [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
+if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
   # MSVC: Let configure detect correct flags - don't inject GCC-style flags
   # cl.exe uses /O2, /LIBPATH: etc. - incompatible with GCC -O2, -L
   export CFLAGS=""
@@ -199,7 +199,7 @@ else
     WINDRES="${NATIVE_WINDRES}"
     windows_UNICODE_MODE=compatible
   )
-  if [[ "${TARGET_TRIPLET}" != *"-pc-"* ]]; then
+  if [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
     CONFIG_ARGS+=(
       windows_UNICODE_MODE=compatible
     )
@@ -208,7 +208,7 @@ else
     # This is how OCaml detects MSVC mode and uses /Fe: instead of -o
     CONFIG_ARGS+=(
       --build=x86_64-pc-cygwin
-      --host="${TARGET_TRIPLET}"
+      --host="${OCAML_TARGET_TRIPLET}"
       windows_UNICODE_MODE=compatible
     )
   fi
@@ -264,7 +264,7 @@ fi
 # MSYS2 causes two issues with MSVC tools in Makefile variables:
 # 1. Path conversion: /link flag → filesystem path of link.exe (breaks cl.exe)
 # 2. Name shadowing: bare "link" → MSYS2 coreutils link (hard link utility)
-if [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
+if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
   # MSYS2 path conversion: /link is converted to the filesystem path of link.exe
   # (e.g., %BUILD_PREFIX%/Library/link), breaking cl.exe's /link flag that tells
   # it to pass remaining args to the linker. Using -link avoids this — cl.exe
@@ -311,7 +311,7 @@ if is_unix; then
   sed -i 's/^let mkexe = .*/let mkexe = {|conda-ocaml-mkexe|}/' "$config_file"
   sed -i 's/^let mkdll = .*/let mkdll = {|conda-ocaml-mkdll|}/' "$config_file"
   sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
-elif [[ "${TARGET_TRIPLET}" == *"-pc-"* ]]; then
+elif [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
   # MSVC: Don't override config.generated.ml — configure's defaults include
   # required flags (e.g., asm = "ml64 -nologo -Cp -c -Fo" where -Fo is
   # concatenated with the output path). The conda-ocaml wrapper mechanism
@@ -368,7 +368,7 @@ if [[ "${target_platform}" == "osx"* ]]; then
   # Use @loader_path for relocatable rpath (survives conda relocation)
   # Note: Don't use -L${PREFIX}/lib here - conda-ocaml-mkexe wrapper adds it at runtime
   sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
-elif [[ "${target_platform}" != "linux"* ]] && [[ "${TARGET_TRIPLET}" != *"-pc-"* ]]; then
+elif [[ "${target_platform}" != "linux"* ]] && [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
   # non-unix: Fix flexlink toolchain detection
   sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
   sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
