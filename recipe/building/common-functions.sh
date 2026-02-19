@@ -607,3 +607,280 @@ WRAPPER
 
   echo "     Created wrapper: ${wrapper_path}"
 }
+
+# ==============================================================================
+# Post-Install Path Cleaning
+# ==============================================================================
+
+# Clean build-time -L paths and absolute paths from an installed Makefile.config
+# Usage: clean_makefile_config <config_file> <prefix>
+# Parameters:
+#   config_file - path to the installed Makefile.config
+#   prefix      - conda PREFIX to substitute for build-time absolute paths
+clean_makefile_config() {
+  local config_file="$1"
+  local prefix="$2"
+
+  [[ -f "${config_file}" ]] || return 0
+
+  # Remove -L paths containing build directories (conda-bld, rattler-build, build_env)
+  sed -i 's|-L[^ ]*conda-bld[^ ]* ||g' "${config_file}"
+  sed -i 's|-L[^ ]*rattler-build[^ ]* ||g' "${config_file}"
+  sed -i 's|-L[^ ]*build_env[^ ]* ||g' "${config_file}"
+  sed -i 's|-L[^ ]*_build_env[^ ]* ||g' "${config_file}"
+  # Remove any remaining absolute -L paths (will find libs via standard paths at runtime)
+  sed -i 's|-L/[^ ]*/lib ||g' "${config_file}"
+  # Clean -Wl,-L paths too
+  sed -i 's|-Wl,-L[^ ]* ||g' "${config_file}"
+
+  # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths like /home/*/feedstock_root/*
+  sed -i '/^CONFIGURE_ARGS=/d' "${config_file}"
+  echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${config_file}"
+
+  # Clean any remaining build-time paths (various patterns used by CI systems)
+  # Absolute paths starting with /home/
+  sed -i "s|/home/[^/]*/feedstock_root[^ ]*|${prefix}|g" "${config_file}"
+  sed -i "s|/home/[^/]*/feedstock[^ ]*|${prefix}|g" "${config_file}"
+  sed -i "s|/home/[^/]*/build_artifacts[^ ]*|${prefix}|g" "${config_file}"
+  sed -i "s|/home/[^ ]*/rattler-build[^ ]*|${prefix}|g" "${config_file}"
+  sed -i "s|/home/[^ ]*/conda-bld[^ ]*|${prefix}|g" "${config_file}"
+  # Relative or other paths containing build_artifacts (CI test environments)
+  sed -i "s|[^ ]*build_artifacts/[^ ]*|${prefix}|g" "${config_file}"
+  sed -i "s|[^ ]*rattler-build_[^ ]*|${prefix}|g" "${config_file}"
+  sed -i "s|[^ ]*conda-bld/[^ ]*|${prefix}|g" "${config_file}"
+}
+
+# Clean build-time paths from an installed runtime-launch-info file
+# Usage: clean_runtime_launch_info <runtime_launch_info_file> <prefix>
+# Parameters:
+#   runtime_launch_info_file - path to the runtime-launch-info file
+#   prefix                   - conda PREFIX to substitute for build-time paths
+clean_runtime_launch_info() {
+  local runtime_launch_info="$1"
+  local prefix="$2"
+
+  [[ -f "${runtime_launch_info}" ]] || return 0
+
+  # Replace build-time paths with PREFIX placeholder (conda will relocate)
+  sed -i 's|[^ ]*rattler-build_[^ ]*/|'"${prefix}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*conda-bld[^ ]*/|'"${prefix}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*build_env[^ ]*/|'"${prefix}"'/|g' "${runtime_launch_info}"
+  sed -i 's|[^ ]*_build_env[^ ]*/|'"${prefix}"'/|g' "${runtime_launch_info}"
+}
+
+# ==============================================================================
+# Makefile.config Patches
+# ==============================================================================
+
+# Patch Makefile.config to add CHECKSTACK_CC if missing (OCaml 5.4.0 bug)
+# OCaml 5.4.0 uses CHECKSTACK_CC but doesn't define it - causes build failure:
+#   "make[2]: O2: No such file or directory" (flags executed as commands)
+# Usage: patch_checkstack_cc
+# Operates on Makefile.config in the current directory
+patch_checkstack_cc() {
+  if ! grep -q "^CHECKSTACK_CC" Makefile.config; then
+    echo "  Patching Makefile.config: adding CHECKSTACK_CC = \$(CC)"
+    echo 'CHECKSTACK_CC = $(CC)' >> Makefile.config
+  fi
+}
+
+# Clean embedded binary paths and -L flags from Makefile.config after configure
+# Removes non-relocatable build-time tool paths baked in by configure.
+# Usage: patch_makefile_config_post_configure
+# Operates on Makefile.config in the current directory
+patch_makefile_config_post_configure() {
+  local config_file="Makefile.config"
+
+  sed -i  's#-fdebug-prefix-map=[^ ]*##g' "${config_file}"
+  sed -i  's#-link\s+-L[^ ]*##g' "${config_file}"                             # Remove flexlink's "-link -L..." patterns
+  sed -i  's#-L[^ ]*##g' "${config_file}"                                     # Remove standalone -L paths
+  # These would be found in BUILD_PREFIX and fail relocation
+  # Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
+  # Simple commands: CC, AS, ASM, ASPP, STRIP (line ends with binary name)
+  sed -Ei 's#^(CC|AS|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"
+  # CPP has flags after binary (e.g., "/path/to/clang -E -P" -> "clang -E -P")
+  # The ( .*)? is optional to handle CPP without flags
+  sed -Ei 's#^(CPP)=/.*/([^/ ]+)( .*)?$#\1=\2\3#' "${config_file}"
+}
+
+# ==============================================================================
+# Wrapper Script Installation
+# ==============================================================================
+
+# Install conda-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll} wrapper scripts
+# Usage: install_conda_ocaml_wrappers <dest_bin_dir>
+# Parameters:
+#   dest_bin_dir - destination bin directory (e.g., ${BUILD_PREFIX}/bin or ${PREFIX}/bin)
+install_conda_ocaml_wrappers() {
+  local dest_bin_dir="$1"
+
+  for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
+    install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${dest_bin_dir}/${wrapper}"
+  done
+}
+
+# ==============================================================================
+# macOS Runtime Library Path
+# ==============================================================================
+
+# Set up DYLD_FALLBACK_LIBRARY_PATH for macOS so OCaml can find libzstd at runtime
+# IMPORTANT: Uses FALLBACK (not DYLD_LIBRARY_PATH) - FALLBACK doesn't override system libs
+# For cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
+# For native build: PREFIX has same-arch libs
+# Usage: setup_dyld_fallback
+# Uses globals: target_platform, CONDA_BUILD_CROSS_COMPILATION, BUILD_PREFIX, PREFIX,
+#               DYLD_FALLBACK_LIBRARY_PATH
+setup_dyld_fallback() {
+  if [[ "${target_platform}" == "osx"* ]]; then
+    if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+      export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+    else
+      export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+    fi
+    echo "  Set DYLD_FALLBACK_LIBRARY_PATH for libzstd"
+  fi
+}
+
+# ==============================================================================
+# macOS rpath Verification
+# ==============================================================================
+
+# Verify and fix rpath for macOS binaries that use @rpath/libzstd
+# Usage: verify_macos_rpath <binary_dir> <rpath_value>
+# Parameters:
+#   binary_dir  - directory containing *.opt binaries to check
+#   rpath_value - rpath to add if missing (e.g. "@loader_path/../lib" or
+#                 "@loader_path/../../../../lib")
+verify_macos_rpath() {
+  local binary_dir="$1"
+  local rpath_value="$2"
+
+  for binary in "${binary_dir}"/*.opt; do
+    if [[ -f "${binary}" ]]; then
+      # Check if libzstd is linked via @rpath
+      if otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
+        # Check if rpath already exists (either @executable_path or @loader_path)
+        if otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
+          RPATH=$(otool -l "${binary}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | head -1 | awk '{print $2}')
+          echo "    $(basename ${binary}): rpath OK (${RPATH})"
+        else
+          # No rpath set - add one
+          echo "    $(basename ${binary}): adding ${rpath_value} rpath"
+          if install_name_tool -add_rpath "${rpath_value}" "${binary}" 2>&1; then
+            codesign -f -s - "${binary}" 2>/dev/null || true
+          else
+            echo "    WARNING: install_name_tool failed for $(basename ${binary})"
+          fi
+        fi
+      fi
+    fi
+  done
+}
+
+# ==============================================================================
+# config.generated.ml Patching
+# ==============================================================================
+
+# Patch utils/config.generated.ml to use conda-ocaml-* wrapper scripts (native/target builds)
+# Wrappers expand CONDA_OCAML_* env vars at runtime, compatible with Unix.create_process
+# (which doesn't expand shell variables).
+# Usage: patch_config_generated_ml_native
+# Operates on utils/config.generated.ml in the current directory
+patch_config_generated_ml_native() {
+  local config_file="utils/config.generated.ml"
+
+  sed -i 's/^let asm = .*/let asm = {|conda-ocaml-as|}/' "$config_file"
+  sed -i 's/^let ar = .*/let ar = {|conda-ocaml-ar|}/' "$config_file"
+  sed -i 's/^let c_compiler = .*/let c_compiler = {|conda-ocaml-cc|}/' "$config_file"
+  sed -i 's/^let ranlib = .*/let ranlib = {|conda-ocaml-ranlib|}/' "$config_file"
+  sed -i 's/^let mkexe = .*/let mkexe = {|conda-ocaml-mkexe|}/' "$config_file"
+  sed -i 's/^let mkdll = .*/let mkdll = {|conda-ocaml-mkdll|}/' "$config_file"
+  sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
+}
+
+# ==============================================================================
+# Prefix Transfer
+# ==============================================================================
+
+# Transfer a built OCaml tree from one directory to another and fix embedded paths
+# Usage: transfer_to_prefix <src_dir> <dest_dir>
+# Parameters:
+#   src_dir  - source directory (e.g. a staging build tree)
+#   dest_dir - destination directory (e.g. ${PREFIX})
+# Actions:
+#   1. Copies the full tree via tar pipe
+#   2. Rewrites all src_dir references in Makefile.config to dest_dir
+#   3. Strips prepended build_env bin paths from tool entries in Makefile.config
+#   4. Replaces bare $(CC) with $(CONDA_OCAML_CC) in Makefile.config
+#   5. Writes a fresh ld.conf pointing at dest_dir/lib/ocaml
+transfer_to_prefix() {
+  local src_dir="$1"
+  local dest_dir="$2"
+
+  echo "=== Transferring ${src_dir} to ${dest_dir} ==="
+  tar -C "${src_dir}" -cf - . | tar -C "${dest_dir}" -xf -
+
+  local config_file="${dest_dir}/lib/ocaml/Makefile.config"
+  sed -i "s#${src_dir}#${dest_dir}#g" "${config_file}"
+  sed -i "s#/.*build_env/bin/##g" "${config_file}"
+  sed -i 's#$(CC)#$(CONDA_OCAML_CC)#g' "${config_file}"
+
+  printf '%s\n%s\n' "${dest_dir}/lib/ocaml/stublibs" "${dest_dir}/lib/ocaml" \
+    > "${dest_dir}/lib/ocaml/ld.conf"
+}
+
+# ==============================================================================
+# Toolchain Diagnostics
+# ==============================================================================
+
+# Print all toolchain variables for a given prefix (NATIVE or CROSS)
+# Usage: print_toolchain_info <prefix>
+# Parameters:
+#   prefix - variable name prefix, e.g. "NATIVE" or "CROSS"
+# Prints: AR, AS, ASM, CC, CFLAGS, LD, LDFLAGS, RANLIB values via indirect reference
+print_toolchain_info() {
+  local prefix="$1"
+
+  for var in AR AS ASM CC CFLAGS LD LDFLAGS RANLIB; do
+    local varname="${prefix}_${var}"
+    echo "  ${varname}=${!varname}"
+  done
+}
+
+# ==============================================================================
+# Unix CRC Consistency Check
+# ==============================================================================
+
+# Verify that unix.cmxa and threads.cmxa share the same CRC for the unix module
+# Usage: check_unix_crc <ocamlobjinfo_path> <unix_cmxa> <threads_cmxa> <label>
+# Parameters:
+#   ocamlobjinfo_path - full path to the ocamlobjinfo binary
+#   unix_cmxa         - path to unix.cmxa (or unix.cma)
+#   threads_cmxa      - path to threads.cmxa (or threads.cma)
+#   label             - descriptive label printed in pass/fail messages
+# Exits non-zero if the CRCs do not match.
+check_unix_crc() {
+  local ocamlobjinfo_path="$1"
+  local unix_cmxa="$2"
+  local threads_cmxa="$3"
+  local label="$4"
+
+  # Extract Unix implementation CRC from unix.cmxa
+  local unix_crc
+  unix_crc=$("${ocamlobjinfo_path}" "${unix_cmxa}" 2>&1 \
+    | grep -A1 "^Name: Unix$" | grep "CRC of implementation" | awk '{print $NF}')
+
+  # Extract what threads.cmxa expects from Unix (different output format)
+  local threads_crc
+  threads_crc=$("${ocamlobjinfo_path}" "${threads_cmxa}" 2>&1 \
+    | grep -E "^\s+[0-9a-f]+\s+Unix$" | awk '{print $1}')
+
+  if [[ "${unix_crc}" == "${threads_crc}" && -n "${unix_crc}" ]]; then
+    echo "    [PASS] ${label}: unix CRC match (${unix_crc})"
+  else
+    echo "    [FAIL] ${label}: unix CRC mismatch"
+    echo "           unix.cmxa    CRC: ${unix_crc:-<empty>}"
+    echo "           threads.cmxa expects: ${threads_crc:-<empty>}"
+    exit 1
+  fi
+}
