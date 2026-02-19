@@ -6,7 +6,7 @@ channel_sources:
 - conda-forge
 channel_targets:
 - conda-forge main
-cross_target_platform:
+cross_target_platform_:
 - win-64
 m2w64_c_compiler:
 - gcc

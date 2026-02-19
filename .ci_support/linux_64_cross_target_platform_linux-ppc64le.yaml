@@ -10,11 +10,11 @@ channel_sources:
 - conda-forge
 channel_targets:
 - conda-forge main
-cross_target_platform:
-- linux-aarch64
+cross_target_platform_:
+- linux-ppc64le
 docker_image:
 - quay.io/condaforge/linux-anvil-x86_64:alma9
 target_platform:
-- linux-aarch64
+- linux-64
 zstd:
 - '1.5'

@@ -1,3 +1,6 @@
+c_compiler:                    # [not unix]
+  - vs2022                     # [not unix]
+  - gcc                        # [not unix]
 c_stdlib:
   - sysroot                    # [linux]
   - macosx_deployment_target   # [osx]
@@ -13,3 +16,11 @@ m2w64_c_stdlib_version:        # [not unix]
   - 12                         # [not unix]
 vc:                            # [not unix]
   - 14                         # [not unix]
+
+cross_target_platform_:
+  - linux-64
+  - linux-aarch64
+  - linux-ppc64le
+  - osx-64
+  - osx-arm64
+  - win-64
