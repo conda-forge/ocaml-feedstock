@@ -8,24 +8,24 @@ jobs:
     vmImage: ubuntu-latest
   strategy:
     matrix:
-      linux_64_TG_linux-64:
-        CONFIG: linux_64_TG_linux-64
+      linux_64_cross_target_platformlinux-64:
+        CONFIG: linux_64_cross_target_platformlinux-64
         UPLOAD_PACKAGES: 'True'
         DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma9
-      linux_64_TG_linux-aarch64:
-        CONFIG: linux_64_TG_linux-aarch64
+      linux_64_cross_target_platformlinux-aarch64:
+        CONFIG: linux_64_cross_target_platformlinux-aarch64
         UPLOAD_PACKAGES: 'True'
         DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma9
-      linux_64_TG_linux-ppc64le:
-        CONFIG: linux_64_TG_linux-ppc64le
+      linux_64_cross_target_platformlinux-ppc64le:
+        CONFIG: linux_64_cross_target_platformlinux-ppc64le
         UPLOAD_PACKAGES: 'True'
         DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma9
-      linux_aarch64_TG_linux-aarch64:
-        CONFIG: linux_aarch64_TG_linux-aarch64
+      linux_aarch64_cross_target_platformlinux-aarch64:
+        CONFIG: linux_aarch64_cross_target_platformlinux-aarch64
         UPLOAD_PACKAGES: 'True'
         DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma9
-      linux_ppc64le_TG_linux-ppc64le:
-        CONFIG: linux_ppc64le_TG_linux-ppc64le
+      linux_ppc64le_cross_target_platformlinux-ppc64le:
+        CONFIG: linux_ppc64le_cross_target_platformlinux-ppc64le
         UPLOAD_PACKAGES: 'True'
         DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma9
   timeoutInMinutes: 360

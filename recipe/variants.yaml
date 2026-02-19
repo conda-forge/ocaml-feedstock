@@ -3,13 +3,13 @@
 # ==============================================================================
 #
 # Following ctng-compilers-feedstock pattern:
-# - Only TG_ is a variant key (cleaner filenames)
+# - Only cross_target_platform is a variant key (cleaner filenames)
 # - Triplet and build_platform are derived in recipe.yaml using match()
 #
 # Variant filenames will be clean:
-#   linux_64_TG_linux-64.yaml
-#   linux_64_TG_linux-aarch64.yaml
-#   osx_64_TG_osx-arm64.yaml
+#   linux_64_cross_target_platform_linux-64.yaml
+#   linux_64_cross_target_platform_linux-aarch64.yaml
+#   osx_64_cross_target_platform_osx-arm64.yaml
 #
 # ==============================================================================
 
@@ -24,13 +24,13 @@ _CC:
 # ==============================================================================
 # Target platform matrix (GCC-style: single variant key)
 # ==============================================================================
-# TG_: The target platform this package produces code for
+# cross_target_platform: The target platform this package produces code for
 #
 # The corresponding triplet and build_platform are derived in recipe.yaml
 # using match() expressions - NOT as variant keys (avoids long filenames)
 # ==============================================================================
 
-TG_:
+cross_target_platform:
   - linux-64
   - linux-aarch64
   - linux-ppc64le

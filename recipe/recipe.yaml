@@ -11,37 +11,37 @@ context:
   xt: ${{ "" if unix else ".exe" }}
   # ===========================================================================
   # GCC-style derived values (not variant keys - keeps filenames clean)
-  # TG_ comes from variants.yaml
+  # cross_target_platform comes from variants.yaml
   # ===========================================================================
   # Mirror variant value in context (needed for env var passthrough on non-unix)
-  pkg_target: ${{ TG_ }}
-  # Derive triplet from TG_
+  pkg_target: ${{ cross_target_platform }}
+  # Derive triplet from cross_target_platform
   target_triplet: >-
     ${{
-      "x86_64-conda-linux-gnu"      if TG_ == "linux-64"                  else
-      "aarch64-conda-linux-gnu"     if TG_ == "linux-aarch64"             else
-      "powerpc64le-conda-linux-gnu" if TG_ == "linux-ppc64le"             else
-      "x86_64-apple-darwin13.4.0"   if TG_ == "osx-64"                    else
-      "arm64-apple-darwin20.0.0"    if TG_ == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if TG_ == "win-64" and _CC == "_mingw" else                                                 
-      "x86_64-pc-windows"           if TG_ == "win-64" and _CC != "_mingw" else                                                 
+      "x86_64-conda-linux-gnu"      if cross_target_platform == "linux-64"                  else
+      "aarch64-conda-linux-gnu"     if cross_target_platform == "linux-aarch64"             else
+      "powerpc64le-conda-linux-gnu" if cross_target_platform == "linux-ppc64le"             else
+      "x86_64-apple-darwin13.4.0"   if cross_target_platform == "osx-64"                    else
+      "arm64-apple-darwin20.0.0"    if cross_target_platform == "osx-arm64"                 else
+      "x86_64-w64-mingw32"          if cross_target_platform == "win-64" and _CC == "_mingw" else                                                 
+      "x86_64-pc-windows"           if cross_target_platform == "win-64" and _CC != "_mingw" else                                                 
       "unknown"
     }}
   # Which platform builds cross-compilers for each target
   cross_build_platform: >-
     ${{
-      "linux-64" if TG_ in ["linux-64", "linux-aarch64", "linux-ppc64le"] else
-      "osx-64"   if TG_ in ["osx-64", "osx-arm64"]                        else
-      "win-64"   if TG_ == "win-64"                                       else
+      "linux-64" if cross_target_platform in ["linux-64", "linux-aarch64", "linux-ppc64le"] else
+      "osx-64"   if cross_target_platform in ["osx-64", "osx-arm64"]                        else
+      "win-64"   if cross_target_platform == "win-64"                                       else
       target_platform
     }}
   c_compiler_key: ${{ "m2w64_c" if _CC == "_mingw" else "c" }}                                          
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
-  is_native: ${{ TG_ == build_platform }}
-  is_cross_compiler: ${{ (TG_ != target_platform) and (build_platform == cross_build_platform) }}
-  is_cross_target: ${{ (TG_ == target_platform) and (build_platform != target_platform) }}
+  is_native: ${{ cross_target_platform == build_platform }}
+  is_cross_compiler: ${{ (cross_target_platform != target_platform) and (build_platform == cross_build_platform) }}
+  is_cross_target: ${{ (cross_target_platform == target_platform) and (build_platform != target_platform) }}
 
 recipe:
   name: ocaml-packages
@@ -76,18 +76,18 @@ build:
 outputs:
   # ==========================================================================
   # METAPACKAGE: ocaml
-  # Depends on the platform-specific implementation ocaml_${{ TG_ }}
-  # Only built when TG_ == target_platform (alongside native compiler)
+  # Depends on the platform-specific implementation ocaml_${{ cross_target_platform }}
+  # Only built when cross_target_platform == target_platform (alongside native compiler)
   # ==========================================================================
   - package:
       name: ocaml
     build:
-      skip: TG_ != target_platform
+      skip: cross_target_platform != target_platform
       noarch: generic
       script: echo "OCaml metapackage"
     requirements:
       run:
-        - ${{ pin_subpackage("ocaml_" ~ TG_, exact=True) }}
+        - ${{ pin_subpackage("ocaml_" ~ cross_target_platform, exact=True) }}
       run_exports:
         - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
     tests:
@@ -99,23 +99,23 @@ outputs:
             else: echo "Skip on cross-compiled platform"
 
   # ==========================================================================
-  # PLATFORM IMPLEMENTATION: ocaml_${{ TG_ }}
+  # PLATFORM IMPLEMENTATION: ocaml_${{ cross_target_platform }}
   #
   # Three mutually exclusive build cases (exactly one applies per build):
   #
-  # 1. NATIVE (is_native): TG_ == build_platform
+  # 1. NATIVE (is_native): cross_target_platform == build_platform
   #    Native compiler built on its own platform (e.g., linux-64 on linux-64)
   #
-  # 2. CROSS-COMPILER (is_cross_compiler): TG_ != target_platform
+  # 2. CROSS-COMPILER (is_cross_compiler): cross_target_platform != target_platform
   #    Cross-compiler built on designated platform (e.g., aarch64 cross on linux-64)
-  #    Produces binaries that run on build platform, generate code for TG_
+  #    Produces binaries that run on build platform, generate code for cross_target_platform
   #
-  # 3. CROSS-TARGET (is_cross_target): TG_ == target_platform AND build != target
+  # 3. CROSS-TARGET (is_cross_target): cross_target_platform == target_platform AND build != target
   #    Native compiler built via cross-compilation (e.g., aarch64 native built on linux-64)
   #    Produces native binaries for target platform
   # ==========================================================================
   - package:
-      name: ocaml_${{ TG_ }}
+      name: ocaml_${{ cross_target_platform }}
     build:
       string: ${{ _CC ~ "_" if _CC }}h${{ hash }}_${{ build_number }}
       variant:
@@ -204,19 +204,19 @@ outputs:
         - binutils
 
         # --- CROSS-COMPILER: Target platform toolchain ---
-        # Guard (TG_ != build_platform) prevents self-referential cycle detection
-        - if: is_cross_compiler and (linux or osx) and (TG_ != build_platform)
+        # Guard (cross_target_platform != build_platform) prevents self-referential cycle detection
+        - if: is_cross_compiler and (linux or osx) and (cross_target_platform != build_platform)
           then:
             - if: match(version, ">=5.4.0") and (build_number > 2)
               then:
                 - ocaml_${{ build_platform }} >=5.4
             - if: linux
               then:
-                - ${{ c_compiler }}_impl_${{ TG_ }} ${{ c_compiler_version }}*
-                - sysroot_${{ TG_ }}
-                - binutils_impl_${{ TG_ }}
+                - ${{ c_compiler }}_impl_${{ cross_target_platform }} ${{ c_compiler_version }}*
+                - sysroot_${{ cross_target_platform }}
+                - binutils_impl_${{ cross_target_platform }}
               else:
-                - ${{ c_compiler }}_impl_${{ TG_ }} ${{ c_compiler_version }}*
+                - ${{ c_compiler }}_impl_${{ cross_target_platform }} ${{ c_compiler_version }}*
 
         # --- CROSS-TARGET: Bootstrap compiler for cross-compilation ---
         - if: is_cross_target
@@ -253,10 +253,10 @@ outputs:
           then:
             - if: linux
               then:
-                - gcc_impl_${{ TG_ }} >=${{ c_compiler_version }}
-                - binutils_impl_${{ TG_ }}
+                - gcc_impl_${{ cross_target_platform }} >=${{ c_compiler_version }}
+                - binutils_impl_${{ cross_target_platform }}
               else:
-                - clang_impl_${{ TG_ }} >=${{ c_compiler_version }}
+                - clang_impl_${{ cross_target_platform }} >=${{ c_compiler_version }}
                 - lld >=${{ c_compiler_version }}
                 - llvm-tools >=${{ c_compiler_version }}
 
@@ -495,13 +495,13 @@ outputs:
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
   # Full OCaml toolchain with C compiler and linker tools
-  # Only built when TG_ == target_platform (alongside native compiler)
+  # Only built when cross_target_platform == target_platform (alongside native compiler)
   # Platform-specific to include correct linker tools per platform
   # ==========================================================================
   - package:
       name: ocaml-compiler
     build:
-      skip: TG_ != target_platform
+      skip: cross_target_platform != target_platform
       script: echo "Toolchain meta-package"
     requirements:
       run:
@@ -574,10 +574,10 @@ outputs:
   # Uncomment when opam, dune, ocamlfind, ocamlbuild are available on conda-forge
   # ==========================================================================
   # - package:
-  #     name: ocaml-devel_${{ TG_ }}
+  #     name: ocaml-devel_${{ cross_target_platform }}
   #   build:
   #     noarch: generic
-  #     skip: TG_ != target_platform
+  #     skip: cross_target_platform != target_platform
   #     script: echo "Development environment meta-package"
   #   requirements:
   #     run:
