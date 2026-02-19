@@ -104,17 +104,17 @@ Current build status
                 </a>
               </td>
             </tr><tr>
-              <td>win_64__CC_mingwcross_target_platformwin-64</td>
+              <td>win_64_c_compilergcccross_target_platformwin-64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64__CC_mingwcross_target_platformwin-64" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_c_compilergcccross_target_platformwin-64" alt="variant">
                 </a>
               </td>
             </tr><tr>
-              <td>win_64__CC_vscross_target_platformwin-64</td>
+              <td>win_64_c_compilervs2022cross_target_platformwin-64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64__CC_vscross_target_platformwin-64" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_c_compilervs2022cross_target_platformwin-64" alt="variant">
                 </a>
               </td>
             </tr>

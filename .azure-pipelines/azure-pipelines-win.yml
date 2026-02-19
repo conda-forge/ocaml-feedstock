@@ -8,11 +8,11 @@ jobs:
     vmImage: windows-2022
   strategy:
     matrix:
-      win_64__CC_mingwcross_target_platformwin-64:
-        CONFIG: win_64__CC_mingwcross_target_platformwin-64
+      win_64_c_compilergcccross_target_platformwin-64:
+        CONFIG: win_64_c_compilergcccross_target_platformwin-64
         UPLOAD_PACKAGES: 'True'
-      win_64__CC_vscross_target_platformwin-64:
-        CONFIG: win_64__CC_vscross_target_platformwin-64
+      win_64_c_compilervs2022cross_target_platformwin-64:
+        CONFIG: win_64_c_compilervs2022cross_target_platformwin-64
         UPLOAD_PACKAGES: 'True'
   timeoutInMinutes: 360
   variables:

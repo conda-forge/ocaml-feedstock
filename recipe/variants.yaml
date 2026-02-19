@@ -13,13 +13,19 @@
 #
 # ==============================================================================
 
-_CC:
+#_CC:
+#  - if: not unix
+#    then:
+#      - "_vs"
+#      - "_mingw"
+#    else:
+#      - ""
+
+c_compiler:
   - if: not unix
     then:
-      - "_vs"
-      - "_mingw"
-    else:
-      - ""
+      - vs2022
+      - gcc
 
 # ==============================================================================
 # Target platform matrix (GCC-style: single variant key)

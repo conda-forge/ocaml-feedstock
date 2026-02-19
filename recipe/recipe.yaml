@@ -13,8 +13,6 @@ context:
   # GCC-style derived values (not variant keys - keeps filenames clean)
   # cross_target_platform comes from variants.yaml
   # ===========================================================================
-  # Mirror variant value in context (needed for env var passthrough on non-unix)
-  pkg_target: ${{ cross_target_platform }}
   # Derive triplet from cross_target_platform
   target_triplet: >-
     ${{
@@ -23,8 +21,8 @@ context:
       "powerpc64le-conda-linux-gnu" if cross_target_platform == "linux-ppc64le"             else
       "x86_64-apple-darwin13.4.0"   if cross_target_platform == "osx-64"                    else
       "arm64-apple-darwin20.0.0"    if cross_target_platform == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if cross_target_platform == "win-64" and _CC == "_mingw" else                                                 
-      "x86_64-pc-windows"           if cross_target_platform == "win-64" and _CC != "_mingw" else                                                 
+      "x86_64-w64-mingw32"          if cross_target_platform == "win-64" and c_compiler == "gcc" else
+      "x86_64-pc-windows"           if cross_target_platform == "win-64" and c_compiler == "vs2022" else                                                 
       "unknown"
     }}
   # Which platform builds cross-compilers for each target
@@ -35,7 +33,6 @@ context:
       "win-64"   if cross_target_platform == "win-64"                                       else
       target_platform
     }}
-  c_compiler_key: ${{ "m2w64_c" if _CC == "_mingw" else "c" }}                                          
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
@@ -64,7 +61,7 @@ source:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
-  - if: not unix and _CC != "_mingw"
+  - if: not unix and c_compiler == "vs2022"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
       sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
@@ -117,13 +114,13 @@ outputs:
   - package:
       name: ocaml_${{ cross_target_platform }}
     build:
-      string: ${{ _CC ~ "_" if _CC }}h${{ hash }}_${{ build_number }}
+      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       variant:
-        down_prioritize_variant: ${{ 0 if _CC == "_mingw" else 1 }}
+        down_prioritize_variant: ${{ 0 if (not unix and c_compiler == "gcc") else 1 }}
       script:
         env:
           SKIP_MAKE_TESTS: "1"
-          CROSS_TARGET_PLATFORM: ${{ pkg_target }}
+          CROSS_TARGET_PLATFORM: ${{ cross_target_platform }}
           TARGET_TRIPLET: ${{ target_triplet }}
       skip: not (is_native or is_cross_compiler or is_cross_target)
       dynamic_linking:
@@ -178,15 +175,15 @@ outputs:
     requirements:
       run_exports:
         strong:
-          - if: _CC == "_mingw"
+          - if: not unix and c_compiler == "gcc"
             then:
               - ${{ stdlib("m2w64_c") }}
-          - if: _CC == "_vs"
+          - if: not unix and c_compiler == "vs2022"
             then:
               - ${{ stdlib("c") }}
       build:
         # --- Common build deps (all cases) ---
-        - if: _CC == "_mingw"
+        - if: not unix and c_compiler == "gcc"
           then:
             - ${{ compiler("m2w64_c") }}
             - ${{ stdlib("m2w64_c") }}
@@ -282,10 +279,10 @@ outputs:
                 - if: osx
                   then:
                     - ocamlmklib.real
-                - if: unix or _CC != "_mingw"
+                - if: unix or c_compiler == "vs2022"
                   then:
                     - ocamlruni
-                - if: _CC == "_vs"
+                - if: not unix and c_compiler == "vs2022"
                   then:
                     - default_amd64.manifest
                 - if: not unix
@@ -338,7 +335,7 @@ outputs:
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
                 - ${{ library }}share/man/man{1,3}/*
-                - if: unix or _CC == "_mingw"
+                - if: unix or c_compiler == "gcc"
                   then:
                     - ${{ library }}lib/ocaml/libasmrun.a
                   else:
@@ -507,7 +504,7 @@ outputs:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
         # C compiler
-        - if: _CC == "_mingw"
+        - if: not unix and c_compiler == "gcc"
           then:
             - ${{ m2w64_c_compiler }}_${{ target_platform }}
           else:
@@ -517,7 +514,7 @@ outputs:
           then:
             - lld >=${{ c_compiler_version }}
             - llvm-tools >=${{ c_compiler_version }}
-        - if: unix or _CC == "_mingw"
+        - if: unix or c_compiler == "gcc"
           then:
             - binutils_impl_${{ target_platform }}
     tests:

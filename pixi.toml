@@ -71,18 +71,18 @@ description = "Build ocaml-feedstock-5.4.0-altc with variant osx_arm64_cross_tar
 [tasks."inspect-osx_arm64_cross_target_platformosx-arm64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/osx_arm64_cross_target_platformosx-arm64.yaml"
 description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant osx_arm64_cross_target_platformosx-arm64"
-[tasks."build-win_64__CC_mingwcross_target_platformwin-64"]
-cmd = "rattler-build build --recipe recipe -m .ci_support/win_64__CC_mingwcross_target_platformwin-64.yaml"
-description = "Build ocaml-feedstock-5.4.0-altc with variant win_64__CC_mingwcross_target_platformwin-64 directly (without setup scripts)"
-[tasks."inspect-win_64__CC_mingwcross_target_platformwin-64"]
-cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64__CC_mingwcross_target_platformwin-64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant win_64__CC_mingwcross_target_platformwin-64"
-[tasks."build-win_64__CC_vscross_target_platformwin-64"]
-cmd = "rattler-build build --recipe recipe -m .ci_support/win_64__CC_vscross_target_platformwin-64.yaml"
-description = "Build ocaml-feedstock-5.4.0-altc with variant win_64__CC_vscross_target_platformwin-64 directly (without setup scripts)"
-[tasks."inspect-win_64__CC_vscross_target_platformwin-64"]
-cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64__CC_vscross_target_platformwin-64.yaml"
-description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant win_64__CC_vscross_target_platformwin-64"
+[tasks."build-win_64_c_compilergcccross_target_platformwin-64"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_c_compilergcccross_target_platformwin-64.yaml"
+description = "Build ocaml-feedstock-5.4.0-altc with variant win_64_c_compilergcccross_target_platformwin-64 directly (without setup scripts)"
+[tasks."inspect-win_64_c_compilergcccross_target_platformwin-64"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_c_compilergcccross_target_platformwin-64.yaml"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant win_64_c_compilergcccross_target_platformwin-64"
+[tasks."build-win_64_c_compilervs2022cross_target_platformwin-64"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/win_64_c_compilervs2022cross_target_platformwin-64.yaml"
+description = "Build ocaml-feedstock-5.4.0-altc with variant win_64_c_compilervs2022cross_target_platformwin-64 directly (without setup scripts)"
+[tasks."inspect-win_64_c_compilervs2022cross_target_platformwin-64"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_c_compilervs2022cross_target_platformwin-64.yaml"
+description = "List contents of ocaml-feedstock-5.4.0-altc packages built for variant win_64_c_compilervs2022cross_target_platformwin-64"
 
 [feature.smithy.dependencies]
 conda-smithy = "*"

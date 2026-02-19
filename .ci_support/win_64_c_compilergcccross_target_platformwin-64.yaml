@@ -1,7 +1,5 @@
-_CC:
-- _mingw
 c_compiler:
-- vs2022
+- gcc
 c_stdlib:
 - vs
 channel_sources:
