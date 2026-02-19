@@ -1,0 +1,29 @@
+--- a/runtime/caml/camlatomic.h
++++ b/runtime/caml/camlatomic.h
+@@ -34,9 +34,14 @@ using std::memory_order_seq_cst;
+ }
+ #endif
+
+-#ifdef CAML_INTERNALS
+-
+-/* Loads and stores with acquire, release and relaxed semantics */
++/* Loads and stores with acquire, release and relaxed semantics.
++
++   These macros are simple wrappers around C11 atomics and are safe
++   to expose publicly. They must be defined unconditionally to avoid
++   include-order bugs when public headers (like mlvalues.h) include
++   camlatomic.h without CAML_INTERNALS, and then internal headers
++   (like platform.h) expect these macros to be defined.
++   See: https://github.com/ocaml/ocaml/issues/XXXXX */
+
+ #define atomic_load_acquire(p)                    \
+   atomic_load_explicit((p), memory_order_acquire)
+@@ -47,6 +52,8 @@ using std::memory_order_seq_cst;
+ #define atomic_store_relaxed(p, v)                      \
+   atomic_store_explicit((p), (v), memory_order_relaxed)
+
++#ifdef CAML_INTERNALS
++
+ /* Atomic counters, abstracted here for use across the runtime. */
+
+ Caml_inline void caml_atomic_counter_init(atomic_uintnat* counter, uintnat n)

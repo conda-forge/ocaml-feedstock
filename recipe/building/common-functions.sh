@@ -1,6 +1,18 @@
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
+# =============================================================================
+# CRITICAL: macOS DYLD_LIBRARY_PATH cleanup
+# =============================================================================
+# conda's libiconv can override /usr/lib/libiconv.2.dylib but lacks symbols
+# (_iconv_close, _iconv_open, _iconv) that system tools depend on.
+# This causes segfaults when running sed, make, or any tool that loads libcups.
+# Unsetting DYLD_LIBRARY_PATH at the start prevents this - scripts should use
+# DYLD_FALLBACK_LIBRARY_PATH instead (searched AFTER system paths).
+if [[ "$(uname 2>/dev/null)" == "Darwin" ]]; then
+  unset DYLD_LIBRARY_PATH 2>/dev/null || true
+fi
+
 # Nagging unix test
 is_unix() {
   [[ "${target_platform}" == "linux-"* || "${target_platform}" == "osx-"* ]]
@@ -39,7 +51,7 @@ run_logged() {
   else
     local rc=$?
     echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
-    tail -15 "${logfile}" | sed "s/^/${indent} /"
+    tail -100 "${logfile}" | sed "s/^/${indent} /"
     return ${rc}
   fi
 }
@@ -56,7 +68,10 @@ apply_cross_patches() {
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
+    # glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
+    # Patch both BYTECCLIBS (bytecode runtime) and NATIVECCLIBS (native runtime)
     sed -i 's/^\(BYTECCLIBS=.*\)$/\1 -ldl/' Makefile.config
+    sed -i 's/^\(NATIVECCLIBS=.*\)$/\1 -ldl/' Makefile.config
   fi
 }
 

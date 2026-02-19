@@ -22,6 +22,11 @@ unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
 
 OCAML_LIB="${1:?Usage: fix-macos-install-names.sh <ocaml_lib_dir>}"
 
+# CRITICAL: macOS system tools (install_name_tool, otool, codesign) can crash
+# when conda's libiconv overrides /usr/lib/libiconv.2.dylib but lacks symbols.
+# Run these tools with clean DYLD paths to avoid the conflict.
+unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+
 if [[ ! -d "${OCAML_LIB}" ]]; then
   echo "ERROR: Directory not found: ${OCAML_LIB}"
   exit 1
