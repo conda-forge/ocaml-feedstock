@@ -1,13 +1,13 @@
-CC_:
-- vs
 c_compiler:
-- vs2022
+- gcc
 c_stdlib:
 - vs
 channel_sources:
 - conda-forge
 channel_targets:
 - conda-forge main
+cross_target_platform:
+- win-64
 m2w64_c_compiler:
 - gcc
 m2w64_c_compiler_version:
