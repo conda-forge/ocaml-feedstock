@@ -132,12 +132,21 @@ else
   echo "Checking runtime-launch-info..."
   RUNTIME_INFO="${PREFIX}/lib/ocaml/runtime-launch-info"
   if [[ -f "${RUNTIME_INFO}" ]]; then
-    if head -2 "${RUNTIME_INFO}" | grep -q "${PREFIX}"; then
+    # runtime-launch-info is a BINARY file: line1="sh", line2=LIBDIR path, line3+=ocamlrun binary
+    # Only check line 2 (the text path) - the binary portion may contain build-time strings
+    # that are handled by conda's binary relocation separately
+    RUNTIME_PATH=$(head -2 "${RUNTIME_INFO}" | tail -1)
+    echo "  runtime-launch-info line 2: ${RUNTIME_PATH}"
+    if echo "${RUNTIME_PATH}" | grep -q "${PREFIX}"; then
       echo "  runtime-launch-info: contains PREFIX"
     fi
-    # Check for staging-specific paths (filter out test env PREFIX which may contain rattler-build)
-    if grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler" "${RUNTIME_INFO}"; then
-      echo "ERROR: runtime-launch-info contains build-time staging paths"
+    # Check for staging-specific paths in the text path line only
+    # BINDIR (line 2) is used by ocamlc at LINK TIME to construct the shebang path
+    # (#!/BINDIR/ocamlrun) baked into every bytecode executable. A wrong BINDIR means
+    # every bytecode program produced by this ocamlc will fail to launch.
+    if echo "${RUNTIME_PATH}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
+      echo "ERROR: runtime-launch-info BINDIR contains build-time staging paths"
+      echo "  This will cause bytecode executables to embed a wrong #!/.../ocamlrun shebang"
       exit 1
     fi
     echo "  runtime-launch-info: clean"

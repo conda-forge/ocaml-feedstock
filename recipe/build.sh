@@ -274,13 +274,15 @@ export NATIVE_RANLIB="${NATIVE_RANLIB##*/}"
 export NATIVE_STRIP="${NATIVE_STRIP##*/}"
 
 # CONDA_OCAML_* for runtime - basenames
+# NOTE: MKEXE/MKDLL contain flags with paths (e.g. -Wl,-rpath,@executable_path/../lib)
+# so ##*/ would strip to just "lib". setup_toolchain already uses basename for the command.
 export CONDA_OCAML_AR="${CONDA_OCAML_AR##*/}"
 export CONDA_OCAML_AS="${CONDA_OCAML_AS##*/}"
 export CONDA_OCAML_CC="${CONDA_OCAML_CC##*/}"
 export CONDA_OCAML_LD="${CONDA_OCAML_LD##*/}"
 export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB##*/}"
-export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE##*/}"
-export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL##*/}"
+export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE}"
+export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL}"
 EOF
 
   # ============================================================================
@@ -540,11 +542,8 @@ EOF
   local installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   clean_makefile_config "${installed_config}" "${PREFIX}"
 
-  # Clean build-time paths from runtime-launch-info
-  # This file contains paths used during compilation - sanitize any build-time leaks
-  echo "  - Cleaning build-time paths from runtime-launch-info..."
-  local runtime_launch_info="${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info"
-  clean_runtime_launch_info "${runtime_launch_info}" "${PREFIX}"
+  # NOTE: runtime-launch-info cleanup deferred to post-transfer (after transfer_to_prefix)
+  # Cleaning here would corrupt the file if this build is used as an intermediate stage
 
   # Verify rpath for macOS binaries
   # OCaml embeds @rpath/libzstd.1.dylib - rpath should be set via BYTECCLIBS during build
@@ -1168,9 +1167,8 @@ EOF
       echo "    WARNING: Makefile.config not found at ${makefile_config}"
     fi
 
-    # Clean build-time paths from runtime-launch-info
-    echo "  Cleaning build-time paths from runtime-launch-info..."
-    clean_runtime_launch_info "${OCAML_CROSS_LIBDIR}/runtime-launch-info" "${PREFIX}"
+    # NOTE: runtime-launch-info cleanup deferred to post-transfer
+    # Cleaning here would corrupt the file before Stage 3 can use it
 
     # Remove unnecessary library files to reduce package size
     echo "  Cleaning up unnecessary library files..."
@@ -1644,10 +1642,8 @@ STRIPDEBUG
   local installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   clean_makefile_config "${installed_config}" "${PREFIX}"
 
-  # Clean build-time paths from runtime-launch-info
-  echo "    Cleaning build-time paths from runtime-launch-info..."
-  local runtime_launch_info="${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info"
-  clean_runtime_launch_info "${runtime_launch_info}" "${PREFIX}"
+  # NOTE: runtime-launch-info cleanup deferred to post-transfer
+  # Cleaning here would corrupt the file if this is an intermediate build stage
 
   if [[ "${PLATFORM_TYPE}" == "macos" ]]; then
     echo "    Fixing macOS install names..."
@@ -1771,8 +1767,8 @@ export CONDA_OCAML_AS="${CONDA_OCAML_AS##*/}"
 export CONDA_OCAML_CC="${CONDA_OCAML_CC##*/}"
 export CONDA_OCAML_LD="${CONDA_OCAML_LD##*/}"
 export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB##*/}"
-export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE##*/}"
-export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL##*/}"
+export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE}"
+export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL}"
 EOF
     echo "  [CACHE] Generated _native_compiler_env.sh"
 
@@ -1907,6 +1903,12 @@ EOF
     clean_makefile_config "${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
   fi
 
+  # Clean build-time paths from runtime-launch-info (after transfer to PREFIX)
+  echo "  Cleaning build-time paths from final runtime-launch-info..."
+  if is_unix; then
+    clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
+  fi
+
 fi
 
 # ==============================================================================
@@ -1947,6 +1949,12 @@ ${cross_dir}lib/ocaml/stublibs
 ${cross_dir}lib/ocaml
 EOF
       echo "    Fixed: lib/ocaml-cross-compilers/${triplet}/lib/ocaml/ld.conf"
+    fi
+
+    # Fix runtime-launch-info (binary file - use binary-safe cleanup)
+    runtime_info="${cross_dir}/lib/ocaml/runtime-launch-info"
+    if [[ -f "$runtime_info" ]]; then
+      clean_runtime_launch_info "$runtime_info" "${OCAML_INSTALL_PREFIX}"
     fi
   done
 fi
@@ -2043,6 +2051,13 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   # CRITICAL: Clean build-time paths from FINAL installed Makefile.config
   echo "  Cleaning build-time paths from final Makefile.config..."
   clean_makefile_config "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
+
+  # CRITICAL: Clean build-time paths from runtime-launch-info
+  # The cross-target build copies runtime-launch-info from the cross-compiler's stdlib,
+  # which has BINDIR pointing to the cross-compiler's staging directory.
+  # Replace line 2 with the correct target BINDIR ($PREFIX/bin).
+  echo "  Cleaning build-time paths from final runtime-launch-info..."
+  clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
 fi
 
 # ==============================================================================
