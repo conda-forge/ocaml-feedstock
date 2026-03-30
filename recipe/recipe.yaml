@@ -8,7 +8,7 @@ context:
   # ===========================================================================
   # Set to "1" to enable progressive build cache in ${RECIPE_DIR}/.build_cache/
   # This caches successful native compiler builds to speed up cross-compiler debugging
-  use_cache: "1"
+  use_cache: "0"
   dot: ${{ "./" if unix else "" }}
   library: ${{ "Library/" if not unix else "" }}
   m2: ${{ "m2-" if not unix else "" }}

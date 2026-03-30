@@ -35,15 +35,7 @@ run_logged() {
   if [[ "${VERBOSE:-0}" == "1" ]]; then
     echo "${indent}$ $cmd $*"
   else
-    # Show command name + count of args
-    local nargs=$#
-    # Extract just the key names from KEY=value args
-    local keys=""
-    for arg in "$@"; do
-      [[ "$arg" == *"="* ]] && keys+=" ${arg%%=*}"
-      [[ "$arg" != *"="* ]] && keys+=" ${arg}"
-    done
-    echo "${indent}$ ${cmd##*/} [${nargs} args:${keys:- ...}]"
+    echo "${indent}$ ${cmd##*/} ($# args)"
   fi
 
   if "$cmd" "$@" >> "${logfile}" 2>&1; then
@@ -144,8 +136,8 @@ get_target_arch() {
   esac
 }
 
-# Get target architecture for OCaml ARCH variable
-# Usage: get_target_arch "aarch64-conda-linux-gnu" → "arm64"
+# Get target platform from triplet
+# Usage: get_target_platform "aarch64-conda-linux-gnu" → "linux-aarch64"
 get_target_platform() {
   local target="$1"
   
@@ -162,18 +154,6 @@ get_target_platform() {
 # ==============================================================================
 # macOS SDK Sysroot Detection
 # ==============================================================================
-
-decompress_xz() {
-  local input="$1"
-  local output_dir="$2"
-
-  python -c "
-import lzma, tarfile
-with lzma.open('${input}') as xz:
-    with tarfile.open(fileobj=xz) as tar:
-        tar.extractall('${output_dir}')
-"
-}
 
 # Find macOS ARM64 SDK sysroot
 # Sets: ARM64_SYSROOT variable
@@ -623,81 +603,48 @@ clean_makefile_config() {
 
   [[ -f "${config_file}" ]] || return 0
 
-  # Remove -L paths containing build directories (conda-bld, rattler-build, build_env)
-  sed -i 's|-L[^ ]*conda-bld[^ ]* ||g' "${config_file}"
-  sed -i 's|-L[^ ]*rattler-build[^ ]* ||g' "${config_file}"
-  sed -i 's|-L[^ ]*build_env[^ ]* ||g' "${config_file}"
-  sed -i 's|-L[^ ]*_build_env[^ ]* ||g' "${config_file}"
-  # Remove any remaining absolute -L paths (will find libs via standard paths at runtime)
-  sed -i 's|-L/[^ ]*/lib ||g' "${config_file}"
-  # Clean -Wl,-L paths too
-  sed -i 's|-Wl,-L[^ ]* ||g' "${config_file}"
+  # Build-time path markers to clean (conda-bld, rattler-build, placeholders, env dirs)
+  local markers=(
+    "rattler-build" "conda-bld" "build_artifacts" "placehold"
+    "host_env" "build_env" "_build_env" "feedstock"
+  )
 
-  # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths like /home/*/feedstock_root/*
+  # Remove -L and -Wl,-L paths containing build directories
+  sed -i 's|-L/[^ ]*/lib ||g' "${config_file}"
+  sed -i 's|-Wl,-L[^ ]* ||g' "${config_file}"
+  for marker in "${markers[@]}"; do
+    sed -i "s|-L[^ ]*${marker}[^ ]* ||g" "${config_file}"
+  done
+
+  # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths
   sed -i '/^CONFIGURE_ARGS=/d' "${config_file}"
   echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${config_file}"
 
-  # Clean any remaining build-time paths (various patterns used by CI systems)
-  # Strategy: Match paths anywhere on line (start, middle, end) using better regex patterns
-
-  # 1. Absolute paths starting with /home/ (comprehensive patterns)
+  # Replace absolute /home/ paths with prefix
   sed -i "s|/home/[^/]*/feedstock_root[^[:space:]]*|${prefix}|g" "${config_file}"
   sed -i "s|/home/[^/]*/feedstock[^[:space:]]*|${prefix}|g" "${config_file}"
   sed -i "s|/home/[^/]*/build_artifacts[^[:space:]]*|${prefix}|g" "${config_file}"
   sed -i "s|/home/conda/feedstock_root[^[:space:]]*|${prefix}|g" "${config_file}"
 
-  # 2. Any path containing rattler-build (handles paths at any position, including end of line)
-  sed -i "s|[^[:space:]]*rattler-build[^[:space:]]*|${prefix}|g" "${config_file}"
+  # For each marker: replace standalone paths, strip -isystem/-I/-L references,
+  # delete standalone lines starting with the marker
+  for marker in "${markers[@]}"; do
+    sed -i "s|[^[:space:]]*${marker}[^[:space:]]*|${prefix}|g" "${config_file}"
+    sed -i "s|-isystem [^[:space:]]*${marker}[^[:space:]]*||g" "${config_file}"
+    sed -i "s|-I[^[:space:]]*${marker}[^[:space:]]*||g" "${config_file}"
+    sed -i "s|-L[^[:space:]]*${marker}[^[:space:]]*||g" "${config_file}"
+    sed -i "\\|^/[^[:space:]]*${marker}|d" "${config_file}"
+  done
 
-  # 3. Any path containing conda-bld
-  sed -i "s|[^[:space:]]*conda-bld[^[:space:]]*|${prefix}|g" "${config_file}"
-
-  # 4. Any path containing build_artifacts
-  sed -i "s|[^[:space:]]*build_artifacts[^[:space:]]*|${prefix}|g" "${config_file}"
-
-  # 5. Placeholder paths (common in conda builds with long prefixes)
-  sed -i "s|[^[:space:]]*placehold[^[:space:]]*|${prefix}|g" "${config_file}"
-
-  # 6. Host/build env paths
-  sed -i "s|[^[:space:]]*host_env[^[:space:]]*|${prefix}|g" "${config_file}"
-  sed -i "s|[^[:space:]]*build_env[^[:space:]]*|${prefix}|g" "${config_file}"
-  sed -i "s|[^[:space:]]*_build_env[^[:space:]]*|${prefix}|g" "${config_file}"
-
-  # 7. Remove -isystem and -I paths with build-time directories
-  sed -i 's|-isystem [^[:space:]]*rattler-build[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-isystem [^[:space:]]*conda-bld[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-isystem [^[:space:]]*build_env[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-isystem [^[:space:]]*placehold[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-isystem [^[:space:]]*host_env[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-I[^[:space:]]*rattler-build[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-I[^[:space:]]*conda-bld[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-I[^[:space:]]*build_env[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-I[^[:space:]]*placehold[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-I[^[:space:]]*host_env[^[:space:]]*||g' "${config_file}"
-
-  # 8. Remove -L paths with build-time directories
-  sed -i 's|-L[^[:space:]]*rattler-build[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-L[^[:space:]]*conda-bld[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-L[^[:space:]]*build_env[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-L[^[:space:]]*placehold[^[:space:]]*||g' "${config_file}"
-  sed -i 's|-L[^[:space:]]*host_env[^[:space:]]*||g' "${config_file}"
-
-  # 9. Delete lines that are ONLY ${prefix} (orphaned after path replacement)
+  # Delete orphaned lines that are only the prefix
   sed -i '/^'"${prefix//\//\\/}"'$/d' "${config_file}"
-
-  # 10. Delete lines that start with build-time paths (standalone path lines)
-  sed -i '\|^/[^[:space:]]*rattler-build|d' "${config_file}"
-  sed -i '\|^/[^[:space:]]*conda-bld|d' "${config_file}"
-  sed -i '\|^/[^[:space:]]*placehold|d' "${config_file}"
-  sed -i '\|^/[^[:space:]]*host_env|d' "${config_file}"
-  sed -i '\|^/[^[:space:]]*build_env|d' "${config_file}"
   sed -i '\|^/home/[^/]*/feedstock|d' "${config_file}"
 
-  # 10a. FINAL CLEANUP: Use grep to remove any remaining lines with build markers
-  # This catches edge cases where sed patterns don't match (e.g., unusual path formats)
+  # Final grep-based cleanup for any remaining build markers
   local temp_file="${config_file}.final_clean"
-  if grep -qE "rattler-build|conda-bld|/home/[^/]+/feedstock|host_env_placehold|build_env_placehold" "${config_file}" 2>/dev/null; then
-    grep -vE "rattler-build|conda-bld|/home/[^/]+/feedstock|host_env_placehold|build_env_placehold" "${config_file}" > "${temp_file}" 2>/dev/null
+  local grep_pattern="rattler-build|conda-bld|/home/[^/]+/feedstock|host_env_placehold|build_env_placehold"
+  if grep -qE "${grep_pattern}" "${config_file}" 2>/dev/null; then
+    grep -vE "${grep_pattern}" "${config_file}" > "${temp_file}" 2>/dev/null
     if [[ -s "${temp_file}" ]]; then
       mv "${temp_file}" "${config_file}"
     else
@@ -705,29 +652,9 @@ clean_makefile_config() {
     fi
   fi
 
-  # 11. Clean up multiple consecutive spaces created by removals
+  # Clean up whitespace: collapse multiple spaces, remove empty lines
   sed -i 's|  *| |g' "${config_file}"
-
-  # NUCLEAR CLEANUP: Delete ANY line containing build directory markers
-  # These paths cannot be fixed by substitution because ${PREFIX} IS the build path during build
-  # Lines with build-time paths won't work at runtime anyway - delete them entirely
-  # Using sed -i for deletion (always succeeds, unlike grep -v which exits 1 on no match)
-
-  # First try to salvage lines by removing just the path portions inline
-  sed -i 's|[^[:space:]]*/bld/rattler-build_[^[:space:]]*||g' "${config_file}"
-  sed -i 's|[^[:space:]]*/output/bld/[^[:space:]]*||g' "${config_file}"
-  sed -i 's|[^[:space:]]*host_env_placehold[^[:space:]]*||g' "${config_file}"
-  sed -i 's|[^[:space:]]*build_env_placehold[^[:space:]]*||g' "${config_file}"
-
-  # Delete entire lines that STILL contain build markers (using sed -i for reliability)
-  sed -i '/\/bld\/rattler-build_/d' "${config_file}"
-  sed -i '/\/output\/bld\//d' "${config_file}"
-  sed -i '/host_env_placehold/d' "${config_file}"
-  sed -i '/build_env_placehold/d' "${config_file}"
-
-  # Final cleanup: remove empty lines and fix whitespace
   sed -i '/^[[:space:]]*$/d' "${config_file}"
-  sed -i 's|  *| |g' "${config_file}"
 }
 
 # Clean build-time paths from an installed runtime-launch-info file
@@ -1229,16 +1156,3 @@ cache_status() {
   fi
 }
 
-# Clear all caches
-cache_clear() {
-  local cache_root_dir
-  cache_root_dir="$(cache_root)"
-
-  if [[ -d "${cache_root_dir}" ]]; then
-    echo "  [CACHE] Clearing all caches..."
-    rm -rf "${cache_root_dir}"
-    echo "  [CACHE] Cache cleared"
-  else
-    echo "  [CACHE] No cache to clear"
-  fi
-}
