@@ -982,7 +982,7 @@ TOOLWRAPPER
       STRIP="${CROSS_STRIP}"
     )
 
-    echo "  [5/7] Building cross-compiler (crossopt)..."
+    echo "  [5/7] Building and installing cross-compiler..."
 
     (
       # Export CONDA_OCAML_* for cross-compilation and add cross-tools to PATH
@@ -991,6 +991,7 @@ TOOLWRAPPER
       # Native compiler stdlib location (for copying fresh .cmi files in crossopt)
       NATIVE_STDLIB="${OCAML_PREFIX}/lib/ocaml"
 
+      # --- Build crossopt ---
       CROSSOPT_ARGS=(
         "${CROSS_TOOLCHAIN_ARGS[@]}"
         CAMLOPT=ocamlopt
@@ -1011,25 +1012,11 @@ TOOLWRAPPER
       )
 
       run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}"
-    )
 
-    # ========================================================================
-    # Install cross-compiler
-    # ========================================================================
-
-    echo "  [6/7] Installing cross-compiler via 'make installcross'..."
-
-    (
-      # Use same environment as crossopt
-      _setup_crossopt_env
-
-      INSTALL_ARGS=(
-        "${CROSS_TOOLCHAIN_ARGS[@]}"
-        PREFIX="${OCAML_CROSS_PREFIX}"
-      )
+      # --- Install crossopt ---
+      echo "  [6/7] Installing cross-compiler via 'make installcross'..."
 
       # Clean LIBDIR before install to ensure fresh installation
-      # This prevents mixing of files from crossopt build with make install
       echo "    Cleaning LIBDIR before install..."
       rm -rf "${OCAML_CROSS_LIBDIR}"
 
@@ -1044,6 +1031,11 @@ TOOLWRAPPER
         echo "    ERROR: Missing a CRC file:"
         ls -l "$_pre_unix" "$_pre_threads" "$_ocamlobjinfo_build"
       fi
+
+      INSTALL_ARGS=(
+        "${CROSS_TOOLCHAIN_ARGS[@]}"
+        PREFIX="${OCAML_CROSS_PREFIX}"
+      )
 
       run_logged "installcross" "${MAKE[@]}" installcross "${INSTALL_ARGS[@]}"
     )
@@ -1643,20 +1635,13 @@ STRIPDEBUG
 }
 
 # ==============================================================================
-# build_stages_1_and_2() - Build native OCaml (Stage 1) + cross-compiler (Stage 2)
-# Sets OCAML_NATIVE_INSTALL_PREFIX and OCAML_XCROSS_INSTALL_PREFIX in caller scope.
-# Supports progressive caching with OCAML_USE_CACHE=1
-# Cache stores ONLY installed artifacts, not source trees
+# build_stage1_native() - Build or restore native OCaml compiler
+# Sets OCAML_NATIVE_INSTALL_PREFIX in caller scope.
 # ==============================================================================
-build_stages_1_and_2() {
-  # Stage 1: Build native OCaml (needed to bootstrap the cross-compiler)
+build_stage1_native() {
   OCAML_NATIVE_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler
 
-  # CRITICAL: Cache is NOT usable for cross-compiler builds!
-  # OCaml compilers have paths baked into the binary (Config.standard_library).
-  # A cached compiler from a previous build has old paths that don't exist.
-  # This causes CRC mismatches because the compiler looks for stdlib at invalid paths.
-  # Therefore, we SKIP the cache entirely and always rebuild.
+  # Check cache: validate baked-in stdlib path matches current build
   local use_cache=false
   if cache_native_exists && [[ "${OCAML_SKIP_CACHE:-0}" != "1" ]]; then
     echo ""
@@ -1668,13 +1653,10 @@ build_stages_1_and_2() {
       local cached_stdlib
       cached_stdlib=$("${cached_ocamlopt}" -config 2>/dev/null | grep "^standard_library:" | awk '{print $2}' || echo "UNKNOWN")
       local new_stdlib_path="${OCAML_NATIVE_INSTALL_PREFIX}/lib/ocaml"
-      echo "  [CACHE] Cached compiler stdlib: ${cached_stdlib}"
-      echo "  [CACHE] Current build stdlib will be at: ${new_stdlib_path}"
+      echo "  [CACHE] Cached stdlib: ${cached_stdlib}"
+      echo "  [CACHE] Expected:     ${new_stdlib_path}"
       if [[ "${cached_stdlib}" != "${new_stdlib_path}" ]]; then
         echo "  [CACHE] Paths differ - will use cache with OCAMLLIB override"
-        echo "  [CACHE] OCaml compilers have stdlib paths baked into the binary."
-        echo "  [CACHE] Setting OCAMLLIB to override baked-in path: ${new_stdlib_path}"
-        # OCAMLLIB will be set by cache_native_restore()
       else
         echo "  [CACHE] Paths match - cache is directly usable"
       fi
@@ -1689,14 +1671,11 @@ build_stages_1_and_2() {
     echo "=== Stage 1: Restoring native OCaml from cache ==="
     cache_native_restore "${OCAML_NATIVE_INSTALL_PREFIX}"
     echo "  [CACHE] Native compiler ready at ${OCAML_NATIVE_INSTALL_PREFIX}"
-    echo "  [CACHE] Skipping native build (using cached install)"
 
-    # Setup toolchain variables (needed for _native_compiler_env.sh)
-    # These would normally be set by build_native() but we're skipping that
+    # Setup toolchain variables that build_native() would normally set
     setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
     setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
 
-    # Setup CONDA_OCAML_* variables (same as build_native lines 249-258)
     export CONDA_OCAML_AR=$(basename "${NATIVE_AR}")
     export CONDA_OCAML_CC=$(basename "${NATIVE_CC}")
     export CONDA_OCAML_LD=$(basename "${NATIVE_LD}")
@@ -1705,13 +1684,8 @@ build_stages_1_and_2() {
     export CONDA_OCAML_MKEXE="${NATIVE_MKEXE}"
     export CONDA_OCAML_MKDLL="${NATIVE_MKDLL}"
 
-    # Generate _native_compiler_env.sh with basenames for portability
     generate_native_env_file
-    echo "  [CACHE] Generated _native_compiler_env.sh"
-
-    # Set OCAMLLIB for restored native compiler (critical for cross-compiler build)
     export OCAMLLIB="${OCAML_NATIVE_INSTALL_PREFIX}/lib/ocaml"
-    echo "  [CACHE] Set OCAMLLIB=${OCAMLLIB}"
   else
     echo ""
     echo "=== Stage 1: Building native OCaml ==="
@@ -1719,30 +1693,30 @@ build_stages_1_and_2() {
       OCAML_INSTALL_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
       build_native
     )
-    # Save installed artifacts to cache after successful build
     cache_native_save "${OCAML_NATIVE_INSTALL_PREFIX}"
   fi
+}
 
-  # Stage 2: Build cross-compiler for OCAML_TARGET_PLATFORM
-  # Stage 2: Build cross-compiler for OCAML_TARGET_PLATFORM
+# ==============================================================================
+# build_stage2_xcross() - Build or restore cross-compiler
+# Requires OCAML_NATIVE_INSTALL_PREFIX set by build_stage1_native().
+# Sets OCAML_XCROSS_INSTALL_PREFIX in caller scope.
+# ==============================================================================
+build_stage2_xcross() {
   OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
-  _XCROSS_TARGET="${OCAML_TARGET_PLATFORM:-${cross_target_platform}}"
+  local _XCROSS_TARGET="${OCAML_TARGET_PLATFORM:-${cross_target_platform}}"
 
-  # Try to restore cross-compiler from cache
   if cache_xcross_exists "${_XCROSS_TARGET}"; then
     echo ""
     echo "=== Stage 2: Restoring cross-compiler from cache ==="
     cache_xcross_restore "${OCAML_XCROSS_INSTALL_PREFIX}" "${_XCROSS_TARGET}"
     echo "  [CACHE] Cross-compiler ready at ${OCAML_XCROSS_INSTALL_PREFIX}"
-    echo "  [CACHE] Skipping cross-compiler build (using cached install)"
 
-    # Setup cross-toolchain variables (needed for env file)
-    # These would normally be set by build_cross_compiler() but we're skipping that
+    # Setup cross-toolchain variables that build_cross_compiler() would normally set
     local target="${OCAML_TARGET_TRIPLET}"
     CROSS_ARCH=$(get_target_arch "${target}")
     CROSS_PLATFORM=$(get_target_platform "${target}")
 
-    # Handle macOS ARM64 SDK setup
     if [[ "${target}" == "arm64-apple-darwin"* ]]; then
       setup_macos_sysroot "${target}"
       export SDKROOT="${ARM64_SYSROOT}"
@@ -1752,14 +1726,10 @@ build_stages_1_and_2() {
     setup_toolchain "CROSS" "${target}"
     setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
 
-    # Generate env file with basenames for portability
     generate_xcross_env_file "${_XCROSS_TARGET}"
-    echo "  [CACHE] Generated _xcross_compiler_${_XCROSS_TARGET}_env.sh"
 
-    # Set OCAMLLIB to native compiler (same as build path does)
     export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
     export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
-    echo "  [CACHE] Set OCAMLLIB=${OCAMLLIB}"
   else
     echo ""
     echo "=== Stage 2: Building cross-compiler ==="
@@ -1771,9 +1741,16 @@ build_stages_1_and_2() {
       source "${SRC_DIR}/_native_compiler_env.sh"
       build_cross_compiler
     )
-    # Save to cache after successful build
     cache_xcross_save "${OCAML_XCROSS_INSTALL_PREFIX}" "${_XCROSS_TARGET}"
   fi
+}
+
+# ==============================================================================
+# build_stages_1_and_2() - Orchestrate Stage 1 (native) + Stage 2 (cross-compiler)
+# ==============================================================================
+build_stages_1_and_2() {
+  build_stage1_native
+  build_stage2_xcross
 }
 
 # ==============================================================================
