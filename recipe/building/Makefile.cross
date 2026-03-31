@@ -222,6 +222,9 @@ endif
 	# Prepend TARGET_ZSTD_LIBS to LDFLAGS so target-arch zstd is found first
 	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) LDFLAGS="$(TARGET_ZSTD_LIBS) $(LDFLAGS)" $(OLDS)
 	# Build native compilers (BUILD platform binaries) using CAMLOPT from PATH
+	# NOTE: Do NOT clean compilerlibs here - they were built at line 194-195 with matching
+	# stdlib CRCs. Cleaning them would force rebuild with PATH ocamlopt which uses
+	# $PREFIX/lib/ocaml stdlib (different CRCs from work tree stdlib)
 	# Set CONDA_OCAML_* env vars so ocamlopt finds NATIVE tools (not cross-tools)
 	# NATIVE_ASM includes "-c" for macOS clang (space-separated, hence quoted)
 	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
@@ -264,8 +267,9 @@ endif
 	@cp "$(NATIVE_STDLIB)/dynlink/"*.cmx "$(LIBDIR)/dynlink/" 2>/dev/null || true
 	@cp "$(NATIVE_STDLIB)/systhreads/"*.cmx "$(LIBDIR)/systhreads/" 2>/dev/null || true
 	@cp "$(NATIVE_STDLIB)/runtime_events/"*.cmx "$(LIBDIR)/runtime_events/" 2>/dev/null || true
-	# CRITICAL: Clean otherlibs .cmx files to force rebuild with fresh stdlib CRCs
-	# Without this, existing unix.cmx from native build won't be rebuilt
+	# CRITICAL: Clean otherlibs .cmx/.cmi/.o to force rebuild with fresh stdlib CRCs
+	# NOTE: Do NOT clean .cmxa/.a here - the working branch (mnt/v5.4.0_1-clean) doesn't
+	# and cleaning them causes CRC mismatches. The Make system handles incremental rebuilds.
 	@echo "=== Cleaning otherlibs .cmx to force rebuild ==="
 	@rm -f otherlibs/unix/*.cmx otherlibs/unix/*.cmi otherlibs/unix/*.o
 	@rm -f otherlibs/str/*.cmx otherlibs/str/*.cmi otherlibs/str/*.o
@@ -346,7 +350,6 @@ endif
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	@cp otherlibs/systhreads/*.cmi "$(LIBDIR)/systhreads/"
 	# Build ocamltoolsopt separately - these link against NATIVE stdlib (not cross)
-	# so they should NOT have OCAMLLIB override
 	$(MAKE) ocamltoolsopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
 	  BEST_OCAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
@@ -372,9 +375,14 @@ endif
 	  fi; \
 	done
 	# We now build the compiler libs again, but for target this time
+	# CRITICAL: Also remove .cmi files from compilerlibs to prevent CRC mismatches
+	# The .cmi files from earlier stages have OLD stdlib CRCs
 	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
 	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
+	rm -f utils/*.cmi parsing/*.cmi lambda/*.cmi bytecomp/*.cmi \
+	  file_formats/*.cmi typing/*.cmi driver/*.cmi toplevel/*.cmi asmcomp/*.cmi
+	rm -f middle_end/*.cmi middle_end/**/*.cmi 2>/dev/null || true
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
 
 .PHONY: crosscompiledopt

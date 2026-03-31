@@ -48,8 +48,8 @@ echo   CONDA_OCAML_WINDRES= %CONDA_OCAML_WINDRES%
 echo PASS: All CONDA_OCAML_* variables are set
 echo.
 
-REM Test 2: Verify wrapper files exist (MinGW uses .exe, MSVC uses .bat)
-echo Test 2: Wrapper files exist in OCAML_PREFIX\bin
+REM Test 2: Verify wrapper scripts exist
+echo Test 2: Wrapper scripts exist in OCAML_PREFIX\bin
 
 set WRAPPER_DIR=%OCAML_PREFIX%\bin
 set WRAPPER_MISSING=0

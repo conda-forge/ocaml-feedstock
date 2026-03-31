@@ -45,6 +45,28 @@ else
   MACOS_LINK_FLAGS=()
 fi
 
+# Build shared (.so) and static (.a) C libraries using cross-tools.
+# Usage: _build_c_libs <output_name>
+# Requires: CROSS_CC, CROSS_AR, c_objs[], ld_opts[], c_libs[], MACOS_LINK_FLAGS[], verbose
+_build_c_libs() {
+  local _name="$1"
+  local dll_name="dll${_name}.so"
+  local lib_name="lib${_name}.a"
+
+  debug "Building shared library: $dll_name"
+  local cmd=("${CROSS_CC}" -shared ${MACOS_LINK_FLAGS[@]+"${MACOS_LINK_FLAGS[@]}"} -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
+  [[ -n "$verbose" ]] && echo "+ ${cmd[*]}"
+  "${cmd[@]}"
+
+  debug "Building static library: $lib_name"
+  rm -f "$lib_name"
+  cmd=("${CROSS_AR}" rcs "$lib_name" "${c_objs[@]}")
+  [[ -n "$verbose" ]] && echo "+ ${cmd[*]}"
+  "${cmd[@]}"
+
+  debug "Built C libs: $dll_name, $lib_name"
+}
+
 debug "Args: $*"
 debug "CROSS_CC=${CROSS_CC:-unset}"
 debug "CROSS_AR=${CROSS_AR:-unset}"
@@ -152,28 +174,7 @@ if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
       exit 1
     fi
 
-    # Build shared library with cross-compiler
-    dll_name="dll${_output_c}.so"
-    debug "Building shared library: $dll_name"
-    # Use ${arr[@]+"${arr[@]}"} pattern to handle empty arrays with set -u
-    # Include MACOS_LINK_FLAGS for macOS (-undefined dynamic_lookup)
-    cmd=("${CROSS_CC}" -shared ${MACOS_LINK_FLAGS[@]+"${MACOS_LINK_FLAGS[@]}"} -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
-    if [[ -n "$verbose" ]]; then
-      echo "+ ${cmd[*]}"
-    fi
-    "${cmd[@]}"
-
-    # Build static library with cross-archiver
-    lib_name="lib${_output_c}.a"
-    debug "Building static library: $lib_name"
-    rm -f "$lib_name"
-    cmd=("${CROSS_AR}" rcs "$lib_name" "${c_objs[@]}")
-    if [[ -n "$verbose" ]]; then
-      echo "+ ${cmd[*]}"
-    fi
-    "${cmd[@]}"
-
-    debug "Built C libs: $dll_name, $lib_name"
+    _build_c_libs "${_output_c}"
   fi
 
   # Now call native ocamlmklib for OCaml archive creation
@@ -242,26 +243,5 @@ else
     exit 1
   fi
 
-  # Build shared library: dll<name>.so
-  dll_name="dll${_output_c}.so"
-  debug "Building shared library: $dll_name"
-  # Use ${arr[@]+"${arr[@]}"} pattern to handle empty arrays with set -u
-  # Include MACOS_LINK_FLAGS for macOS (-undefined dynamic_lookup)
-  cmd=("${CROSS_CC}" -shared ${MACOS_LINK_FLAGS[@]+"${MACOS_LINK_FLAGS[@]}"} -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
-  if [[ -n "$verbose" ]]; then
-    echo "+ ${cmd[*]}"
-  fi
-  "${cmd[@]}"
-
-  # Build static library: lib<name>.a
-  lib_name="lib${_output_c}.a"
-  debug "Building static library: $lib_name"
-  rm -f "$lib_name"
-  cmd=("${CROSS_AR}" rcs "$lib_name" "${c_objs[@]}")
-  if [[ -n "$verbose" ]]; then
-    echo "+ ${cmd[*]}"
-  fi
-  "${cmd[@]}"
-
-  debug "Done: created $dll_name and $lib_name"
+  _build_c_libs "${_output_c}"
 fi

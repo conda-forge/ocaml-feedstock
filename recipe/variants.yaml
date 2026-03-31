@@ -1,7 +1,0 @@
-CC_:
-  - if: not unix
-    then:
-      - "vs"
-      - "mingw"
-    else:
-      - ""
