@@ -503,6 +503,8 @@ outputs:
           run:
             - ${{ m2 }}file
 
+      - downstream: ocaml-dune
+      
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
   # Full OCaml toolchain with C compiler and linker tools
