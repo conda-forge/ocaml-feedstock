@@ -753,11 +753,20 @@ build_cross_compiler() {
     # Install in both BUILD_PREFIX/bin (for build-time access) and OCAML_INSTALL_PREFIX/bin (for package)
     echo "  Installing ${target}-ocaml-* toolchain wrappers (build-time)..."
 
-    # Create toolchain wrappers using CROSS_* variables as defaults
+    # Create toolchain wrappers using CROSS_* basenames as defaults
+    # Use basenames so wrappers are relocatable (resolve via PATH when package is installed elsewhere)
     # Format: tool_name:ENV_SUFFIX:default_value
-    for tool_pair in "cc:CC:${CROSS_CC}" "as:AS:${CROSS_ASM}" "ar:AR:${CROSS_AR}" \
-                     "ld:LD:${CROSS_LD}" "ranlib:RANLIB:${CROSS_RANLIB}" \
-                     "mkexe:MKEXE:${CROSS_MKEXE}" "mkdll:MKDLL:${CROSS_MKDLL}"; do
+    _cross_cc_base=$(basename "${CROSS_CC}")
+    _cross_ar_base=$(basename "${CROSS_AR}")
+    _cross_ld_base=$(basename "${CROSS_LD}")
+    _cross_ranlib_base=$(basename "${CROSS_RANLIB}")
+    # ASM/MKEXE/MKDLL may contain flags — basename the command, keep the flags
+    _cross_asm_base="${CROSS_ASM}"  # already a basename (set by setup_toolchain)
+    _cross_mkexe_base="${CROSS_MKEXE//${CROSS_CC}/${_cross_cc_base}}"
+    _cross_mkdll_base="${CROSS_MKDLL//${CROSS_CC}/${_cross_cc_base}}"
+    for tool_pair in "cc:CC:${_cross_cc_base}" "as:AS:${_cross_asm_base}" "ar:AR:${_cross_ar_base}" \
+                     "ld:LD:${_cross_ld_base}" "ranlib:RANLIB:${_cross_ranlib_base}" \
+                     "mkexe:MKEXE:${_cross_mkexe_base}" "mkdll:MKDLL:${_cross_mkdll_base}"; do
       tool_name="${tool_pair%%:*}"
       rest="${tool_pair#*:}"
       env_suffix="${rest%%:*}"
@@ -1635,125 +1644,6 @@ STRIPDEBUG
 }
 
 # ==============================================================================
-# build_stage1_native() - Build or restore native OCaml compiler
-# Sets OCAML_NATIVE_INSTALL_PREFIX in caller scope.
-# ==============================================================================
-build_stage1_native() {
-  OCAML_NATIVE_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler
-
-  # Check cache: validate baked-in stdlib path matches current build
-  local use_cache=false
-  if cache_native_exists && [[ "${OCAML_SKIP_CACHE:-0}" != "1" ]]; then
-    echo ""
-    echo "=== Stage 1: Cache validation ==="
-    local cache_dir
-    cache_dir="$(cache_root)/$(cache_key_native)"
-    local cached_ocamlopt="${cache_dir}/bin/ocamlopt"
-    if [[ -f "${cached_ocamlopt}" ]]; then
-      local cached_stdlib
-      cached_stdlib=$("${cached_ocamlopt}" -config 2>/dev/null | grep "^standard_library:" | awk '{print $2}' || echo "UNKNOWN")
-      local new_stdlib_path="${OCAML_NATIVE_INSTALL_PREFIX}/lib/ocaml"
-      echo "  [CACHE] Cached stdlib: ${cached_stdlib}"
-      echo "  [CACHE] Expected:     ${new_stdlib_path}"
-      if [[ "${cached_stdlib}" != "${new_stdlib_path}" ]]; then
-        echo "  [CACHE] Paths differ - will use cache with OCAMLLIB override"
-      else
-        echo "  [CACHE] Paths match - cache is directly usable"
-      fi
-      use_cache=true
-    else
-      echo "  [CACHE] WARNING: Cached ocamlopt not found at ${cached_ocamlopt}"
-    fi
-  fi
-
-  if [[ "${use_cache}" == "true" ]]; then
-    echo ""
-    echo "=== Stage 1: Restoring native OCaml from cache ==="
-    cache_native_restore "${OCAML_NATIVE_INSTALL_PREFIX}"
-    echo "  [CACHE] Native compiler ready at ${OCAML_NATIVE_INSTALL_PREFIX}"
-
-    # Setup toolchain variables that build_native() would normally set
-    setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
-    setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
-
-    export CONDA_OCAML_AR=$(basename "${NATIVE_AR}")
-    export CONDA_OCAML_CC=$(basename "${NATIVE_CC}")
-    export CONDA_OCAML_LD=$(basename "${NATIVE_LD}")
-    export CONDA_OCAML_RANLIB=$(basename "${NATIVE_RANLIB:-echo}")
-    export CONDA_OCAML_AS="${NATIVE_ASM}"
-    export CONDA_OCAML_MKEXE="${NATIVE_MKEXE}"
-    export CONDA_OCAML_MKDLL="${NATIVE_MKDLL}"
-
-    generate_native_env_file
-    export OCAMLLIB="${OCAML_NATIVE_INSTALL_PREFIX}/lib/ocaml"
-  else
-    echo ""
-    echo "=== Stage 1: Building native OCaml ==="
-    (
-      OCAML_INSTALL_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
-      build_native
-    )
-    cache_native_save "${OCAML_NATIVE_INSTALL_PREFIX}"
-  fi
-}
-
-# ==============================================================================
-# build_stage2_xcross() - Build or restore cross-compiler
-# Requires OCAML_NATIVE_INSTALL_PREFIX set by build_stage1_native().
-# Sets OCAML_XCROSS_INSTALL_PREFIX in caller scope.
-# ==============================================================================
-build_stage2_xcross() {
-  OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
-  local _XCROSS_TARGET="${OCAML_TARGET_PLATFORM:-${cross_target_platform}}"
-
-  if cache_xcross_exists "${_XCROSS_TARGET}"; then
-    echo ""
-    echo "=== Stage 2: Restoring cross-compiler from cache ==="
-    cache_xcross_restore "${OCAML_XCROSS_INSTALL_PREFIX}" "${_XCROSS_TARGET}"
-    echo "  [CACHE] Cross-compiler ready at ${OCAML_XCROSS_INSTALL_PREFIX}"
-
-    # Setup cross-toolchain variables that build_cross_compiler() would normally set
-    local target="${OCAML_TARGET_TRIPLET}"
-    CROSS_ARCH=$(get_target_arch "${target}")
-    CROSS_PLATFORM=$(get_target_platform "${target}")
-
-    if [[ "${target}" == "arm64-apple-darwin"* ]]; then
-      setup_macos_sysroot "${target}"
-      export SDKROOT="${ARM64_SYSROOT}"
-      export CONDA_BUILD_SYSROOT="${ARM64_SYSROOT}"
-    fi
-
-    setup_toolchain "CROSS" "${target}"
-    setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
-
-    generate_xcross_env_file "${_XCROSS_TARGET}"
-
-    export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
-    export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
-  else
-    echo ""
-    echo "=== Stage 2: Building cross-compiler ==="
-    (
-      export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
-      export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
-
-      OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
-      source "${SRC_DIR}/_native_compiler_env.sh"
-      build_cross_compiler
-    )
-    cache_xcross_save "${OCAML_XCROSS_INSTALL_PREFIX}" "${_XCROSS_TARGET}"
-  fi
-}
-
-# ==============================================================================
-# build_stages_1_and_2() - Orchestrate Stage 1 (native) + Stage 2 (cross-compiler)
-# ==============================================================================
-build_stages_1_and_2() {
-  build_stage1_native
-  build_stage2_xcross
-}
-
-# ==============================================================================
 # MODE: native
 # Build native OCaml compiler
 # ==============================================================================
@@ -1816,7 +1706,29 @@ fi
 # Build cross-compiler (native binaries producing target code)
 # ==============================================================================
 if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
-  build_stages_1_and_2
+  # Native OCaml is available in BUILD_PREFIX (from ocaml_$build_platform dependency)
+
+  # WORKAROUND (build 1): Unwrap macOS ocamlmklib wrapper from build 0 package.
+  # Build 0 replaces bin/ocamlmklib (bytecode) with a shell wrapper that adds
+  # -undefined dynamic_lookup. The real bytecode is at bin/ocamlmklib.real.
+  # ocamlrun needs the bytecode binary, not the wrapper.
+  # Build 2+ can remove this once packages ship unwrapped ocamlmklib.
+  if [[ -f "${BUILD_PREFIX}/bin/ocamlmklib.real" ]]; then
+    echo "  Unwrapping macOS ocamlmklib wrapper in BUILD_PREFIX..."
+    mv "${BUILD_PREFIX}/bin/ocamlmklib.real" "${BUILD_PREFIX}/bin/ocamlmklib"
+  fi
+
+  # Setup native toolchain variables needed by build_cross_compiler (NATIVE_CC, SAK_*, etc.)
+  setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
+  setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
+
+  OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
+  (
+    export OCAML_PREFIX="${BUILD_PREFIX}"
+    export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
+    OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    build_cross_compiler
+  )
 
   # Transfer cross-compiler files to PREFIX
   echo ""
@@ -1864,85 +1776,61 @@ fi
 # Build using cross-compiler from BUILD_PREFIX (cross-compiled native)
 # ==============================================================================
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
-  # Determine cross-compiler triplet for this target
+  # WORKAROUND (build 1): Unwrap macOS ocamlmklib wrapper (same as cross-compiler mode)
+  if [[ -f "${BUILD_PREFIX}/bin/ocamlmklib.real" ]]; then
+    echo "  Unwrapping macOS ocamlmklib wrapper in BUILD_PREFIX..."
+    mv "${BUILD_PREFIX}/bin/ocamlmklib.real" "${BUILD_PREFIX}/bin/ocamlmklib"
+  fi
+
+  # Cross-compiler is available in BUILD_PREFIX (from ocaml_$target_platform dependency)
   CROSS_TARGET="${OCAML_TARGET_TRIPLET}"
+  CROSS_COMPILER_DIR="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
 
   echo ""
   echo "=== Cross-target build: Using cross-compiler from BUILD_PREFIX ==="
-  echo "Looking for cross-compiler: ${CROSS_TARGET}"
+  echo "  Cross-compiler: ${CROSS_COMPILER_DIR}"
 
-  FAST_CROSS_PATH_SUCCESS=0
-
-  # Check if cross-compiler exists (from ocaml build dependency)
-  CROSS_COMPILER_DIR="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
-  if [[ -d "${CROSS_COMPILER_DIR}" ]]; then
-    echo "Found cross-compiler: ${CROSS_COMPILER_DIR}"
-
-    # Verify it has required files
-    if [[ -f "${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma" ]]; then
-      echo "Cross-compiler stdlib found, attempting Stage 3..."
-
-      # Try Stage 3 - may fail if API changed between versions
-      OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
-      set +e
-      (
-        set -e
-        export OCAML_PREFIX="${BUILD_PREFIX}"
-        export CROSS_COMPILER_PREFIX="${BUILD_PREFIX}"
-        OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
-        build_cross_target
-      )
-      STAGE3_RC=$?
-      set -e
-
-      if [[ ${STAGE3_RC} -eq 0 ]]; then
-        echo ""
-        echo "============================================================"
-        echo "Stage 3 cross-compilation succeeded!"
-        echo "============================================================"
-        FAST_CROSS_PATH_SUCCESS=1
-      else
-        echo ""
-        echo "============================================================"
-        echo "Stage 3 failed (exit code ${STAGE3_RC})"
-        echo "This usually means API changed between OCaml versions"
-        echo "Falling back to full 3-stage build..."
-        echo "============================================================"
-
-        # Clean up any partial build artifacts
-        make distclean >/dev/null 2>&1 || true
-        for var in $(compgen -v | grep -E '^(CONDA_OCAML_|NATIVE_|CROSS_|OCAML_|OCAMLLIB)'); do
-          unset "$var"
-        done
-      fi
-    else
-      echo "Cross-compiler stdlib not found at ${CROSS_COMPILER_DIR}/lib/ocaml/"
-      echo "Cannot use fast path"
-    fi
-  else
-    echo "No cross-compiler found in BUILD_PREFIX"
-    echo "Falling back to full 3-stage build"
+  if [[ ! -f "${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma" ]]; then
+    echo "ERROR: Cross-compiler not found at ${CROSS_COMPILER_DIR}"
+    echo "The ocaml_${target_platform} package must be installed as a build dependency"
+    exit 1
   fi
 
-  # Fallback: Full 3-stage build
-  if [[ ${FAST_CROSS_PATH_SUCCESS} -eq 0 ]]; then
-    echo ""
-    echo "=== Full 3-stage cross-target build ==="
+  # WORKAROUND (build 1): Regenerate cross-compiler toolchain wrappers in BUILD_PREFIX.
+  # Build 0 packages have wrappers with hardcoded absolute paths from the original build
+  # environment. These paths are stale when the package is installed elsewhere.
+  # Build 2+ can remove this block once build 1 packages (with relocatable basenames) are available.
+  echo "  Regenerating cross-compiler toolchain wrappers (fixing stale paths from build 0)..."
+  setup_toolchain "CROSS" "${CROSS_TARGET}"
+  setup_cflags_ldflags "CROSS" "${build_platform}" "$(get_target_platform "${CROSS_TARGET}")"
+  TARGET_ID=$(get_target_id "${CROSS_TARGET}")
+  for tool_pair in "cc:CC:$(basename "${CROSS_CC}")" \
+                   "as:AS:${CROSS_ASM}" \
+                   "ar:AR:$(basename "${CROSS_AR}")" \
+                   "ld:LD:$(basename "${CROSS_LD}")" \
+                   "ranlib:RANLIB:$(basename "${CROSS_RANLIB}")" \
+                   "mkexe:MKEXE:${CROSS_MKEXE//${CROSS_CC}/$(basename "${CROSS_CC}")}" \
+                   "mkdll:MKDLL:${CROSS_MKDLL//${CROSS_CC}/$(basename "${CROSS_CC}")}"; do
+    tool_name="${tool_pair%%:*}"
+    rest="${tool_pair#*:}"
+    env_suffix="${rest%%:*}"
+    default_tool="${rest#*:}"
+    wrapper_path="${BUILD_PREFIX}/bin/${CROSS_TARGET}-ocaml-${tool_name}"
+    cat > "${wrapper_path}" << TOOLWRAPPER
+#!/usr/bin/env bash
+exec \${CONDA_OCAML_${TARGET_ID}_${env_suffix}:-${default_tool}} "\$@"
+TOOLWRAPPER
+    chmod +x "${wrapper_path}"
+  done
+  echo "    Regenerated: ${CROSS_TARGET}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}"
 
-    build_stages_1_and_2
-
-    # Stage 3: Cross-compile target binaries
-    OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
-    (
-      export OCAML_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}"
-      export CROSS_COMPILER_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}"
-
-      OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
-      source "${SRC_DIR}/_native_compiler_env.sh"
-      source "${SRC_DIR}/_xcross_compiler_${OCAML_TARGET_PLATFORM}_env.sh"
-      build_cross_target
-    )
-  fi
+  OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
+  (
+    export OCAML_PREFIX="${BUILD_PREFIX}"
+    export CROSS_COMPILER_PREFIX="${BUILD_PREFIX}"
+    OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    build_cross_target
+  )
 
   # Transfer to PREFIX
   OCAML_INSTALL_PREFIX="${PREFIX}"
@@ -2099,27 +1987,13 @@ echo "Build complete: ${PKG_NAME} (${BUILD_MODE} mode)"
 echo "============================================================"
 
 # ==============================================================================
-# macOS: Create ocamlmklib wrapper (MUST be after all builds complete)
+# macOS ocamlmklib wrapper: REMOVED
 # ==============================================================================
-# This wrapper adds -ldopt "-Wl,-undefined,dynamic_lookup" so downstream packages
-# (opam, dune) can build stub libraries without their own workarounds.
-# NOTE: This runs AFTER cross-compiler builds because the native ocamlmklib
-# is used during cross-compilation and must remain unwrapped until now.
-if [[ "${target_platform}" == osx-* ]]; then
-  echo ""
-  echo "=== Creating macOS ocamlmklib wrapper ==="
-  real_ocamlmklib="${PREFIX}/bin/ocamlmklib"
-  if [[ -f "${real_ocamlmklib}" ]] && [[ ! -f "${real_ocamlmklib}.real" ]]; then
-    mv "${real_ocamlmklib}" "${real_ocamlmklib}.real"
-    cat > "${real_ocamlmklib}" << 'WRAPPER_EOF'
-#!/bin/bash
-# Wrapper to add -undefined dynamic_lookup for macOS shared lib creation
-# This allows _caml_* symbols to remain unresolved until runtime
-exec "${0}.real" -ldopt "-Wl,-undefined,dynamic_lookup" "$@"
-WRAPPER_EOF
-    chmod +x "${real_ocamlmklib}"
-    echo "  Created wrapper: ocamlmklib -> ocamlmklib.real"
-  else
-    echo "  Skipped: ocamlmklib wrapper already exists or ocamlmklib not found"
-  fi
-fi
+# Previously replaced bin/ocamlmklib (bytecode) with a shell wrapper adding
+# -ldopt "-Wl,-undefined,dynamic_lookup". This is REDUNDANT because:
+# 1. config.generated.ml is patched to use conda-ocaml-mkdll as MKDLL
+# 2. CONDA_OCAML_MKDLL already includes -undefined dynamic_lookup on macOS
+# 3. The wrapper broke dependency-based builds (build_number > 0) because
+#    ocamlrun can't read a shell script as bytecode
+# If downstream packages need -undefined dynamic_lookup, it should come through
+# CONDA_OCAML_MKDLL (set by activate.sh), not by wrapping the bytecode binary.
