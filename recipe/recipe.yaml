@@ -503,7 +503,7 @@ outputs:
           run:
             - ${{ m2 }}file
 
-      - downstream: ${{ "ocaml-dune" if not is_cross_compiler else "" }}
+      - downstream: ${{ "ocaml-dune" if not is_cross_compiler else "none" }}
       
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
