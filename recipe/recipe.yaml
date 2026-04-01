@@ -151,24 +151,24 @@ outputs:
               then:
                 - lib/ocaml/ld.conf
                 - lib/ocaml/Makefile.config
-                # NOTE: runtime-launch-info is a BINARY file (text header + ELF)
-                # Do NOT include it here - it's in ignore section below
+                - lib/ocaml/runtime-launch-info
 
             # --- CROSS-COMPILER: Cross-compiler lib paths ---
             - if: is_cross_compiler
               then:
                 - lib/ocaml-cross-compilers/*/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/*/lib/ocaml/Makefile.config
-                # NOTE: runtime-launch-info is a BINARY file - see ignore section
+                - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
         ignore:
-          # --- runtime-launch-info is a BINARY file (text header + embedded ELF) ---
-          # Treating it as text for relocation corrupts the binary portion
-          - if: is_native or is_cross_target
-            then:
-              - lib/ocaml/runtime-launch-info
-          - if: is_cross_compiler
-            then:
-              - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
+          # FAILS to build dune due to non-relocated paths
+          # # --- runtime-launch-info is a BINARY file (text header + embedded ELF) ---
+          # # Treating it as text for relocation corrupts the binary portion
+          # - if: is_native or is_cross_target
+          #   then:
+          #     - lib/ocaml/runtime-launch-info
+          # - if: is_cross_compiler
+          #   then:
+          #     - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
           # --- NATIVE/CROSS-TARGET: Standard bytecode files ---
           - if: is_native or is_cross_target
             then:
