@@ -18,7 +18,24 @@ printf 'print_endline "Hello World"\n' > hi.ml
 # 1. Bytecode compilation + execution
 echo "=== Testing bytecode compilation ==="
 ocamlc -o hi hi.ml
-./hi | grep -q "Hello World" && echo "  bytecode execution: OK"
+
+# Verify direct bytecode execution (shebang must work)
+if ! ./hi | grep -q "Hello World"; then
+  echo "  [FAIL] bytecode direct execution failed (shebang broken?)"
+  echo "  Checking runtime-launch-info BINDIR..."
+  if [[ -f "${PREFIX}/lib/ocaml/runtime-launch-info" ]]; then
+    python3 -c "
+with open('${PREFIX}/lib/ocaml/runtime-launch-info', 'rb') as f:
+    data = f.read()
+    nl1 = data.index(b'\n')
+    nl2 = data.index(b'\n', nl1+1)
+    bindir = data[nl1+1:nl2].rstrip(b'\x00').decode()
+    print(f'  BINDIR in runtime-launch-info: {bindir}')
+"
+  fi
+  exit 1
+fi
+echo "  bytecode direct execution: OK"
 
 # Test bytecode portability (run from different directory)
 mkdir -p tmp && cp hi tmp && (cd tmp; ./hi) | grep -q "Hello World" && echo "  bytecode portability: OK"

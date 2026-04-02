@@ -151,24 +151,17 @@ outputs:
               then:
                 - lib/ocaml/ld.conf
                 - lib/ocaml/Makefile.config
-                # NOTE: runtime-launch-info is a BINARY file (text header + ELF)
-                # Do NOT include it here - it's in ignore section below
+                # runtime-launch-info contains a text header with BINDIR path that
+                # must be relocated so bytecode shebangs resolve ocamlrun correctly
+                - lib/ocaml/runtime-launch-info
 
             # --- CROSS-COMPILER: Cross-compiler lib paths ---
             - if: is_cross_compiler
               then:
                 - lib/ocaml-cross-compilers/*/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/*/lib/ocaml/Makefile.config
-                # NOTE: runtime-launch-info is a BINARY file - see ignore section
+                - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
         ignore:
-          # --- runtime-launch-info is a BINARY file (text header + embedded ELF) ---
-          # Treating it as text for relocation corrupts the binary portion
-          - if: is_native or is_cross_target
-            then:
-              - lib/ocaml/runtime-launch-info
-          - if: is_cross_compiler
-            then:
-              - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
           # --- NATIVE/CROSS-TARGET: Standard bytecode files ---
           - if: is_native or is_cross_target
             then:
@@ -503,8 +496,8 @@ outputs:
           run:
             - ${{ m2 }}file
 
-      - downstream: ${{ "ocaml-dune" if not is_cross_compiler else "none" }}
-      
+      # - downstream: ${{ "ocaml-dune" if not is_cross_compiler else "none" }}
+
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
   # Full OCaml toolchain with C compiler and linker tools
