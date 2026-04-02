@@ -1708,16 +1708,6 @@ fi
 if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   # Native OCaml is available in BUILD_PREFIX (from ocaml_$build_platform dependency)
 
-  # WORKAROUND (build 1): Unwrap macOS ocamlmklib wrapper from build 0 package.
-  # Build 0 replaces bin/ocamlmklib (bytecode) with a shell wrapper that adds
-  # -undefined dynamic_lookup. The real bytecode is at bin/ocamlmklib.real.
-  # ocamlrun needs the bytecode binary, not the wrapper.
-  # Build 2+ can remove this once packages ship unwrapped ocamlmklib.
-  if [[ -f "${BUILD_PREFIX}/bin/ocamlmklib.real" ]]; then
-    echo "  Unwrapping macOS ocamlmklib wrapper in BUILD_PREFIX..."
-    mv "${BUILD_PREFIX}/bin/ocamlmklib.real" "${BUILD_PREFIX}/bin/ocamlmklib"
-  fi
-
   # Setup native toolchain variables needed by build_cross_compiler (NATIVE_CC, SAK_*, etc.)
   setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
   setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
@@ -1776,12 +1766,6 @@ fi
 # Build using cross-compiler from BUILD_PREFIX (cross-compiled native)
 # ==============================================================================
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
-  # WORKAROUND (build 1): Unwrap macOS ocamlmklib wrapper (same as cross-compiler mode)
-  if [[ -f "${BUILD_PREFIX}/bin/ocamlmklib.real" ]]; then
-    echo "  Unwrapping macOS ocamlmklib wrapper in BUILD_PREFIX..."
-    mv "${BUILD_PREFIX}/bin/ocamlmklib.real" "${BUILD_PREFIX}/bin/ocamlmklib"
-  fi
-
   # Cross-compiler is available in BUILD_PREFIX (from ocaml_$target_platform dependency)
   CROSS_TARGET="${OCAML_TARGET_TRIPLET}"
   CROSS_COMPILER_DIR="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
@@ -1795,34 +1779,6 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
     echo "The ocaml_${target_platform} package must be installed as a build dependency"
     exit 1
   fi
-
-  # WORKAROUND (build 1): Regenerate cross-compiler toolchain wrappers in BUILD_PREFIX.
-  # Build 0 packages have wrappers with hardcoded absolute paths from the original build
-  # environment. These paths are stale when the package is installed elsewhere.
-  # Build 2+ can remove this block once build 1 packages (with relocatable basenames) are available.
-  echo "  Regenerating cross-compiler toolchain wrappers (fixing stale paths from build 0)..."
-  setup_toolchain "CROSS" "${CROSS_TARGET}"
-  setup_cflags_ldflags "CROSS" "${build_platform}" "$(get_target_platform "${CROSS_TARGET}")"
-  TARGET_ID=$(get_target_id "${CROSS_TARGET}")
-  for tool_pair in "cc:CC:$(basename "${CROSS_CC}")" \
-                   "as:AS:${CROSS_ASM}" \
-                   "ar:AR:$(basename "${CROSS_AR}")" \
-                   "ld:LD:$(basename "${CROSS_LD}")" \
-                   "ranlib:RANLIB:$(basename "${CROSS_RANLIB}")" \
-                   "mkexe:MKEXE:${CROSS_MKEXE//${CROSS_CC}/$(basename "${CROSS_CC}")}" \
-                   "mkdll:MKDLL:${CROSS_MKDLL//${CROSS_CC}/$(basename "${CROSS_CC}")}"; do
-    tool_name="${tool_pair%%:*}"
-    rest="${tool_pair#*:}"
-    env_suffix="${rest%%:*}"
-    default_tool="${rest#*:}"
-    wrapper_path="${BUILD_PREFIX}/bin/${CROSS_TARGET}-ocaml-${tool_name}"
-    cat > "${wrapper_path}" << TOOLWRAPPER
-#!/usr/bin/env bash
-exec \${CONDA_OCAML_${TARGET_ID}_${env_suffix}:-${default_tool}} "\$@"
-TOOLWRAPPER
-    chmod +x "${wrapper_path}"
-  done
-  echo "    Regenerated: ${CROSS_TARGET}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}"
 
   OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
   (
