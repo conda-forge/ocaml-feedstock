@@ -1,5 +1,5 @@
 context:
-  build_number: 2
+  build_number: 3
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -219,7 +219,7 @@ outputs:
             - if: linux
               then:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
-                - sysroot_${{ cross_target_platform_ }}
+                - sysroot_${{ cross_target_platform_ }} ${{ c_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
               else:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
