@@ -128,6 +128,66 @@ EOF
   rm -f complete_exe_test.ml complete_test.exe
 fi
 
+# 8. Custom bytecode linking (ocamlfind/ocamlbuild pattern)
+# This exercises: ocamlc -custom -o prog unix.cma ...
+# Tests that MKEXE can link C stubs (libunixbyt.a) without linker errors.
+# Catches: lld weak symbol issues on macOS, MSVC link.exe collision on Windows
+echo "=== Testing -custom bytecode linking (ocamlfind pattern) ==="
+cat > custom_test.ml << 'EOF'
+let () =
+  let t = Unix.gettimeofday () in
+  Printf.printf "time: %.0f\n" t;
+  print_endline "custom-link works"
+EOF
+
+echo -n "  compiling with -custom..."
+if ocamlc -custom -g -o custom_test -I +unix unix.cma custom_test.ml 2>custom_link_err.txt; then
+  echo " OK"
+  echo -n "  executing: "
+  ./custom_test | grep -q "custom-link works" && echo "OK" || { echo "FAIL"; exit 1; }
+else
+  echo " FAIL"
+  echo "  Linker error during -custom bytecode linking:"
+  cat custom_link_err.txt | head -20
+  echo ""
+  echo "  This usually means MKEXE has incompatible linker flags."
+  echo "  Checking Makefile.config MKEXE:"
+  grep "^MKEXE" "${PREFIX}/lib/ocaml/Makefile.config" || true
+  echo "  CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<not set>}"
+  exit 1
+fi
+rm -f custom_test custom_test.ml custom_link_err.txt
+
+# 9. Shared library stub creation (ocamlmklib pattern)
+# This exercises: ocamlmklib -o stubs stubs.o
+# Catches: macOS __darwin_check_fd_set_overflow weak symbol with lld
+echo "=== Testing shared library creation (ocamlmklib pattern) ==="
+cat > stub_test.c << 'EOF'
+#include <caml/mlvalues.h>
+#include <caml/memory.h>
+CAMLprim value stub_get_42(value unit) {
+  CAMLparam1(unit);
+  CAMLreturn(Val_int(42));
+}
+EOF
+
+echo -n "  compiling C stub..."
+cc_cmd="${CONDA_OCAML_CC:-cc}"
+${cc_cmd} -c -I "${PREFIX}/lib/ocaml" -fPIC stub_test.c -o stub_test.o 2>&1 && echo " OK" || { echo " FAIL (C compilation)"; exit 1; }
+
+echo -n "  creating shared library with ocamlmklib..."
+if ocamlmklib -o stub_test stub_test.o 2>mklib_err.txt; then
+  echo " OK"
+  # Verify files were created
+  ls dllstub_test.so libstub_test.a >/dev/null 2>&1 && echo "  shared+static libs created: OK" || echo "  WARNING: some output files missing"
+else
+  echo " FAIL"
+  echo "  ocamlmklib error:"
+  cat mklib_err.txt | head -20
+  exit 1
+fi
+rm -f stub_test.c stub_test.o dllstub_test.so libstub_test.a mklib_err.txt
+
 # Cleanup
 rm -f hi hi.ml lib.ml lib.cmi lib.cmo lib.cmx lib.o main.ml main.cmi main.cmo main.cmx main.o multi tmp/hi
 rmdir tmp 2>/dev/null || true
