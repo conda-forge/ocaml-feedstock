@@ -259,7 +259,7 @@ outputs:
         # gives a broken OCaml that can't link executables.
         - if: is_native or is_cross_target
           then:
-            - if: not unix
+            - if: not unix and c_compiler == "gcc"
               then:
                 - ${{ compiler("m2w64_c") }}
               else:
@@ -563,6 +563,16 @@ outputs:
           run:
             - ${{ m2 }}file
             - ${{ m2 }}grep
+            # # Native compilation test needs C compiler + assembler (ml64 on MSVC)
+            # - if: not unix and c_compiler == "gcc"
+            #   then:
+            #     - ${{ compiler("m2w64_c") }}
+            #   else:
+            #     - ${{ compiler("c") }}
+            # - if: osx
+            #   then:
+            #     - lld >=${{ c_compiler_version }}
+            #     - llvm-tools >=${{ c_compiler_version }}
 
       # ----------------------------------------------------------------------
       # CONDA_OCAML_* toolchain variable tests
