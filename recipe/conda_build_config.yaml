@@ -12,6 +12,12 @@ m2w64_c_stdlib_version:        # [not unix]
 vc:                            # [not unix]
   - 14                         # [not unix]
 
+# compiler("ocaml") resolves to ocaml-compiler metapackage which includes
+# c-compiler + lld (macOS) + ocaml_$platform. Downstream recipes should use
+# ${{ compiler("ocaml") }} to get a fully functional OCaml with C toolchain.
+ocaml_compiler:
+  - ocaml-compiler
+
 cross_target_platform_:
   - linux-64
   - linux-aarch64

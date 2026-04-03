@@ -432,7 +432,10 @@ setup_toolchain() {
        local _VERSION_MIN="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
        _MKDLL="$(basename "${_CC}") ${_VERSION_MIN} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
        # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
-       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
+       # NOTE: Do NOT include -fuse-ld=lld here. The installed OCaml package should use
+       # Apple's default ld64 which properly handles weak SDK symbols (e.g., __darwin_check_fd_set_overflow).
+       # lld is stricter and rejects weak imports, breaking downstream packages (ocamlfind, ocamlbuild).
+       _MKEXE="$(basename "${_CC}") ${_VERSION_MIN} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
        # Include -isysroot in MKDLL/MKEXE when cross-compiling for ARM64
        # OCaml's Makefile uses $(MKEXE) directly without $(LDFLAGS)
        # NOTE: CONDA_BUILD_SYSROOT must be exported to ARM64 SDK path
@@ -528,7 +531,7 @@ get_cross_tool_defaults() {
     # macOS: use lld linker and headerpad for install_name_tool compatibility
     # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
     DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup \${LDFLAGS}"
-    DEFAULT_MKEXE="${DEFAULT_CC} -fuse-ld=lld -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib \${LDFLAGS}"
+    DEFAULT_MKEXE="${DEFAULT_CC} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib \${LDFLAGS}"
   else
     # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
     DEFAULT_MKDLL="${DEFAULT_CC} -shared \${LDFLAGS}"
@@ -651,6 +654,12 @@ clean_makefile_config() {
       rm -f "${temp_file}"
     fi
   fi
+
+  # OCaml 5.4+: Strip $(LDFLAGS) from MKEXE/MKDLL/MKMAINDLL.
+  # OCaml 5.4 added $(LDFLAGS) to these variables, which leaks conda-forge platform
+  # flags (-fuse-ld=lld on macOS, MSVC /nologo on Windows) into downstream builds.
+  # OCaml's own flags are in $(OC_LDFLAGS) which is sufficient.
+  sed -i 's| \$(LDFLAGS)||g' "${config_file}"
 
   # Clean up whitespace: collapse multiple spaces, remove empty lines
   sed -i 's|  *| |g' "${config_file}"
