@@ -1,5 +1,5 @@
 context:
-  build_number: 3
+  build_number: 4
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -253,9 +253,21 @@ outputs:
         - zstd
 
       run:
-        # Minimal runtime deps for native/cross-target
-        # Full C toolchain is in ocaml-compiler package
         - zstd
+        # OCaml needs a C compiler at runtime — ocamlopt, conda-ocaml-mkexe,
+        # conda-ocaml-mkdll all invoke the C compiler. Without this, compiler("ocaml")
+        # gives a broken OCaml that can't link executables.
+        - if: is_native or is_cross_target
+          then:
+            - if: not unix and c_compiler == "gcc"
+              then:
+                - ${{ compiler("m2w64_c") }}
+              else:
+                - ${{ compiler("c") }}
+            - if: osx
+              then:
+                - lld >=${{ c_compiler_version }}
+                - llvm-tools >=${{ c_compiler_version }}
 
         # --- CROSS-COMPILER ONLY: Include full toolchain ---
         # Cross-compilers are self-contained for conda-forge recipe builds
@@ -505,9 +517,8 @@ outputs:
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
-  # Full OCaml toolchain with C compiler and linker tools
-  # Only built when cross_target_platform_ == target_platform (alongside native compiler)
-  # Platform-specific to include correct linker tools per platform
+  # Convenience package: OCaml + binutils (ar, nm, objdump for debugging)
+  # C compiler and linker are already run deps of ocaml_$platform
   # ==========================================================================
   - package:
       name: ocaml-compiler
@@ -517,17 +528,6 @@ outputs:
     requirements:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
-        # C compiler
-        - if: not unix and c_compiler == "gcc"
-          then:
-            - ${{ m2w64_c_compiler }}_${{ target_platform }}
-          else:
-            - c-compiler
-        # Linker and binary tools
-        - if: osx
-          then:
-            - lld >=${{ c_compiler_version }}
-            - llvm-tools >=${{ c_compiler_version }}
         - if: unix or c_compiler == "gcc"
           then:
             - binutils_impl_${{ target_platform }}
@@ -563,6 +563,16 @@ outputs:
           run:
             - ${{ m2 }}file
             - ${{ m2 }}grep
+            # # Native compilation test needs C compiler + assembler (ml64 on MSVC)
+            # - if: not unix and c_compiler == "gcc"
+            #   then:
+            #     - ${{ compiler("m2w64_c") }}
+            #   else:
+            #     - ${{ compiler("c") }}
+            # - if: osx
+            #   then:
+            #     - lld >=${{ c_compiler_version }}
+            #     - llvm-tools >=${{ c_compiler_version }}
 
       # ----------------------------------------------------------------------
       # CONDA_OCAML_* toolchain variable tests
