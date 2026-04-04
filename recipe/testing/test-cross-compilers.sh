@@ -110,7 +110,7 @@ test_cross_compiler() {
   # ---------------------------------------------------------------------------
   # Test 1: Version check
   # ---------------------------------------------------------------------------
-  echo "  [1/14] Version check..."
+  echo "  [1/13] Version check..."
   if "${CROSS_OCAMLOPT}" -version | grep -q "${VERSION}"; then
     echo "    ✓ Version: ${VERSION}"
   else
@@ -121,7 +121,7 @@ test_cross_compiler() {
   # ---------------------------------------------------------------------------
   # Test 2: Architecture in -config (CRITICAL - was wrong before!)
   # ---------------------------------------------------------------------------
-  echo "  [2/14] Architecture in -config..."
+  echo "  [2/13] Architecture in -config..."
   # Use tr -d '\0' to strip null bytes that cause "binary file matches" errors
   CONFIG_ARCH=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^architecture:" | awk '{print $2}')
   if [[ "${CONFIG_ARCH}" == "${CROSS_ARCH}" ]]; then
@@ -137,7 +137,7 @@ test_cross_compiler() {
   # For cross-compilers: should use ${target}-ocaml-ld (cross-prefixed)
   # For native: should use conda-ocaml-ld
   # ---------------------------------------------------------------------------
-  echo "  [3/14] native_pack_linker in -config..."
+  echo "  [3/13] native_pack_linker in -config..."
   PACK_LINKER=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^native_pack_linker:" | cut -d: -f2- | xargs)
   # Cross-compilers should use target-prefixed linker
   if [[ "${PACK_LINKER}" == *"${target}-ocaml-ld"* ]] || [[ "${PACK_LINKER}" == *"conda-ocaml-ld"* ]]; then
@@ -150,8 +150,13 @@ test_cross_compiler() {
 
   # ---------------------------------------------------------------------------
   # Test 4: Toolchain wrappers use conda-ocaml-* (not hardcoded paths)
+  # Note: test-config.sh also checks asm/c_compiler/native_c_compiler in -config
+  # for cross mode. The overlap is intentional — test-config.sh runs as a
+  # separate, standalone test block in recipe.yaml (testing.files), while this
+  # test runs within the per-target cross-compiler validation loop and catches
+  # per-target regressions that the shared config check may not exercise.
   # ---------------------------------------------------------------------------
-  echo "  [4/14] Toolchain wrappers in -config..."
+  echo "  [4/13] Toolchain wrappers in -config..."
   for tool in asm c_compiler native_c_compiler; do
     TOOL_VAL=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^${tool}:" | cut -d: -f2- | xargs)
     if [[ "${TOOL_VAL}" == "conda-ocaml-"* ]]; then
@@ -167,7 +172,7 @@ test_cross_compiler() {
   # ---------------------------------------------------------------------------
   # Test 5: Library structure (OCaml 5.x subdirectories with META)
   # ---------------------------------------------------------------------------
-  echo "  [5/14] Library structure (dune compatibility)..."
+  echo "  [5/13] Library structure (dune compatibility)..."
   for lib in unix str dynlink; do
     if [[ -d "${OCAML_CROSS_LIBDIR}/${lib}" ]] && [[ -f "${OCAML_CROSS_LIBDIR}/${lib}/META" ]]; then
       echo "    ✓ ${lib}/ with META"
@@ -180,7 +185,7 @@ test_cross_compiler() {
   # ---------------------------------------------------------------------------
   # Test 6: Required files exist
   # ---------------------------------------------------------------------------
-  echo "  [6/14] Required files..."
+  echo "  [6/13] Required files..."
   for required in Makefile.config caml/mlvalues.h stdlib.cmxa; do
     if [[ -e "${OCAML_CROSS_LIBDIR}/${required}" ]]; then
       echo "    ✓ ${required}"
@@ -193,7 +198,7 @@ test_cross_compiler() {
   # ---------------------------------------------------------------------------
   # Test 7: Produces correct architecture binaries
   # ---------------------------------------------------------------------------
-  echo "  [7/14] Binary architecture..."
+  echo "  [7/13] Binary architecture..."
   TEST_ML="/tmp/test_xcross_${TARGET_ID}.ml"
   TEST_BIN="/tmp/test_xcross_${TARGET_ID}"
 
@@ -253,7 +258,7 @@ TESTEOF
   # Test 7b: Runtime library architecture (libcamlrun.a, libasmrun.a)
   # ---------------------------------------------------------------------------
   # This prevents "-output-complete-exe" from linking wrong-arch runtime
-  echo "  [7b/14] Runtime library architecture..."
+  echo "  [7b/13] Runtime library architecture..."
   RUNTIME_LIBS=("${OCAML_CROSS_LIBDIR}/libcamlrun.a" "${OCAML_CROSS_LIBDIR}/libasmrun.a")
   for rtlib in "${RUNTIME_LIBS[@]}"; do
     if [[ -f "${rtlib}" ]]; then
@@ -314,7 +319,7 @@ TESTEOF
   # ---------------------------------------------------------------------------
   # Test 8: Stdlib/Unix consistency (prevents "inconsistent assumptions" error)
   # ---------------------------------------------------------------------------
-  echo "  [8/14] Stdlib__Sys consistency check..."
+  echo "  [8/13] Stdlib__Sys consistency check..."
   CONSISTENCY_TEST="/tmp/test_consistency_${TARGET_ID}.ml"
   CONSISTENCY_BIN="/tmp/test_consistency_${TARGET_ID}"
 
@@ -380,16 +385,27 @@ CONSEOF
       echo "    ~ SKIP: ocamlopt.opt not found at ${CROSS_OCAMLOPT_BIN}"
     fi
   else
-    echo "  [9/14] macOS rpath check... SKIP (not macOS)"
+    echo "  [9/13] macOS rpath check... SKIP (not macOS)"
   fi
 
   # ---------------------------------------------------------------------------
-  # Test 10: Makefile.config toolchain verification (CRITICAL for opam)
+  # Test 10: Makefile.config toolchain verification + build-time path leak check
+  # (CRITICAL for opam)
+  #
+  # Performs a single pass over Makefile.config checking:
+  #   a) Toolchain fields (AS, LD, CC, TOOLPREF) have the correct target prefix
+  #      and not the build-host prefix (e.g. x86_64 leaked into an aarch64 pkg).
+  #   b) No build-time environment paths leaked (e.g. _build_env, absolute paths
+  #      pointing to conda-bld/rattler-build/miniforge trees).
+  # Note: prefix=, LIBDIR=, STUBLIBDIR= contain $PREFIX which conda relocates —
+  # those are NOT bugs and are intentionally ignored here.
   # ---------------------------------------------------------------------------
-  echo "  [10/14] Makefile.config toolchain verification..."
+  echo "  [10/13] Makefile.config toolchain + path-leak check..."
   MAKEFILE_CONFIG="${OCAML_CROSS_LIBDIR}/Makefile.config"
   if [[ -f "${MAKEFILE_CONFIG}" ]]; then
     CONFIG_ERRORS=0
+
+    # --- Part A: toolchain prefix correctness ---
 
     # Extract toolchain values
     CONFIG_AS=$(grep "^ASM\?=" "${MAKEFILE_CONFIG}" | head -1 | cut -d= -f2- | xargs || echo "")
@@ -453,6 +469,27 @@ CONSEOF
       grep -E "^(AS|ASM|LD|CC|AR|RANLIB|TOOLPREF|NATIVE_CC|TARGET)=" "${MAKEFILE_CONFIG}" | sed 's/^/        /'
       TEST_ERRORS=$((TEST_ERRORS + CONFIG_ERRORS))
     fi
+
+    # --- Part B: build-time path leak check ---
+    # _build_env paths are ALWAYS wrong (build env path in a host package).
+    # Absolute tool paths pointing to build trees (conda-bld, rattler-build, etc.)
+    # are also wrong — tools should be bare names or conda-ocaml-* wrappers.
+    LEAK_ERRORS=0
+    if grep -qE "_build_env" "${MAKEFILE_CONFIG}"; then
+      echo "    ✗ ERROR: Makefile.config contains _build_env paths:"
+      grep -E "_build_env" "${MAKEFILE_CONFIG}" | head -5 | sed 's/^/      /'
+      LEAK_ERRORS=$((LEAK_ERRORS + 1))
+    fi
+    if grep -E "^(CPP|CC|AS|ASM|ASPP)=/" "${MAKEFILE_CONFIG}" | grep -qE "(conda-bld|rattler-build|miniforge|miniconda|/home/.*/build)"; then
+      echo "    ✗ ERROR: Makefile.config has tool paths with build-time directories:"
+      grep -E "^(CPP|CC|AS|ASM|ASPP)=/" "${MAKEFILE_CONFIG}" | grep -E "(conda-bld|rattler-build|miniforge|miniconda|/home/.*/build)" | head -3 | sed 's/^/      /'
+      LEAK_ERRORS=$((LEAK_ERRORS + 1))
+    fi
+    if [[ ${LEAK_ERRORS} -eq 0 ]]; then
+      echo "    ✓ Makefile.config: no build-time path leaks"
+    else
+      TEST_ERRORS=$((TEST_ERRORS + LEAK_ERRORS))
+    fi
   else
     echo "    ✗ ERROR: Makefile.config not found at ${MAKEFILE_CONFIG}"
     TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -461,7 +498,7 @@ CONSEOF
   # ---------------------------------------------------------------------------
   # Test 11: standard_library path verification
   # ---------------------------------------------------------------------------
-  echo "  [11/14] standard_library path verification..."
+  echo "  [11/13] standard_library path verification..."
   STDLIB_PATH=$("${CROSS_OCAMLOPT}" -config 2>/dev/null | tr -d '\0' | grep -a "^standard_library:" | cut -d: -f2- | xargs)
   if [[ "${STDLIB_PATH}" == *"ocaml-cross-compilers/${target}"* ]]; then
     echo "    ✓ standard_library: ${STDLIB_PATH}"
@@ -477,7 +514,7 @@ CONSEOF
   # ---------------------------------------------------------------------------
   # Test 12: Multi-file compilation (opam-like pattern)
   # ---------------------------------------------------------------------------
-  echo "  [12/14] Multi-file compilation (opam-like)..."
+  echo "  [12/13] Multi-file compilation (opam-like)..."
   MULTIFILE_DIR="/tmp/test_multifile_${TARGET_ID}"
   rm -rf "${MULTIFILE_DIR}"
   mkdir -p "${MULTIFILE_DIR}"
@@ -572,7 +609,7 @@ MAINEOF
   # ---------------------------------------------------------------------------
   # Test 13: Unix library with actual syscall (catches ABI issues)
   # ---------------------------------------------------------------------------
-  echo "  [13/14] Unix library syscall test..."
+  echo "  [13/13] Unix library syscall test..."
   SYSCALL_TEST="/tmp/test_syscall_${TARGET_ID}.ml"
   SYSCALL_BIN="/tmp/test_syscall_${TARGET_ID}"
 
@@ -611,64 +648,6 @@ SYSCALLEOF
   fi
 
   rm -f "${SYSCALL_TEST}" "${SYSCALL_BIN}" "${SYSCALL_BIN}."*
-
-  # ---------------------------------------------------------------------------
-  # Test 14: Verify no build-time paths leaked into cross-compiler
-  # ---------------------------------------------------------------------------
-  echo "  [14/14] Build-time path leak check..."
-  LEAK_ERRORS=0
-
-  # Check Makefile.config for build-time paths
-  # Note: Lines like prefix=, LIBDIR=, STUBLIBDIR= contain $PREFIX which will be
-  # relocated by conda - these are NOT bugs. We check for:
-  # 1. _build_env paths (BUILD environment, won't be relocated to HOST)
-  # 2. Tool paths (CPP, CC, etc.) with full build-time paths
-  if [[ -f "${MAKEFILE_CONFIG}" ]]; then
-    # Check for _build_env which is ALWAYS wrong (build env in host package)
-    if grep -qE "_build_env" "${MAKEFILE_CONFIG}"; then
-      echo "    ✗ ERROR: Makefile.config contains build environment paths:"
-      grep -E "_build_env" "${MAKEFILE_CONFIG}" | head -5 | sed 's/^/      /'
-      LEAK_ERRORS=$((LEAK_ERRORS + 1))
-    fi
-    # Check tool paths (CPP, CC, AS) - these should be just binary names, not full paths
-    # Pattern: tool=/absolute/path/... means build-time path leaked
-    if grep -E "^(CPP|CC|AS|ASM|ASPP)=/" "${MAKEFILE_CONFIG}" | grep -qE "(conda-bld|rattler-build|miniforge|miniconda|/home/.*/build)"; then
-      echo "    ✗ ERROR: Makefile.config has tool paths with build-time directories:"
-      grep -E "^(CPP|CC|AS|ASM|ASPP)=/" "${MAKEFILE_CONFIG}" | grep -E "(conda-bld|rattler-build|miniforge|miniconda|/home/.*/build)" | head -3 | sed 's/^/      /'
-      LEAK_ERRORS=$((LEAK_ERRORS + 1))
-    fi
-    if [[ ${LEAK_ERRORS} -eq 0 ]]; then
-      echo "    ✓ Makefile.config: no build-time path leaks"
-    fi
-  fi
-
-  # Check -config output for leaked paths
-  # Note: standard_library paths contain $PREFIX which will be relocated - not a bug
-  # Real bugs: _build_env paths, tool paths with full build-time directories
-  # Strip null bytes to avoid "binary file matches" grep errors
-  CONFIG_OUTPUT=$("${CROSS_OCAMLOPT}" -config 2>/dev/null | tr -d '\0')
-  CONFIG_LEAK=0
-  # Check for _build_env which is ALWAYS wrong
-  if echo "${CONFIG_OUTPUT}" | grep -qaE "_build_env"; then
-    echo "    ✗ ERROR: ocamlopt -config contains build environment paths:"
-    echo "${CONFIG_OUTPUT}" | grep -aE "_build_env" | head -3 | sed 's/^/      /'
-    CONFIG_LEAK=1
-  fi
-  # Check tool configs (c_compiler, asm, etc.) - should be wrapper names, not full paths
-  if echo "${CONFIG_OUTPUT}" | grep -aE "^(c_compiler|asm|native_c_compiler): /" | grep -qaE "(conda-bld|rattler-build|miniforge|miniconda)"; then
-    echo "    ✗ ERROR: ocamlopt -config has tool paths with build-time directories:"
-    echo "${CONFIG_OUTPUT}" | grep -aE "^(c_compiler|asm|native_c_compiler): /" | grep -aE "(conda-bld|rattler-build|miniforge|miniconda)" | head -3 | sed 's/^/      /'
-    CONFIG_LEAK=1
-  fi
-  if [[ ${CONFIG_LEAK} -eq 1 ]]; then
-    LEAK_ERRORS=$((LEAK_ERRORS + 1))
-  else
-    echo "    ✓ ocamlopt -config: no build-time path leaks"
-  fi
-
-  if [[ ${LEAK_ERRORS} -gt 0 ]]; then
-    TEST_ERRORS=$((TEST_ERRORS + LEAK_ERRORS))
-  fi
 
   # ---------------------------------------------------------------------------
   # Summary

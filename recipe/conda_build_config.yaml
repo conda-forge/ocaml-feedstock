@@ -16,7 +16,7 @@ ocaml_compiler:
   - ocaml
 ocaml_compiler_version:
   - "5.4.0"
-  
+
 cross_target_platform_:
   - linux-64
   - linux-aarch64

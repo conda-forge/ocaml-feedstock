@@ -1,5 +1,5 @@
 context:
-  build_number: 4
+  build_number: 6
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -270,7 +270,15 @@ outputs:
                 - llvm-tools >=${{ c_compiler_version }}
 
         # --- CROSS-COMPILER ONLY: Include full toolchain ---
-        # Cross-compilers are self-contained for conda-forge recipe builds
+        # Like gcc_linux-aarch64 depends on native gcc, our cross-compiler depends
+        # on native OCaml — downstream compiler("ocaml") resolves to the cross-compiler
+        # which needs native ocaml/ocamlc in PATH for tools like findlib/dune.
+        # Native OCaml for the build platform — can't use pin_subpackage because
+        # the build_platform output may not be in the same CI job (e.g., osx cross
+        # built on linux). Use version pin instead.
+        - if: is_cross_compiler
+          then:
+            - ocaml_${{ build_platform }} ${{ version }}.*
         - if: is_cross_compiler and (linux or osx)
           then:
             - if: linux
@@ -387,6 +395,8 @@ outputs:
             # CROSS-COMPILER: Cross-compiler layout
             - if: is_cross_compiler
               then:
+                - etc/conda/activate.d/ocaml_cross_activate.sh
+                - etc/conda/deactivate.d/ocaml_cross_deactivate.sh
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt}.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
@@ -406,43 +416,24 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 
       # ----------------------------------------------------------------------
-      # Environment and resource file path validation
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_native or is_cross_target
-            then: cd testing && ${{ dot }}test-env-paths.${{ sh }}
-          - if: is_cross_compiler
-            then: cd testing && ./test-env-paths.sh cross ${{ target_triplet }}
-          - if: not (is_native or is_cross_target or is_cross_compiler)
-            then: echo "Invalid artifact" && exit 1
-        files:
-          recipe:
-            - testing/test-env-paths.${{ sh }}
-        requirements:
-          run:
-            - binutils
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}grep
-
-      # ----------------------------------------------------------------------
-      # OCAML config validation
+      # Package integrity: paths, config, env vars, rpath
+      # (merged from test-env-paths + test-config)
       # ----------------------------------------------------------------------
       - script:
           - if: is_native
-            then: cd testing && ${{ dot }}test-config.${{ sh }}
+            then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
           - if: is_cross_target
-            then: cd testing && ./test-config.sh cross-target
+            then: cd testing && ./test-package-integrity.sh cross-target
           - if: is_cross_compiler
-            then: cd testing && ./test-config.sh cross ${{ target_triplet }}
+            then: cd testing && ./test-package-integrity.sh cross ${{ target_triplet }}
           - if: not (is_native or is_cross_target or is_cross_compiler)
             then: echo "Invalid artifact" && exit 1
         files:
           recipe:
-            - testing/test-config.${{ sh }}
+            - testing/test-package-integrity.${{ sh }}
         requirements:
           run:
+            - binutils
             # Use native grep on arm64 since no QEMU
             - if: not arm64
               then:
@@ -496,6 +487,33 @@ outputs:
             - if: not arm64
               then:
                 - ${{ m2 }}grep
+
+      # ----------------------------------------------------------------------
+      # Compiler wrapper validation (conda-ocaml-cc, conda-ocaml-mkexe)
+      # NO extra C compiler test dep — validates that ocaml_$platform's run dep
+      # on compiler("c") provides the triplet-prefixed binary.
+      # ----------------------------------------------------------------------
+      - script:
+          - if: is_native and unix and not arm64
+            then: cd testing && ./test-compiler-wrappers.sh
+          - if: is_cross_target
+            then: cd testing && ./test-compiler-wrappers.sh cross-target
+          - if: not (is_native and unix and not arm64) and not is_cross_target
+            then: echo "Skipping wrapper tests"
+        files:
+          recipe:
+            - testing/test-compiler-wrappers.sh
+
+      # ----------------------------------------------------------------------
+      # CROSS-COMPILER: Activation script tests (ocaml_use_cross/ocaml_use_native)
+      # ----------------------------------------------------------------------
+      - script:
+          - if: is_cross_compiler
+            then: cd testing && ./test-cross-activation.sh
+            else: echo "Skipping cross-activation tests"
+        files:
+          recipe:
+            - testing/test-cross-activation.sh
 
       # ----------------------------------------------------------------------
       # CROSS-COMPILER: Functional tests
@@ -563,16 +581,6 @@ outputs:
           run:
             - ${{ m2 }}file
             - ${{ m2 }}grep
-            # # Native compilation test needs C compiler + assembler (ml64 on MSVC)
-            # - if: not unix and c_compiler == "gcc"
-            #   then:
-            #     - ${{ compiler("m2w64_c") }}
-            #   else:
-            #     - ${{ compiler("c") }}
-            # - if: osx
-            #   then:
-            #     - lld >=${{ c_compiler_version }}
-            #     - llvm-tools >=${{ c_compiler_version }}
 
       # ----------------------------------------------------------------------
       # CONDA_OCAML_* toolchain variable tests
