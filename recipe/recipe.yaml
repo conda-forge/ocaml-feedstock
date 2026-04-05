@@ -255,8 +255,8 @@ outputs:
       run:
         - zstd
         # OCaml needs a C compiler at runtime — ocamlopt, conda-ocaml-mkexe,
-        # conda-ocaml-mkdll all invoke the C compiler. Without this, compiler("ocaml")
-        # gives a broken OCaml that can't link executables.
+        # conda-ocaml-mkdll all invoke the C compiler. Must use the activating
+        # metapackages (not _impl) because _impl doesn't put tools in PATH.
         - if: is_native or is_cross_target
           then:
             - if: not unix and c_compiler == "gcc"
@@ -433,7 +433,10 @@ outputs:
             - testing/test-package-integrity.${{ sh }}
         requirements:
           run:
-            - binutils
+            # Use _impl to avoid activation script noise in test output
+            - if: unix
+              then:
+                - binutils_impl_${{ target_platform }}
             # Use native grep on arm64 since no QEMU
             - if: not arm64
               then:
@@ -452,7 +455,9 @@ outputs:
             - testing/test-cross-arch.${{ sh }}
         requirements:
           run:
-            - binutils
+            - if: unix
+              then:
+                - binutils_impl_${{ target_platform }}
 
       # ----------------------------------------------------------------------
       # NATIVE: Tool version checks
