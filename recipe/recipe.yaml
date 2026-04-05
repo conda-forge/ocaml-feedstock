@@ -1,5 +1,5 @@
 context:
-  build_number: 5
+  build_number: 6
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -255,8 +255,8 @@ outputs:
       run:
         - zstd
         # OCaml needs a C compiler at runtime — ocamlopt, conda-ocaml-mkexe,
-        # conda-ocaml-mkdll all invoke the C compiler. Without this, compiler("ocaml")
-        # gives a broken OCaml that can't link executables.
+        # conda-ocaml-mkdll all invoke the C compiler. Must use the activating
+        # metapackages (not _impl) because _impl doesn't put tools in PATH.
         - if: is_native or is_cross_target
           then:
             - if: not unix and c_compiler == "gcc"
@@ -416,43 +416,27 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 
       # ----------------------------------------------------------------------
-      # Environment and resource file path validation
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_native or is_cross_target
-            then: cd testing && ${{ dot }}test-env-paths.${{ sh }}
-          - if: is_cross_compiler
-            then: cd testing && ./test-env-paths.sh cross ${{ target_triplet }}
-          - if: not (is_native or is_cross_target or is_cross_compiler)
-            then: echo "Invalid artifact" && exit 1
-        files:
-          recipe:
-            - testing/test-env-paths.${{ sh }}
-        requirements:
-          run:
-            - binutils
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}grep
-
-      # ----------------------------------------------------------------------
-      # OCAML config validation
+      # Package integrity: paths, config, env vars, rpath
+      # (merged from test-env-paths + test-config)
       # ----------------------------------------------------------------------
       - script:
           - if: is_native
-            then: cd testing && ${{ dot }}test-config.${{ sh }}
+            then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
           - if: is_cross_target
-            then: cd testing && ./test-config.sh cross-target
+            then: cd testing && ./test-package-integrity.sh cross-target
           - if: is_cross_compiler
-            then: cd testing && ./test-config.sh cross ${{ target_triplet }}
+            then: cd testing && ./test-package-integrity.sh cross ${{ target_triplet }}
           - if: not (is_native or is_cross_target or is_cross_compiler)
             then: echo "Invalid artifact" && exit 1
         files:
           recipe:
-            - testing/test-config.${{ sh }}
+            - testing/test-package-integrity.${{ sh }}
         requirements:
           run:
+            # Use _impl to avoid activation script noise in test output
+            - if: unix
+              then:
+                - binutils_impl_${{ target_platform }}
             # Use native grep on arm64 since no QEMU
             - if: not arm64
               then:
@@ -471,7 +455,9 @@ outputs:
             - testing/test-cross-arch.${{ sh }}
         requirements:
           run:
-            - binutils
+            - if: unix
+              then:
+                - binutils_impl_${{ target_platform }}
 
       # ----------------------------------------------------------------------
       # NATIVE: Tool version checks
@@ -522,6 +508,17 @@ outputs:
         files:
           recipe:
             - testing/test-compiler-wrappers.sh
+
+      # ----------------------------------------------------------------------
+      # CROSS-COMPILER: Activation script tests (ocaml_use_cross/ocaml_use_native)
+      # ----------------------------------------------------------------------
+      - script:
+          - if: is_cross_compiler
+            then: cd testing && ./test-cross-activation.sh
+            else: echo "Skipping cross-activation tests"
+        files:
+          recipe:
+            - testing/test-cross-activation.sh
 
       # ----------------------------------------------------------------------
       # CROSS-COMPILER: Functional tests

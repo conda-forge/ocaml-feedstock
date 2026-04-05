@@ -87,7 +87,7 @@ if [[ "${CAN_EXECUTE}" == "true" ]]; then
   # Check library paths don't contain -L flags with build-time paths
   BYTECCLIBS=$("${OCAML_CMD}" -config-var bytecomp_c_libraries 2>/dev/null || echo "N/A")
   echo "  bytecomp_c_libraries=${BYTECCLIBS}"
-  if [[ "$BYTECCLIBS" != "N/A" ]] && echo "$BYTECCLIBS" | grep -qE "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
+  if [[ "$BYTECCLIBS" != "N/A" ]] && echo "$BYTECCLIBS" | grep -qE -- "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
     echo "ERROR: bytecomp_c_libraries contains build-time -L path: $BYTECCLIBS"
     exit 1
   fi
@@ -96,7 +96,7 @@ if [[ "${CAN_EXECUTE}" == "true" ]]; then
   # compression_c_libraries may not exist in all OCaml versions
   ZSTDLIBS=$("${OCAML_CMD}" -config-var compression_c_libraries 2>/dev/null || echo "N/A")
   echo "  compression_c_libraries=${ZSTDLIBS}"
-  if [[ "$ZSTDLIBS" != "N/A" ]] && echo "$ZSTDLIBS" | grep -qE "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
+  if [[ "$ZSTDLIBS" != "N/A" ]] && echo "$ZSTDLIBS" | grep -qE -- "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
     echo "ERROR: compression_c_libraries contains build-time -L path: $ZSTDLIBS"
     exit 1
   fi
@@ -105,7 +105,7 @@ if [[ "${CAN_EXECUTE}" == "true" ]]; then
   # Check native_c_libraries for -L paths
   NATIVECCLIBS=$("${OCAML_CMD}" -config-var native_c_libraries 2>/dev/null || echo "N/A")
   echo "  native_c_libraries=${NATIVECCLIBS}"
-  if [[ "$NATIVECCLIBS" != "N/A" ]] && echo "$NATIVECCLIBS" | grep -qE "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
+  if [[ "$NATIVECCLIBS" != "N/A" ]] && echo "$NATIVECCLIBS" | grep -qE -- "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
     echo "ERROR: native_c_libraries contains build-time -L path: $NATIVECCLIBS"
     exit 1
   fi
