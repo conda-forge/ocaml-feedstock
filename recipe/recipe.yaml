@@ -1,20 +1,16 @@
 context:
-  build_number: 6
+  build_number: 7
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
-  # ===========================================================================
-  # Debug/Development Settings
-  # ===========================================================================
-  # Set to "1" to enable progressive build cache in ${RECIPE_DIR}/.build_cache/
-  # This caches successful native compiler builds to speed up cross-compiler debugging
-  use_cache: "0"
+
   dot: ${{ "./" if unix else "" }}
   library: ${{ "Library/" if not unix else "" }}
   m2: ${{ "m2-" if not unix else "" }}
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
+
   # ===========================================================================
   # GCC-style derived values (not variant keys - keeps filenames clean)
   # cross_target_platform_ comes from variants.yaml
@@ -22,29 +18,52 @@ context:
   # Derive triplet from cross_target_platform_
   target_triplet: >-
     ${{
-      "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                  else
-      "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"             else
-      "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"             else
-      "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                    else
-      "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc" else
-      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else                                                 
+      "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                             else
+      "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"                        else
+      "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"                        else
+      "riscv64-conda-linux-gnu"     if cross_target_platform_ == "linux-riscv64"                        else
+      "s390x-conda-linux-gnu"       if cross_target_platform_ == "linux-s390x"                          else
+      "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                               else
+      "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                            else
+      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler in ["gcc", "zig"] else
+      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022"    else
+      "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and c_compiler in ["gcc", "zig"] else
+      "aarch64-pc-windows"          if cross_target_platform_ == "win-arm64" and c_compiler == "vs2022" else                                                 
       "unknown"
     }}
+
   # Which platform builds cross-compilers for each target
   cross_build_platform: >-
     ${{
-      "linux-64" if cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le"] else
-      "osx-64"   if cross_target_platform_ in ["osx-64", "osx-arm64"]                        else
-      "win-64"   if cross_target_platform_ == "win-64"                                       else
+      "linux-64"                    if cross_target_platform_ in [
+        "linux-64",
+        "linux-aarch64",
+        "linux-ppc64le",
+        "linux-riscv64",
+        "linux-s390x"
+        ]                                                                                               else
+      "osx-64"                      if cross_target_platform_ in ["osx-64", "osx-arm64"]                else
+      "win-64"                      if cross_target_platform_ in ["win-64", "win-arm64"]                else
       target_platform
     }}
+
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
   is_native: ${{ cross_target_platform_ == build_platform }}
   is_cross_compiler: ${{ (cross_target_platform_ != target_platform) and (build_platform == cross_build_platform) }}
   is_cross_target: ${{ (cross_target_platform_ == target_platform) and (build_platform != target_platform) }}
+  # zig is only for win-arm64 cross-compilation — skip all other zig variants
+  skip_zig: ${{ c_compiler == "zig" and not (is_cross_compiler and cross_target_platform_ == "win-arm64") }}
+  # win-arm64 cross-compilation requires zig — skip gcc/vs2022 cross-compiler variants for win-arm64
+  is_win_cross_without_zig: ${{ cross_target_platform_ == "win-arm64" and not c_compiler == "zig" and is_cross_compiler }}
+
+  # ===========================================================================
+  # Debug/Development Settings
+  # ===========================================================================
+  # Set to "1" to enable progressive build cache in ${RECIPE_DIR}/.build_cache/
+  # This caches successful native compiler builds to speed up cross-compiler debugging
+  use_cache: "0"
 
 recipe:
   name: ocaml-packages
@@ -59,14 +78,25 @@ source:
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
+      # Add aarch64-w64-mingw32 (win-arm64) support to the configure system:
+      # - Accepts aarch64-w64-mingw32* as a valid mingw-w64 target/host triple
+      # - Adds flexdll_chain='mingw64arm' for flexlink on win-arm64
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
+      - if: not unix
+        then:
+          - patches/add-aarch64-w64-mingw32-support.patch
   - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
+      patches:
+        # Add aarch64-w64-mingw32 (win-arm64) support to flexdll:
+        # - build_mingw64arm target with MINGW64ARM_PREFIX
+        # - windres fallback when cross-windres is not available
+        - patches/flexdll-add-mingw64arm-support.patch
   - if: not unix and c_compiler == "vs2022"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
@@ -85,7 +115,7 @@ outputs:
   - package:
       name: ocaml
     build:
-      skip: cross_target_platform_ != target_platform
+      skip: cross_target_platform_ != target_platform or skip_zig or not c_compiler == "zig"
       noarch: generic
       script: echo "OCaml metapackage"
     requirements:
@@ -127,7 +157,7 @@ outputs:
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
           OCAML_USE_CACHE: "${{ use_cache }}"
-      skip: not (is_native or is_cross_compiler or is_cross_target)
+      skip: not (is_native or is_cross_compiler or is_cross_target) or is_win_cross_without_zig or skip_zig or not c_compiler == "zig"
       dynamic_linking:
         missing_dso_allowlist:
           - if: is_cross_compiler and aarch64
@@ -190,10 +220,15 @@ outputs:
               - ${{ stdlib("c") }}
       build:
         # --- Common build deps (all cases) ---
-        - if: not unix and c_compiler == "gcc"
+        - if: not unix and (c_compiler == "gcc" or c_compiler == "zig")
           then:
-            - ${{ compiler("m2w64_c") }}
-            - ${{ stdlib("m2w64_c") }}
+            - if: c_compiler == "zig"
+              then:
+                - ${{ compiler("zig") }}
+                - zig_${{ target_platform }}
+              else:
+                - ${{ compiler("m2w64_c") }}
+                - ${{ stdlib("m2w64_c") }}
           else:
             - ${{ compiler("c") }}
             - ${{ stdlib("c") }}
@@ -209,20 +244,21 @@ outputs:
 
         # --- CROSS-COMPILER: Target platform toolchain ---
         # Guard (cross_target_platform_ != build_platform) prevents self-referenced cycle detection
-        - if: is_cross_compiler and (linux or osx) and (cross_target_platform_ != build_platform)
+        - if: is_cross_compiler and (cross_target_platform_ != build_platform)
           then:
             - if: build_number == 0
               then:
                 - ocaml_${{ build_platform }} >=5.4
               else:
                 - ocaml_${{ build_platform }} ${{ version }}.*
+            - if: not unix and "arm64" in cross_target_platform_
+              then:
+                - ${{ c_compiler }}_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
             - if: linux
               then:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
                 - sysroot_${{ cross_target_platform_ }} ${{ c_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
-              else:
-                - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
 
         # --- CROSS-TARGET: Bootstrap compiler for cross-compilation ---
         - if: is_cross_target
@@ -259,9 +295,13 @@ outputs:
         # metapackages (not _impl) because _impl doesn't put tools in PATH.
         - if: is_native or is_cross_target
           then:
-            - if: not unix and c_compiler == "gcc"
+            - if: not unix and (c_compiler == "gcc" or c_compiler == "zig")
               then:
-                - ${{ compiler("m2w64_c") }}
+                - if: c_compiler == "zig"
+                  then:
+                    - ${{ compiler("zig") }}
+                  else:
+                    - ${{ compiler("m2w64_c") }}
               else:
                 - ${{ compiler("c") }}
             - if: osx
@@ -546,7 +586,7 @@ outputs:
   - package:
       name: ocaml-compiler
     build:
-      skip: cross_target_platform_ != target_platform
+      skip: cross_target_platform_ != target_platform or skip_zig or not c_compiler == "zig"
       script: echo "Toolchain meta-package"
     requirements:
       run:

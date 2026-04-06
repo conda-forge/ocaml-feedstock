@@ -1,0 +1,72 @@
+--- a/Makefile
++++ b/Makefile
+@@ -34,6 +34,9 @@
+ MINGW64_PREFIX = x86_64-w64-mingw32-
+ MIN64CC = $(MINGW64_PREFIX)gcc
+
++MINGW64ARM_PREFIX = aarch64-w64-mingw32-
++MIN64ARMCC = $(MINGW64ARM_PREFIX)gcc
++
+ CYGWIN64_PREFIX = x86_64-pc-cygwin-
+ CYG64CC = $(CYGWIN64_PREFIX)gcc
+
+@@ -46,11 +49,12 @@
+ 	echo 'let cygwin64 = "$(notdir $(CYG64CC))"' >> $@
+ 	echo 'let mingw = "$(notdir $(MINCC))"' >> $@
+ 	echo 'let mingw64 = "$(notdir $(MIN64CC))"' >> $@
++	echo 'let mingw64arm = "$(notdir $(MIN64ARMCC))"' >> $@
+ 	echo 'let gnat = "gcc"' >> $@
+
+ # Supported tool-chains
+
+-CHAINS = mingw mingw64 cygwin64 msvc msvc64
++CHAINS = mingw mingw64 mingw64arm cygwin64 msvc msvc64
+
+ # Compilers
+
+@@ -154,6 +158,7 @@
+ build_cygwin64: flexdll_cygwin64.o flexdll_initer_cygwin64.o
+ build_mingw: flexdll_mingw.o flexdll_initer_mingw.o
+ build_mingw64: flexdll_mingw64.o flexdll_initer_mingw64.o
++build_mingw64arm: flexdll_mingw64arm.o flexdll_initer_mingw64arm.o
+
+ OBJS = version.ml Compat.ml coff.ml cmdline.ml create_dll.ml reloc.ml
+
+@@ -207,7 +212,16 @@
+ 	$(RES_PREFIX) $(RC) /nologo $(RC_FLAGS) $<
+
+ version_res.o: version.rc flexdll.opam
+-	$(RC) $(WINDRES_FLAGS) -i $< -o $@
++	if command -v $(RC) >/dev/null 2>&1; then \
++	  $(RC) $(WINDRES_FLAGS) -i $< -o $@; \
++	elif command -v windres >/dev/null 2>&1; then \
++	  windres $(WINDRES_FLAGS) -i $< -o $@; \
++	elif command -v x86_64-w64-mingw32-windres >/dev/null 2>&1; then \
++	  x86_64-w64-mingw32-windres $(WINDRES_FLAGS) -i $< -o $@; \
++	else \
++	  echo "Warning: windres not found, building without version resource"; \
++	  echo "" | x86_64-w64-mingw32-gcc -x c -c -o $@ -; \
++	fi
+
+ flexdll_msvc.obj: flexdll.c flexdll.h
+ 	$(MSVC_PREFIX) $(MSVCC) $(MSVC_FLAGS) /DMSVC -c /Fo"$@" $<
+@@ -227,6 +241,9 @@
+ flexdll_mingw64.o: flexdll.c flexdll.h
+ 	$(MIN64CC) $(GCC_FLAGS) -DMINGW -c -o $@ $<
+
++flexdll_mingw64arm.o: flexdll.c flexdll.h
++	$(CC) $(GCC_FLAGS) -DMINGW -c -o $@ $<
++
+ flexdll_initer_msvc.obj: flexdll_initer.c
+ 	$(MSVC_PREFIX) $(MSVCC) $(MSVC_FLAGS) -c /Fo"$@" $<
+
+@@ -245,6 +262,9 @@
+ flexdll_initer_mingw64.o: flexdll_initer.c
+ 	$(MIN64CC) $(GCC_FLAGS) -c -o $@ $<
+
++flexdll_initer_mingw64arm.o: flexdll_initer.c
++	$(CC) $(GCC_FLAGS) -c -o $@ $<
++
+
+ demo_msvc: flexlink.exe flexdll_msvc.obj flexdll_initer_msvc.obj
+ 	$(MSVC_PREFIX) $(MAKE) -C test clean demo CHAIN=msvc CC="$(MSVCC)" CFLAGS="$(MSVC_FLAGS)" PLUG2_CFLAGS="/bigobj" O=obj

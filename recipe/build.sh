@@ -35,9 +35,6 @@ IFS=$'\n\t'
 #
 # ==============================================================================
 
-# ==============================================================================
-# CRITICAL: Ensure we're using conda bash 5.2+, not system bash
-# ==============================================================================
 if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO[1]} -lt 2) ]]; then
   echo "re-exec with conda bash..."
   if [[ -x "${BUILD_PREFIX}/bin/bash" ]]; then
@@ -539,8 +536,14 @@ build_native() {
     local config_file="Makefile.config"
 
     # non-unix: Fix flexlink toolchain detection
+    # TOOLCHAIN=mingw64 always (build-platform toolchain, controls RC=windres vs rc.exe)
     sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
-    sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
+    # FLEXDLL_CHAIN varies: mingw64arm for win-arm64 cross, mingw64 otherwise
+    if [[ "${OCAML_TARGET_TRIPLET}" == "aarch64-w64-mingw32"* ]]; then
+      sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64arm/' "$config_file"
+    else
+      sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
+    fi
 
     # Fix $(addprefix -link ,$(OC_LDFLAGS)) generating garbage when empty
     # Use $(if $(strip ...)) to guard against empty/whitespace-only values
@@ -552,6 +555,7 @@ build_native() {
     # Configure generates "... $(addprefix...) -link " but when OC_LDFLAGS is empty,
     # this trailing "-link" causes "flexlink ... -link -o output" which passes -o to linker!
     sed -i 's/^\(MK[A-Z]*=.*\)[[:space:]]*-link[[:space:]]*$/\1/' "$config_file"
+
   fi
 
   # ============================================================================
@@ -644,7 +648,7 @@ build_cross_compiler() {
   # (see top-level Early CFLAGS/LDFLAGS Sanitization block for full rationale)
   sanitize_and_export_cross_flags "aarch64"
 
-  if [[ "${target_platform}" != "linux"* ]] && [[ "${target_platform}" != "osx"* ]]; then
+  if [[ "${target_platform}" != "linux"* ]] && [[ "${target_platform}" != "osx"* ]] && [[ "${target_platform}" != "win"* ]]; then
     echo "No cross-compiler recipe for ${target_platform} ... yet"
     return 0
   fi
@@ -689,9 +693,14 @@ build_cross_compiler() {
 
   # CRITICAL: Add native OCaml to PATH so configure can find ocamlc
   # Configure checks "if the installed OCaml compiler can build the cross compiler"
-  PATH="${OCAML_PREFIX}/bin:${PATH}"
+  # On Windows, binaries are in Library/bin, not bin
+  if is_unix; then
+    PATH="${OCAML_PREFIX}/bin:${PATH}"
+  else
+    PATH="${OCAML_PREFIX}/Library/bin:${OCAML_PREFIX}/bin:${PATH}"
+  fi
   hash -r
-  echo "  PATH updated to include: ${OCAML_PREFIX}/bin"
+  echo "  PATH updated to include OCaml tools"
 
   for target in "${CROSS_TARGETS[@]}"; do
     echo ""
@@ -723,7 +732,7 @@ build_cross_compiler() {
 
     # Setup cross-toolchain (sets CROSS_CC, CROSS_AS, CROSS_AR, etc.)
     setup_toolchain "CROSS" "${target}"
-    setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
+    setup_cflags_ldflags "CROSS" "${build_platform:-${target_platform}}" "${CROSS_PLATFORM}"
 
     # Platform-specific settings for cross-compiler
     # NEEDS_DL: glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
@@ -772,8 +781,12 @@ build_cross_compiler() {
       env_suffix="${rest%%:*}"
       default_tool="${rest#*:}"
 
-      # Create in BUILD_PREFIX/bin for build-time PATH access
-      wrapper_path="${BUILD_PREFIX}/bin/${target}-ocaml-${tool_name}"
+      # Create in BUILD_PREFIX bin dir for build-time PATH access
+      if is_unix; then
+        wrapper_path="${BUILD_PREFIX}/bin/${target}-ocaml-${tool_name}"
+      else
+        wrapper_path="${BUILD_PREFIX}/Library/bin/${target}-ocaml-${tool_name}"
+      fi
       cat > "${wrapper_path}" << TOOLWRAPPER
 #!/usr/bin/env bash
 # OCaml cross-compiler toolchain wrapper for ${target}
@@ -802,7 +815,7 @@ TOOLWRAPPER
     echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
     conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
     # Get env path from conda info (envs are in $CONDA_PREFIX/envs/ or default location)
-    CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
+    CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
     TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
     TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
     echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
@@ -826,18 +839,20 @@ TOOLWRAPPER
     export LDFLAGS="${NATIVE_LDFLAGS}"
     export STRIP="${NATIVE_STRIP}"
 
-    # Per-target configure args (frame pointers not supported on PPC)
+    # Per-target configure args (frame pointers not supported on PPC or Windows)
     declare -a TARGET_CONFIG_ARGS=()
-    case "${CROSS_ARCH}" in
-      arm64|amd64)
-        TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
-        ;;
-    esac
+    if is_unix; then
+      case "${CROSS_ARCH}" in
+        arm64|amd64)
+          TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
+          ;;
+      esac
+    fi
 
     run_logged "cross-configure" ${CONFIGURE[@]} \
       -prefix="${OCAML_CROSS_PREFIX}" \
       --mandir="${OCAML_CROSS_PREFIX}"/share/man \
-      --host="${build_alias}" \
+      --host="${build_alias:-${CONDA_TOOLCHAIN_BUILD}}" \
       --target="${target}" \
       "${CONFIG_ARGS[@]}" \
       "${TARGET_CONFIG_ARGS[@]}" \
@@ -848,7 +863,8 @@ TOOLWRAPPER
       RANLIB="${CROSS_RANLIB}" \
       STRIP="${CROSS_STRIP}" \
       ac_cv_func_getentropy=no \
-      ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
+      ${CROSS_MODEL:+MODEL=${CROSS_MODEL}} \
+    || { echo "  === config.log ==="; cat config.log; exit 1; }
 
     # CRITICAL: Unset CC/CFLAGS/LDFLAGS after configure completes
     # OCaml 5.4.0 configure requires these as env vars, but leaving them set
@@ -857,10 +873,40 @@ TOOLWRAPPER
     # between stdlib and otherlibs (unix), causing "inconsistent assumptions" errors.
     unset CC CFLAGS LDFLAGS
 
+    # DEBUG: show SAK_BUILD and subsystem flags (remove after fixing WinMain issue)
+    echo "  DEBUG: NATIVE_LDFLAGS=${NATIVE_LDFLAGS}"
+    echo "  DEBUG: LDFLAGS_FOR_BUILD=${LDFLAGS_FOR_BUILD:-<unset>}"
+    if [[ -f Makefile.build_config ]]; then
+      echo "  DEBUG: SAK_BUILD from Makefile.build_config:"
+      grep '^SAK_BUILD=' Makefile.build_config || echo "  DEBUG: SAK_BUILD not found"
+      echo "  DEBUG: SAK= from Makefile.build_config:"
+      grep '^SAK=' Makefile.build_config || echo "  DEBUG: SAK not found"
+    fi
+    if [[ -f Makefile.config ]]; then
+      echo "  DEBUG: MKEXE from Makefile.config:"
+      grep '^MKEXE=' Makefile.config || true
+      echo "  DEBUG: OUTPUTEXE from Makefile.config:"
+      grep '^OUTPUTEXE=' Makefile.config || true
+    fi
+    echo "  DEBUG: GCC default subsystem:"
+    "${NATIVE_CC}" -dumpspecs 2>/dev/null | grep -A2 'mconsole\|mwindows\|subsystem' || echo "  DEBUG: no specs found"
+
     # ========================================================================
     # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
     # ========================================================================
     patch_checkstack_cc
+
+    # Fix sak.exe WinMain: SAK_BUILD=$(MKEXE_VIA_CC) goes through flexlink with
+    # TARGET chain (mingw64arm), but sak.exe must run on BUILD host (x86_64).
+    # Replace with direct gcc invocation using SAK_CC/SAK_LDFLAGS.
+    if ! is_unix && [[ -f Makefile.build_config ]]; then
+      # Append (not sed) — last definition wins in make, immune to auto-remake
+      # MinGW CRT defaults to GUI subsystem (crtexewin.o/WinMain) on both gcc and zig.
+      # -Wl,--subsystem,console is compiler-agnostic (works with gcc, zig, clang).
+      echo 'SAK_BUILD=$(SAK_CC) $(SAK_LDFLAGS) -Wl,--subsystem,console -o $(1) $(2) $(SAK_CFLAGS)' >> Makefile.build_config
+      echo "  Appended SAK_BUILD override to Makefile.build_config"
+      echo "  Verify last SAK_BUILD: $(grep '^SAK_BUILD=' Makefile.build_config | tail -1)"
+    fi
 
     # ========================================================================
     # Patch config.generated.ml
@@ -931,6 +977,39 @@ TOOLWRAPPER
     # 2. Clean only native runtime files (libasmrun*, amd64.o, *.nd.o)
     # 3. crossopt rebuilds native parts for TARGET (bytecode unchanged)
 
+    # SAK_BUILD override is handled via append to Makefile.build_config (above).
+    # Do NOT pass SAK_BUILD on the make command line — it would clobber the file-level
+    # override that includes -Wl,--subsystem,console.
+
+    # Ensure boot/ has native OCaml tools — flexdll build needs them for flexlink.exe.
+    # Ensure boot/ has ocamlrun + ocamlc — flexdll build needs them to compile flexlink.exe.
+    # For cross-compilation, use the installed native OCaml from BUILD_PREFIX.
+    mkdir -p boot
+    if [[ ! -f boot/ocamlrun.exe ]]; then
+      local _ocaml_bin="${BUILD_PREFIX}/Library/bin"
+      [[ -f "${_ocaml_bin}/ocamlrun.exe" ]] || _ocaml_bin="${BUILD_PREFIX}/bin"
+      for _tool in ocamlrun ocamlc ocamllex; do
+        if [[ -f "${_ocaml_bin}/${_tool}.exe" ]]; then
+          cp "${_ocaml_bin}/${_tool}.exe" "boot/${_tool}.exe"
+        elif [[ -f "${_ocaml_bin}/${_tool}" ]]; then
+          cp "${_ocaml_bin}/${_tool}" "boot/${_tool}.exe"
+        fi
+      done
+      # flexdll build uses boot/ocamlc with '-nostdlib -I ../stdlib' (relative to flexdll/).
+      # '../stdlib' = source tree stdlib/ which is empty before build. Copy .cmi files from
+      # the installed native OCaml so flexlink.exe can compile.
+      local _ocaml_lib="${BUILD_PREFIX}/lib/ocaml"
+      [[ -d "${_ocaml_lib}" ]] || _ocaml_lib="${BUILD_PREFIX}/Library/lib/ocaml"
+      if [[ -d "${_ocaml_lib}" ]]; then
+        mkdir -p stdlib
+        cp "${_ocaml_lib}"/*.cmi stdlib/ 2>/dev/null || true
+        cp "${_ocaml_lib}"/stdlib.cma stdlib/ 2>/dev/null || true
+        cp "${_ocaml_lib}"/std_exit.cmo stdlib/ 2>/dev/null || true
+        echo "  Copied stdlib .cmi files from ${_ocaml_lib}"
+      fi
+      echo "  Copied native boot tools from ${_ocaml_bin}"
+    fi
+
     echo "  [4/7] Pre-building bytecode runtime and stdlib with native tools..."
     run_logged "runtime-all" "${MAKE[@]}" runtime-all \
       ARCH=amd64 \
@@ -941,6 +1020,7 @@ TOOLWRAPPER
       SAK_CC="${NATIVE_CC}" \
       SAK_CFLAGS="${NATIVE_CFLAGS}" \
       SAK_LDFLAGS="${NATIVE_LDFLAGS}" \
+      \
       ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
       -j"${CPU_COUNT}"
 
@@ -1708,9 +1788,67 @@ fi
 if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   # Native OCaml is available in BUILD_PREFIX (from ocaml_$build_platform dependency)
 
+  # Detect build platform toolchain
+  # Compiler activation should set CONDA_TOOLCHAIN_BUILD
+  if [[ -z "${CONDA_TOOLCHAIN_BUILD:-}" ]]; then
+    if ! is_unix; then
+      # On Windows, use the mingw triplet for native toolchain detection
+      # setup_toolchain's *-mingw32 case will find gcc or fall back to zig
+      CONDA_TOOLCHAIN_BUILD="x86_64-w64-mingw32"
+    else
+      echo "ERROR: CONDA_TOOLCHAIN_BUILD not set (compiler activation failed?)"
+      exit 1
+    fi
+  fi
+
+  # Debug: dump conda-build env vars available on this platform
+  if ! is_unix; then
+    echo "=== DEBUG: Windows cross-compiler environment ==="
+    echo "  --- conda-build vars ---"
+    echo "  build_platform=${build_platform:-<unset>}"
+    echo "  target_platform=${target_platform:-<unset>}"
+    echo "  build_alias=${build_alias:-<unset>}"
+    echo "  host_alias=${host_alias:-<unset>}"
+    echo "  BUILD_PREFIX=${BUILD_PREFIX:-<unset>}"
+    echo "  PREFIX=${PREFIX:-<unset>}"
+    echo "  SRC_DIR=${SRC_DIR:-<unset>}"
+    echo "  CONDA_BUILD_CROSS_COMPILATION=${CONDA_BUILD_CROSS_COMPILATION:-<unset>}"
+    echo "  CC=${CC:-<unset>}"
+    echo "  AR=${AR:-<unset>}"
+    echo "  AS=${AS:-<unset>}"
+    echo "  LD=${LD:-<unset>}"
+    echo "  NM=${NM:-<unset>}"
+    echo "  RANLIB=${RANLIB:-<unset>}"
+    echo "  STRIP=${STRIP:-<unset>}"
+    echo "  CFLAGS=${CFLAGS:-<unset>}"
+    echo "  LDFLAGS=${LDFLAGS:-<unset>}"
+    echo "  --- zig vars ---"
+    env | grep -iE "^ZIG|^CONDA_ZIG" | sort | sed 's/^/  /' || true
+    echo "  --- all CONDA_ vars ---"
+    env | grep -i "^CONDA_" | sort | sed 's/^/  /' || true
+    echo "=== END DEBUG ==="
+  fi
+
   # Setup native toolchain variables needed by build_cross_compiler (NATIVE_CC, SAK_*, etc.)
   setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
-  setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
+  if is_unix; then
+    setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
+  else
+    # NATIVE_CC stays as gcc (build-host compiler from setup_toolchain).
+    # sak.exe WinMain fix: SAK_BUILD sed in build_cross_compiler() bypasses flexlink.
+    export NATIVE_CFLAGS="${NATIVE_CFLAGS:-}"
+    export NATIVE_LDFLAGS="${NATIVE_LDFLAGS:-}"
+    export CROSS_CFLAGS="${CROSS_CFLAGS:-}"
+    export CROSS_LDFLAGS="${CROSS_LDFLAGS:-}"
+  fi
+
+  # Debug: dump conda-build env vars available on this platform
+  if ! is_unix; then
+    echo "=== DEBUG: Windows cross-compiler environment POST NATICE toolchain ==="
+    echo "  --- all NATIVE_ vars ---"
+    env | grep -i "^NATIVE_" | sort | sed 's/^/  /' || true
+    echo "=== END DEBUG ==="
+  fi
 
   OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
   (
@@ -1720,10 +1858,16 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     build_cross_compiler
   )
 
-  # Transfer cross-compiler files to PREFIX
-  echo ""
-  echo "=== Transferring cross-compiler to PREFIX ==="
-  OCAML_INSTALL_PREFIX="${PREFIX}"
+  # Verify cross-compiler produced output before transferring
+  if [[ ! -d "${OCAML_XCROSS_INSTALL_PREFIX}/lib/ocaml-cross-compilers" ]]; then
+    echo "WARNING: No cross-compiler output produced for ${OCAML_TARGET_TRIPLET}"
+    echo "  This platform combination may not be supported yet."
+    echo "  Creating empty package (metapackage only)."
+  else
+    # Transfer cross-compiler files to PREFIX
+    echo ""
+    echo "=== Transferring cross-compiler to PREFIX ==="
+    OCAML_INSTALL_PREFIX="${PREFIX}"
 
   # Only copy cross-compiler specific files
   tar -C "${OCAML_XCROSS_INSTALL_PREFIX}" -cf - . | tar -C "${OCAML_INSTALL_PREFIX}" -xf -
@@ -1759,6 +1903,7 @@ EOF
       clean_runtime_launch_info "$runtime_info" "${OCAML_INSTALL_PREFIX}"
     fi
   done
+  fi  # end of: cross-compiler produced output
 fi
 
 # ==============================================================================

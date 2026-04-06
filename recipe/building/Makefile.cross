@@ -58,11 +58,22 @@ SAK_CC ?= $(CC)
 # SAK_CFLAGS: CFLAGS for BUILD machine (sak runs on build, not target)
 # Must NOT contain target-specific flags like -mtune=power8
 SAK_CFLAGS ?= $(CFLAGS)
-SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$(1) $(2)
+# On Windows (EXE=.exe), MinGW CRT defaults to GUI subsystem (WinMain).
+# -Wl,--subsystem,console forces console CRT (main). Compiler-agnostic (gcc/zig/clang).
+ifeq ($(EXE),.exe)
+# lld-link (zig's linker) needs MSVC-style /subsystem:console, not GNU --subsystem
+SAK_SUBSYSTEM_FLAG = -Wl,/subsystem:console
+endif
+SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(SAK_SUBSYSTEM_FLAG) $(OUTPUTEXE)$(1) $(2)
 
 # Override SAK_BUILD to use SAK_CC/SAK_CFLAGS instead of CC/CFLAGS for cross-compilation
 # sak is a build tool that must run on the BUILD machine
 SAK_BUILD = $(SAK_LINK) $(OC_CFLAGS) $(SAK_CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS)
+$(info DEBUG-MAKECROSS: EXE=$(EXE))
+$(info DEBUG-MAKECROSS: SAK_SUBSYSTEM_FLAG=$(SAK_SUBSYSTEM_FLAG))
+$(info DEBUG-MAKECROSS: SAK_BUILD=$(SAK_BUILD))
+$(info DEBUG-MAKECROSS: SAK_LINK=$(SAK_LINK))
+$(info DEBUG-MAKECROSS: SAK_CC=$(SAK_CC))
 
 # CROSS_CC/CROSS_AR must be set on command line for cross-compilation.
 # These are passed through to sub-makes for C libraries (otherlibs).
@@ -368,7 +379,7 @@ endif
 	# and looks for stublibs relative to that path. We must copy before CROSSCOMPILERLIBS.
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
-	@for f in otherlibs/*/dll*.so; do \
+	@for f in otherlibs/*/dll*.so otherlibs/*/dll*.dll; do \
 	  if [ -f "$$f" ]; then \
 	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
@@ -419,7 +430,7 @@ crosscompiledopt:
 	# Copy stublibs to where the cross-compiler expects them (same as crossopt)
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
-	@for f in otherlibs/*/dll*.so; do \
+	@for f in otherlibs/*/dll*.so otherlibs/*/dll*.dll; do \
 	  if [ -f "$$f" ]; then \
 	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \

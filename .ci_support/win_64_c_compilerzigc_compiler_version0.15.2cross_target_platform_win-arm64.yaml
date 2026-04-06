@@ -1,13 +1,17 @@
 c_compiler:
-- gcc
+- zig
+c_compiler_version:
+- 0.15.2
 c_stdlib:
 - vs
+c_stdlib_version:
+- '2022.14'
 channel_sources:
 - conda-forge
 channel_targets:
 - conda-forge main
 cross_target_platform_:
-- win-64
+- win-arm64
 m2w64_c_compiler:
 - gcc
 m2w64_c_compiler_version:
@@ -18,5 +22,12 @@ m2w64_c_stdlib_version:
 - '12'
 target_platform:
 - win-64
+zig_compiler:
+- zig
+zig_compiler_version:
+- 0.15.2
+zip_keys:
+- - c_compiler
+  - c_compiler_version
 zstd:
 - '1.5'
