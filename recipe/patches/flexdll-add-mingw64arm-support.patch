@@ -243,7 +243,11 @@ diff -ruN a/reloc.ml b/reloc.ml
              0x0100 (* debug relocs: ignore *)
  
 +        | `arm64, (0x0d (* IMAGE_REL_ARM64_SECTION *) |
-+                   0x08 (* IMAGE_REL_ARM64_SECREL *)) ->
++                   0x08 (* IMAGE_REL_ARM64_SECREL *) |
++                   0x03 (* IMAGE_REL_ARM64_BRANCH26 *) |
++                   0x04 (* IMAGE_REL_ARM64_PAGEBASE_REL21 *) |
++                   0x06 (* IMAGE_REL_ARM64_PAGEOFFSET_12A *) |
++                   0x07 (* IMAGE_REL_ARM64_PAGEOFFSET_12L *)) ->
 +            0x0100 (* debug relocs: ignore *)
 +
          | _, k ->
@@ -251,7 +255,7 @@ diff -ruN a/reloc.ml b/reloc.ml
                Printf.sprintf "Unsupported relocation kind %04x for %s in %s"
 @@ -553,7 +561,7 @@
  (* Create a table for import symbols __imp_XXX *)
- 
+
  let add_import_table obj imports =
 -  let ptr_size = match !machine with `x86 -> 4 | `x64 -> 8 in
 +  let ptr_size = match !machine with `x86 -> 4 | `x64 | `arm64 -> 8 in
@@ -267,7 +271,43 @@ diff -ruN a/reloc.ml b/reloc.ml
        let dmp = temp_file "dyndll" ".dmp" in
        if cmd_verbose (Printf.sprintf "%s -p %s > %s" !objdump fn dmp) <> 0
        then failwith "Error while extracting exports from a DLL";
-@@ -866,7 +874,7 @@
+@@ -694,19 +702,22 @@
+    Collect such cases in "imported".
+ *)
+ let needed imported defined resolve_alias resolve_alternate obj =
+-  let rec normalize name =
+-    try
+-      let r = resolve_alias name in
+-      if r <> name then normalize r else r
+-    with Not_found ->
+-      (* Fall back to alternate name if and only if name was not found.
+-         https://devblogs.microsoft.com/oldnewthing/20200731-00/?p=104024 *)
+-      try
+-        let r = resolve_alternate name in
+-        if r <> name then normalize r else r
+-      with Not_found ->
+-        name
+-  in
++  let module SSet = Set.Make(String) in
++  let rec normalize ?(seen=SSet.empty) name =
++    if SSet.mem name seen then name
++    else
++      try
++        let r = resolve_alias name in
++        if r <> name then normalize ~seen:(SSet.add name seen) r
++        else r
++      with Not_found ->
++        try
++          let r = resolve_alternate name in
++          if r <> name then normalize ~seen:(SSet.add name seen) r
++          else r
++        with Not_found ->
++          name
++  in
+   let normalize_imp name =
+     match check_prefix "__imp_" name with
+     | Some s when not (StrSet.mem name defined) ->
+@@ -866,7 +877,7 @@
      if main_pgm then add_def (usym "static_symtable")
      else add_def (usym "reloctbl");
  
@@ -276,7 +316,7 @@ diff -ruN a/reloc.ml b/reloc.ml
      else add_def "___ImageBase";
  
      !defined, !from_imports, (Hashtbl.find aliases), (Hashtbl.find alternates)
-@@ -1160,7 +1168,7 @@
+@@ -1160,7 +1171,7 @@
            let s =
              match !machine with
              | `x86 -> "FlexDLLiniter@12"
@@ -285,7 +325,7 @@ diff -ruN a/reloc.ml b/reloc.ml
            in
            Printf.sprintf "/entry:%s " s
            )
-@@ -1192,7 +1200,7 @@
+@@ -1192,7 +1203,7 @@
            files
            def_file
            extra_args
@@ -294,7 +334,7 @@ diff -ruN a/reloc.ml b/reloc.ml
          let def_file =
            if main_pgm then ""
            else
-@@ -1245,6 +1253,7 @@
+@@ -1245,6 +1256,7 @@
              match !machine with
              | `x86 -> "default.manifest"
              | `x64 -> "default_amd64.manifest"
@@ -302,17 +342,14 @@ diff -ruN a/reloc.ml b/reloc.ml
            in
            Filename.concat flexdir default_manifest
        in
-@@ -1433,6 +1442,13 @@
+@@ -1433,6 +1445,10 @@
        mingw_libs Version.mingw_prefix
    | `MINGW64 ->
        mingw_libs Version.mingw64_prefix
 +  | `MINGW64ARM ->
-+      (* zig cc provides MinGW runtime statics (mingw32, gcc, moldname, mingwex)
-+         internally. Windows DLL imports (-lmsvcrt, -lws2_32 etc.) must be
-+         resolved via generated import libs in the arm64 lib search path. *)
 +      objdump := Version.mingw64arm_prefix ^ "objdump";
 +      search_path := !dirs;
-+      default_libs := ["-lmsvcrt"; "-luser32"; "-lkernel32"; "-ladvapi32"; "-lshell32"]
++      mingw_libs Version.mingw64arm_prefix
    | `GNAT | `GNAT64 ->
     (* This is a plain copy of the mingw version, but we do not change the
        prefix and use "gnatls" to compute the include dir. *)

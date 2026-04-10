@@ -191,16 +191,16 @@ SAK_BYTECCLIBS ?= $(BYTECCLIBS)
 BYTECODE_RUNTIME_VARS = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
   'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
-  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -Wl,--subsystem,console' \
+  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -mconsole' \
   'BYTECCLIBS=$(SAK_BYTECCLIBS) flexdll_stub.$$(O)'
 # BYTECODE_RUNTIME_VARS_WITH_STUB: adds runtime_winmain_stub.obj to BYTECCLIBS.
-# zig's lld maps wmain() → GUI CRT (crtexewin.obj), ignoring -Wl,--subsystem,console.
-# The stub provides WinMain()+main() so lld "defaults to /subsystem:console" and uses
-# mainCRTStartup. main() calls wmain() via CommandLineToArgvW for proper wide argv.
+# zig's lld maps wmain() → GUI CRT (crtexewin.obj) on ARM64; -mconsole is zig's own
+# flag controlling CRT selection before lld-link (unlike -Wl,--subsystem,console which
+# zig ignores). WinMain stub remains as safety net if -mconsole is unsupported.
 BYTECODE_RUNTIME_VARS_WITH_STUB = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
   'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
-  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -Wl,--subsystem,console' \
+  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -mconsole' \
   'BYTECCLIBS=$(SAK_BYTECCLIBS) flexdll_stub.$$(O) runtime_winmain_stub.$$(O)'
 
 .PHONY: crossopt
@@ -211,7 +211,7 @@ crossopt: cross-flexdll
 	# generated MKEXE (flexlink arm64) is wrong for all exe targets.
 	# Modify the source file so ALL submakes read the correct value.
 	cp Makefile.config Makefile.config.crossopt_bak
-	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -Wl,--subsystem,console|' Makefile.config
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -mconsole|' Makefile.config
 	@echo "=== CROSSOPT DEBUG: MKEXE after sed ==="
 	@grep '^MKEXE=' Makefile.config || echo "MKEXE line not found!"
 	@echo "=== CROSSOPT DEBUG: SAK_CC=$(SAK_CC) MKEXE=$(MKEXE) ==="
@@ -260,7 +260,7 @@ crossopt: cross-flexdll
 else
 crossopt:
 	cp Makefile.config Makefile.config.crossopt_bak
-	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -Wl,--subsystem,console|' Makefile.config
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -mconsole|' Makefile.config
 	rm -f runtime/*.$(O) runtime/*.$(A)
 	printf '%s\n' \
 	  '#include <windows.h>' \
