@@ -896,16 +896,76 @@ TOOLWRAPPER
     # ========================================================================
     patch_checkstack_cc
 
-    # Fix sak.exe WinMain: SAK_BUILD=$(MKEXE_VIA_CC) goes through flexlink with
-    # TARGET chain (mingw64arm), but sak.exe must run on BUILD host (x86_64).
-    # Replace with direct gcc invocation using SAK_CC/SAK_LDFLAGS.
-    if ! is_unix && [[ -f Makefile.build_config ]]; then
-      # Append (not sed) — last definition wins in make, immune to auto-remake
-      # MinGW CRT defaults to GUI subsystem (crtexewin.o/WinMain) on both gcc and zig.
-      # -Wl,--subsystem,console is compiler-agnostic (works with gcc, zig, clang).
-      echo 'SAK_BUILD=$(SAK_CC) $(SAK_LDFLAGS) -Wl,--subsystem,console -o $(1) $(2) $(SAK_CFLAGS)' >> Makefile.build_config
-      echo "  Appended SAK_BUILD override to Makefile.build_config"
-      echo "  Verify last SAK_BUILD: $(grep '^SAK_BUILD=' Makefile.build_config | tail -1)"
+    # Fix sak.exe WinMain: zig cc -target windows-gnu may default to GUI subsystem.
+    # Strategy 1: probe for a console subsystem linker flag (for correct PE header).
+    # Strategy 2: always add WinMain stub delegating to main() as ultimate fallback.
+    # This is belt-and-suspenders: Strategy 2 guarantees correctness even if no flag works.
+    if ! is_unix; then
+      # --- Strategy 1: probe for working console subsystem flag ---
+      # Compile a minimal probe binary with each candidate flag, then inspect the
+      # PE Optional Header subsystem field (offset pe+92, value 3 = console).
+      _sak_probe_ran=false
+      _sak_found_flag=""
+      if [[ -n "${NATIVE_CC}" ]] && [[ -f runtime/sak.c ]]; then
+        _sak_probe_ran=true
+        _probe_dir=$(mktemp -d "/tmp/sak_probe_XXXXXX")
+        printf 'int main(void) { return 0; }\n' > "${_probe_dir}/probe.c"
+        _probe_py='
+import struct, sys
+try:
+    data = open(sys.argv[1], "rb").read(512)
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    sub = struct.unpack_from("<H", data, pe + 92)[0]
+    sys.exit(0 if sub == 3 else 1)
+except Exception:
+    sys.exit(1)
+'
+        for _flag in "" "-mconsole" "-Xlinker /subsystem:console" \
+                        "-Wl,/subsystem:console" "-Wl,--subsystem,console"; do
+          _probe_exe="${_probe_dir}/probe_${RANDOM}.exe"
+          # eval to allow word-splitting of empty/spaced flags
+          if eval "${NATIVE_CC} ${_flag} -o '${_probe_exe}' '${_probe_dir}/probe.c'" 2>/dev/null \
+              && python3 -c "${_probe_py}" "${_probe_exe}" 2>/dev/null; then
+            _sak_found_flag="${_flag}"
+            echo "  SAK console probe: '${_flag:-<default>}' → PE subsystem=console (3) ✓"
+            break
+          else
+            echo "  SAK console probe: '${_flag:-<default>}' → compile failed or GUI subsystem"
+          fi
+          rm -f "${_probe_exe}"
+        done
+        rm -rf "${_probe_dir}"
+        if [[ -z "${_sak_found_flag}" ]]; then
+          echo "  SAK console probe: all flags failed, relying on WinMain stub only"
+        fi
+      fi
+      # Export so Makefile.cross SAK_SUBSYSTEM_FLAG ?= picks it up.
+      # Only export if probe ran — otherwise let Makefile.cross use its ?= default.
+      if ${_sak_probe_ran}; then
+        export SAK_SUBSYSTEM_FLAG="${_sak_found_flag}"
+        echo "  SAK_SUBSYSTEM_FLAG exported as: '${SAK_SUBSYSTEM_FLAG:-<empty, WinMain stub only>}'"
+      fi
+
+      # --- Strategy 2: WinMain stub as ultimate fallback ---
+      # Appended to sak.c so it compiles on all Windows builds.
+      # When console subsystem is correctly set, WinMain is present but never called.
+      # When GUI subsystem sneaks in, WinMain delegates to main() via CRT __argc/__argv.
+      if [[ -f runtime/sak.c ]]; then
+        cat >> runtime/sak.c <<'SAK_WINMAIN_STUB'
+
+/* sak.exe WinMain fallback for zig cc -target windows-gnu GUI subsystem default.
+   MinGW crtexewin.c startup sets __argc/__argv before calling WinMain.
+   When console subsystem flag works, this stub exists but is never entered. */
+#ifdef _WIN32
+int main(int argc, char **argv);
+int WinMain(void *h0, void *h1, char *c, int n) {
+  extern int __argc; extern char **__argv;
+  return main(__argc, __argv);
+}
+#endif
+SAK_WINMAIN_STUB
+        echo "  Appended WinMain stub to runtime/sak.c"
+      fi
     fi
 
     # ========================================================================
@@ -1005,7 +1065,9 @@ TOOLWRAPPER
         cp "${_ocaml_lib}"/*.cmi stdlib/ 2>/dev/null || true
         cp "${_ocaml_lib}"/stdlib.cma stdlib/ 2>/dev/null || true
         cp "${_ocaml_lib}"/std_exit.cmo stdlib/ 2>/dev/null || true
-        echo "  Copied stdlib .cmi files from ${_ocaml_lib}"
+        # boot/ocamlc needs runtime-launch-info to link bytecode executables (flexlink.exe)
+        cp "${_ocaml_lib}"/runtime-launch-info stdlib/ 2>/dev/null || true
+        echo "  Copied stdlib .cmi files and runtime-launch-info from ${_ocaml_lib}"
       fi
       echo "  Copied native boot tools from ${_ocaml_bin}"
     fi
