@@ -83,6 +83,11 @@ fi
 
 echo "  Compiler: ${CC}"
 
+# Support multi-word CC (e.g., "zig.exe cc -target x86_64-windows-gnu")
+# "${CC}" with quotes treats the whole string as one binary path.
+# Array expansion "${_CC[@]}" word-splits correctly.
+read -ra _CC <<< "${CC}"
+
 for tool_name in "${!WRAPPERS[@]}"; do
     default_tool="${WRAPPERS[$tool_name]}"
     wrapper_name="conda-ocaml-${tool_name,,}.exe"  # lowercase
@@ -104,12 +109,12 @@ EOF
     # Compile with appropriate flags for gcc vs cl
     if [[ "${CC}" == "cl" || "${CC}" == "cl.exe" ]]; then
         # MSVC cl.exe syntax
-        "${CC}" /O2 /Fe:"${INSTALL_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
+        "${_CC[@]}" /O2 /Fe:"${INSTALL_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
             /DTOOL_NAME="${tool_name}" \
             /DDEFAULT_TOOL="\"${default_tool}\""
     else
         # GCC/MinGW syntax
-        "${CC}" -O2 -o "${INSTALL_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
+        "${_CC[@]}" -O2 -o "${INSTALL_DIR}/${wrapper_name}" "${WRAPPER_SRC}" \
             -DTOOL_NAME="${tool_name}" \
             -DDEFAULT_TOOL="\"${default_tool}\""
     fi

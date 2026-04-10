@@ -118,10 +118,10 @@ Current build status
                 </a>
               </td>
             </tr><tr>
-              <td>win_64_c_compilerzigc_compiler_version0.15.2cross_target_platform_win-arm64</td>
+              <td>win_64_c_compilerzigcross_target_platform_win-arm64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_c_compilerzigc_compiler_version0.15.2cross_target_platform_win-arm64" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_c_compilerzigcross_target_platform_win-arm64" alt="variant">
                 </a>
               </td>
             </tr>

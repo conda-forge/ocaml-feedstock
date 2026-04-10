@@ -103,6 +103,7 @@ fi
 echo ""
 echo "============================================================"
 echo "OCaml Build Script - Mode Detection"
+echo "  BUILD_SCRIPT_VERSION: 2026-04-23c (crossopt-runtime-winmain-stub)"
 echo "============================================================"
 echo "  OCAML_TARGET_PLATFORM:         ${OCAML_TARGET_PLATFORM:-<not set>}"
 echo "  OCAML_TARGET_TRIPLET:          ${OCAML_TARGET_TRIPLET:-<not set>}"
@@ -170,11 +171,32 @@ fi
 # Used by both crossopt and installcross subshells in build_cross_compiler().
 # NOTE: CONDA_OCAML_MKEXE intentionally NOT set - use native linker.
 _setup_crossopt_env() {
-  export CONDA_OCAML_AS="${CROSS_ASM}"
-  export CONDA_OCAML_CC="${CROSS_CC}"
-  export CONDA_OCAML_AR="${CROSS_AR}"
-  export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
-  export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+  # On Windows, conda-ocaml-*.exe wrappers are native PE binaries.
+  # _spawnvp can't resolve MSYS2 POSIX paths (/d/bld/...).
+  # Convert executable paths to Windows mixed format (D:/bld/...) via cygpath -m.
+  if ! is_unix && command -v cygpath &>/dev/null; then
+    _to_win() {
+      local _full="$1" _exe _args
+      _exe="${_full%% *}"
+      if [[ "${_full}" == *" "* ]]; then
+        _args="${_full#* }"
+        echo "$(cygpath -m "${_exe}") ${_args}"
+      else
+        cygpath -m "${_exe}"
+      fi
+    }
+    export CONDA_OCAML_AS="$(_to_win "${CROSS_AS}")"
+    export CONDA_OCAML_CC="$(_to_win "${CROSS_CC}")"
+    export CONDA_OCAML_AR="$(_to_win "${CROSS_AR}")"
+    export CONDA_OCAML_RANLIB="$(_to_win "${CROSS_RANLIB}")"
+    export CONDA_OCAML_MKDLL="$(_to_win "${CROSS_MKDLL}")"
+  else
+    export CONDA_OCAML_AS="${CROSS_AS}"
+    export CONDA_OCAML_CC="${CROSS_CC}"
+    export CONDA_OCAML_AR="${CROSS_AR}"
+    export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
+    export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+  fi
   PATH="${OCAML_PREFIX}/bin:${PATH}"
   hash -r
 }
@@ -734,6 +756,16 @@ build_cross_compiler() {
     setup_toolchain "CROSS" "${target}"
     setup_cflags_ldflags "CROSS" "${build_platform:-${target_platform}}" "${CROSS_PLATFORM}"
 
+    # Normalize Windows backslashes in CROSS_* path vars (same reason as NATIVE_* above)
+    if ! is_unix; then
+      for _var in CROSS_CC CROSS_AR CROSS_AS CROSS_ASM CROSS_LD CROSS_NM \
+                  CROSS_RANLIB CROSS_STRIP CROSS_MKDLL CROSS_MKEXE; do
+        if [[ -n "${!_var:-}" ]]; then
+          export "${_var}=${!_var//\\//}"
+        fi
+      done
+    fi
+
     # Platform-specific settings for cross-compiler
     # NEEDS_DL: glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
     # This is used by apply_cross_patches() to add -ldl to Makefile.config
@@ -797,6 +829,29 @@ TOOLWRAPPER
     done
     echo "    Created in BUILD_PREFIX: ${target}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}"
 
+    # Create ${target}-gcc.bat wrapper for flexlink's -chain mingw64arm.
+    # flexdll's version.ml hardcodes "aarch64-w64-mingw32-gcc" as the compiler.
+    # Must be a .bat file — flexlink calls the compiler via CreateProcess/cmd.exe,
+    # not via bash, so a bash shim is invisible to it.
+    if ! is_unix; then
+      # Extract zig exe path from CROSS_CC (e.g. "/path/zig.exe cc -target foo")
+      _zig_exe_path="${CROSS_CC%% *}"  # everything before first space
+      # Convert to Windows path format for the bat file
+      _zig_exe_win=$(cygpath -w "${_zig_exe_path}" 2>/dev/null || echo "${_zig_exe_path//\//\\}")
+      # Extract target triple from CROSS_CC (e.g. "...zig.exe cc -target aarch64-windows-gnu")
+      _zig_target_triple=""
+      if [[ "${CROSS_CC}" == *"-target "* ]]; then
+        _zig_target_triple="${CROSS_CC##*-target }"   # "aarch64-windows-gnu [maybe more]"
+        _zig_target_triple="${_zig_target_triple%% *}" # "aarch64-windows-gnu"
+      fi
+      _flexlink_gcc_bat="${BUILD_PREFIX}/Library/bin/${target}-gcc.bat"
+      cat > "${_flexlink_gcc_bat}" << GCCBAT
+@echo off
+"${_zig_exe_win}" cc -target ${_zig_target_triple} %*
+GCCBAT
+      echo "    Created flexlink shim: ${target}-gcc.bat → ${_zig_exe_win} cc -target ${_zig_target_triple}"
+    fi
+
     # Use OCAML_TARGET_PLATFORM if set (gcc pattern), otherwise CROSS_PLATFORM
     _ENV_TARGET="${OCAML_TARGET_PLATFORM:-${CROSS_PLATFORM}}"
     generate_xcross_env_file "${_ENV_TARGET}"
@@ -838,6 +893,8 @@ TOOLWRAPPER
     export CFLAGS="${NATIVE_CFLAGS}"
     export LDFLAGS="${NATIVE_LDFLAGS}"
     export STRIP="${NATIVE_STRIP}"
+    export TARGET_BINDIR="${OCAML_CROSS_PREFIX}/bin"
+    export TARGET_LIBDIR="${OCAML_CROSS_LIBDIR}"
 
     # Per-target configure args (frame pointers not supported on PPC or Windows)
     declare -a TARGET_CONFIG_ARGS=()
@@ -873,6 +930,37 @@ TOOLWRAPPER
     # between stdlib and otherlibs (unix), causing "inconsistent assumptions" errors.
     unset CC CFLAGS LDFLAGS
 
+    # ========================================================================
+    # Fix clang/zig __builtin_setjmp SEH conflict on Windows (OCaml#XXXX)
+    # ========================================================================
+    # OCaml configure sets HAS_BUILTIN_SETJMP based on __builtin_setjmp presence.
+    # clang defines __GNUC__ so it takes the __builtin_setjmp path, but on
+    # Windows, clang/LLVM generates SEH unwind tables. __builtin_longjmp
+    # traversing these tables corrupts the SEH chain → bytecode interpreter crash.
+    #
+    # caml_jmp_buf is void*[5] (40 bytes) when HAS_BUILTIN_SETJMP is set.
+    # Windows jmp_buf is 128 bytes (MSVC) or 64 bytes (MinGW) — simple cast
+    # would cause stack corruption. Must disable at the typedef level so OCaml
+    # uses the full platform-sized jmp_buf and standard setjmp/longjmp.
+    if ! is_unix; then
+      _config_h="runtime/caml/config.h"
+      echo "  DEBUG-SETJMP: NATIVE_CC=${NATIVE_CC}"
+      echo "  DEBUG-SETJMP: config.h exists: $([[ -f ${_config_h} ]] && echo YES || echo NO)"
+      echo "  DEBUG-SETJMP: pwd=$(pwd)"
+      if [[ -f "${_config_h}" ]]; then
+        echo "  DEBUG-SETJMP: HAS_BUILTIN_SETJMP line: $(grep 'HAS_BUILTIN_SETJMP' ${_config_h} || echo '<not found>')"
+      fi
+      if [[ "${NATIVE_CC}" == *zig* || "${NATIVE_CC}" == *clang* ]]; then
+        if [[ -f "${_config_h}" ]] && grep -q 'define HAS_BUILTIN_SETJMP' "${_config_h}"; then
+          echo "  Patching ${_config_h}: disabling HAS_BUILTIN_SETJMP (clang SEH conflict)"
+          sed -i 's/#define HAS_BUILTIN_SETJMP/\/* disabled: clang\/zig __builtin_longjmp corrupts SEH chain on Windows *\//' \
+            "${_config_h}"
+        else
+          echo "  DEBUG-SETJMP: HAS_BUILTIN_SETJMP not found or already absent — no patch needed"
+        fi
+      fi
+    fi
+
     # DEBUG: show SAK_BUILD and subsystem flags (remove after fixing WinMain issue)
     echo "  DEBUG: NATIVE_LDFLAGS=${NATIVE_LDFLAGS}"
     echo "  DEBUG: LDFLAGS_FOR_BUILD=${LDFLAGS_FOR_BUILD:-<unset>}"
@@ -895,6 +983,657 @@ TOOLWRAPPER
     # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
     # ========================================================================
     patch_checkstack_cc
+
+    # ========================================================================
+    # Fix zig-feedstock synchronization.def LIBRARY name
+    # ========================================================================
+    # Zig _19 adds synchronization.def with "LIBRARY synchronization.dll" but
+    # synchronization.dll doesn't exist — the real DLL is an API set:
+    # api-ms-win-core-synch-l1-2-0.dll (resolved by Windows API Set Schema).
+    # Binaries linked against the wrong name crash at runtime (exit 127).
+    # Patch the .def to use the correct API set DLL name.
+    # TODO: Remove once zig-feedstock ships the corrected .def.
+    if ! is_unix; then
+      _sync_def=$(find "${BUILD_PREFIX}" -name "synchronization.def" 2>/dev/null | head -1)
+      if [[ -n "${_sync_def}" ]]; then
+        if grep -q 'LIBRARY synchronization' "${_sync_def}"; then
+          echo "  Patching ${_sync_def}: LIBRARY synchronization.dll → api-ms-win-core-synch-l1-2-0.dll"
+          sed -i 's/LIBRARY synchronization.*/LIBRARY api-ms-win-core-synch-l1-2-0.dll/' "${_sync_def}"
+        fi
+      fi
+    fi
+
+    # ========================================================================
+    # Strip GCC-specific linker flags from BYTECCLIBS (zig is not GCC)
+    # ========================================================================
+    # OCaml's configure detects MinGW and adds GCC-specific libraries:
+    #   -l:libpthread.a  — colon syntax (exact filename search) is a GNU ld
+    #                       extension that triggers zig's "reached unreachable code"
+    #   -lgcc_eh          — GCC exception handling; zig doesn't ship this
+    # Zig provides its own threading (Windows native threads) and unwinding,
+    # so these are both unnecessary and crash-inducing.
+    if ! is_unix && [[ -f Makefile.config ]]; then
+      if grep -qE '\-l:libpthread\.a|\-lgcc_eh' Makefile.config; then
+        echo "  Patching Makefile.config: replacing GCC-specific -l:libpthread.a with -lpthread, removing -lgcc_eh"
+        sed -i 's/ -l:libpthread\.a/ -lpthread/g; s/ -lgcc_eh//g' Makefile.config
+      fi
+      # Save BYTECCLIBS before arm64-specific injections so step [4/7] can use
+      # the native-only value for ocamlruns.exe (MKEXE_VIA_CC = direct CC).
+      # The full BYTECCLIBS (with arm64 -L paths) is needed by ocamlrun.exe
+      # (MKEXE = flexlink -chain mingw64arm) but the arm64 libs conflict with
+      # the native x86_64 link used for ocamlruns.exe.
+      _native_bytecclibs=$(sed -n 's/^BYTECCLIBS=//p' Makefile.config)
+      echo "  Saved native BYTECCLIBS (pre arm64 injection): ${_native_bytecclibs}"
+
+      # Add zig's aarch64 import library path to BYTECCLIBS so flexlink can find
+      # -lws2_32 etc. Flexlink's mingw64arm chain calls the gcc shim with
+      # -print-search-dirs but zig does not output useful paths for arm64 Windows
+      # libraries. Prepending -L explicitly bypasses this discovery problem.
+      # Zig has NO precompiled arm64 import libs (.a files) — it generates them
+      # on-the-fly from .def files. Ask zig where it caches a representative lib,
+      # then use that directory so flexlink can find -lws2_32 etc.
+      _zig_exe="${BUILD_PREFIX}/Library/bin/x86_64-w64-mingw32-zig.exe"
+      _zig_arm64_lib_dir=""
+      if [[ -f "${_zig_exe}" ]]; then
+        _arm64_libpath=$("${_zig_exe}" cc -target aarch64-windows-gnu \
+          -print-file-name=libkernel32.a 2>/dev/null || true)
+        echo "  DEBUG: zig arm64 libkernel32.a → ${_arm64_libpath}"
+        if [[ -n "${_arm64_libpath}" && "${_arm64_libpath}" != "libkernel32.a" \
+              && -f "${_arm64_libpath}" ]]; then
+          _zig_arm64_lib_dir=$(dirname "${_arm64_libpath}")
+        fi
+      fi
+      if [[ -n "${_zig_arm64_lib_dir}" ]]; then
+        _zig_arm64_lib_dir_s=$(cygpath -ms "${_zig_arm64_lib_dir}" 2>/dev/null || echo "${_zig_arm64_lib_dir}")
+        echo "  Adding zig-generated arm64 lib dir to BYTECCLIBS: ${_zig_arm64_lib_dir_s}"
+        sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=-L${_zig_arm64_lib_dir_s} \1|" Makefile.config
+      else
+        # -print-file-name returned nothing useful; generate import libs via zig dlltool
+        # Use BUILD_PREFIX (no spaces) not SRC_DIR (has spaces in build path)
+        # Core Windows APIs use .def.in templates requiring C preprocessing.
+        # F_X64/F_ARM64 macros gate architecture-specific exports; zig cc -E
+        # with the right target expands them for ARM64.
+        _arm64_lib_dir="${BUILD_PREFIX}/Library/lib/ocaml-arm64-imports"
+        mkdir -p "${_arm64_lib_dir}"
+        _zig_mingw="${BUILD_PREFIX}/Library/lib/zig/libc/mingw"
+        _def_include="${_zig_mingw}/def-include"
+        _gen_implib_arm64() {
+          local stem="$1" def="$2"
+          local lib="${_arm64_lib_dir}/lib${stem}.a"
+          [[ -f "${lib}" ]] && return 0
+          local dll
+          dll="$(awk '/^LIBRARY/{gsub(/"/, "", $2); print $2; exit}' "${def}")"
+          [[ -z "${dll}" ]] && dll="${stem}.dll"
+          "${_zig_exe}" dlltool -m arm64 -D "${dll}" -d "${def}" -l "${lib}" 2>/dev/null || true
+        }
+        # Step 1: plain .def files — SKIPPED.
+        # Generating import libs for ALL .def files in zig's sysroot produces
+        # hundreds of api-ms-win-*.a files that cause flexlink to stack overflow
+        # during symbol resolution. OCaml only needs a handful of libs which are
+        # provided by inline defs below and Step 2b fallback stubs.
+        # When zig ships pre-built arm64 import libs (build ≥21), the first
+        # branch (_zig_arm64_lib_dir) handles everything and this is skipped.
+        echo "  Skipping bulk lib-common/*.def processing (flexlink stack overflow prevention)"
+        # ws2_32, msvcrt, kernel32 have no .def files in zig's sysroot.
+        # Generate import libs with real symbol exports so flexlink can resolve
+        # undefined references (recv, send, rand_s, _errno, longjmp, etc.)
+        # The actual linking is done by zig cc; these libs satisfy flexlink's
+        # symbol resolution phase.
+
+        # kernel32.dll — Windows API symbols used by flexdll descriptor + OCaml runtime
+        _kernel32_lib="${_arm64_lib_dir}/libkernel32.a"
+        if [[ ! -f "${_kernel32_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/kernel32.def" << 'KERNEL32DEF'
+LIBRARY "kernel32.dll"
+EXPORTS
+  CloseHandle
+  CreateDirectoryW
+  CreateEventW
+  CreateFileMappingW
+  CreateFileW
+  CreateMutexA
+  CreateMutexW
+  CreateProcessW
+  CreateThread
+  DeleteFileW
+  DeviceIoControl
+  DuplicateHandle
+  ExitProcess
+  FlushFileBuffers
+  FormatMessageA
+  FormatMessageW
+  FreeLibrary
+  GetCommandLineW
+  GetConsoleMode
+  GetConsoleOutputCP
+  GetCurrentDirectoryW
+  GetCurrentProcess
+  GetCurrentProcessId
+  GetCurrentThread
+  GetCurrentThreadId
+  GetEnvironmentVariableW
+  GetExitCodeProcess
+  GetFileAttributesW
+  GetFileInformationByHandle
+  GetFileInformationByHandleEx
+  GetFileSize
+  GetFileSizeEx
+  GetFileType
+  GetFullPathNameW
+  GetLastError
+  GetModuleFileNameW
+  GetModuleHandleW
+  GetProcAddress
+  GetProcessHeap
+  GetProcessTimes
+  GetStartupInfoW
+  GetStdHandle
+  GetSystemInfo
+  GetSystemTimeAsFileTime
+  GetTempPathW
+  GetTickCount64
+  GetVersionExW
+  HeapAlloc
+  HeapFree
+  HeapReAlloc
+  InitializeCriticalSection
+  DeleteCriticalSection
+  EnterCriticalSection
+  LeaveCriticalSection
+  TryEnterCriticalSection
+  InitializeSRWLock
+  AcquireSRWLockExclusive
+  ReleaseSRWLockExclusive
+  LoadLibraryExW
+  LoadLibraryW
+  MapViewOfFile
+  MoveFileExW
+  MultiByteToWideChar
+  OpenFileMappingW
+  QueryPerformanceCounter
+  QueryPerformanceFrequency
+  ReadFile
+  ReleaseMutex
+  RemoveDirectoryW
+  ResumeThread
+  SearchPathW
+  SetConsoleCtrlHandler
+  SetConsoleOutputCP
+  SetCurrentDirectoryW
+  SetEndOfFile
+  SetEnvironmentVariableW
+  SetFilePointer
+  SetFilePointerEx
+  SetLastError
+  Sleep
+  SleepEx
+  SwitchToFiber
+  TerminateProcess
+  TlsAlloc
+  TlsFree
+  TlsGetValue
+  TlsSetValue
+  UnmapViewOfFile
+  VirtualAlloc
+  VirtualFree
+  VirtualProtect
+  WaitForMultipleObjects
+  WaitForSingleObject
+  WideCharToMultiByte
+  WriteFile
+  InitOnceExecuteOnce
+KERNEL32DEF
+          "${_zig_exe}" dlltool -m arm64 -D "kernel32.dll" \
+            -d "${_arm64_lib_dir}/kernel32.def" -l "${_kernel32_lib}" 2>/dev/null && \
+            echo "  Created libkernel32.a" || echo "  WARNING: libkernel32.a generation failed"
+        fi
+
+        # ole32.dll — COM symbols used by flexdll descriptor object
+        _ole32_lib="${_arm64_lib_dir}/libole32.a"
+        if [[ ! -f "${_ole32_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/ole32.def" << 'OLE32DEF'
+LIBRARY "ole32.dll"
+EXPORTS
+  CoTaskMemAlloc
+  CoTaskMemFree
+  CoTaskMemRealloc
+OLE32DEF
+          "${_zig_exe}" dlltool -m arm64 -D "ole32.dll" \
+            -d "${_arm64_lib_dir}/ole32.def" -l "${_ole32_lib}" 2>/dev/null && \
+            echo "  Created libole32.a" || echo "  WARNING: libole32.a generation failed"
+        fi
+
+        # ws2_32.dll — Winsock2 symbols used by OCaml runtime
+        _ws2_lib="${_arm64_lib_dir}/libws2_32.a"
+        if [[ ! -f "${_ws2_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/ws2_32.def" << 'WS2DEF'
+LIBRARY "Ws2_32.dll"
+EXPORTS
+  accept
+  bind
+  closesocket
+  connect
+  freeaddrinfo
+  getaddrinfo
+  gethostbyname
+  getnameinfo
+  getpeername
+  getsockname
+  getsockopt
+  htonl
+  htons
+  ioctlsocket
+  listen
+  ntohs
+  ntohl
+  recv
+  recvfrom
+  select
+  send
+  sendto
+  setsockopt
+  shutdown
+  socket
+  WSACleanup
+  WSAGetLastError
+  WSASocketW
+  WSAStartup
+WS2DEF
+          "${_zig_exe}" dlltool -m arm64 -D "Ws2_32.dll" \
+            -d "${_arm64_lib_dir}/ws2_32.def" -l "${_ws2_lib}" 2>/dev/null && \
+            echo "  Created libws2_32.a" || echo "  WARNING: libws2_32.a generation failed"
+        fi
+
+        # msvcrt.dll — C runtime symbols needed by OCaml runtime.
+        # Curated list: original ~47 + ~60 missing symbols from CI error analysis.
+        # Kept small to avoid flexlink stack overflow with large import libs.
+        # Will be replaced by zig's native arm64 import libs when available.
+        _msvcrt_lib="${_arm64_lib_dir}/libmsvcrt.a"
+        if [[ ! -f "${_msvcrt_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/msvcrt.def" << 'MSVCRTDEF'
+LIBRARY "msvcrt.dll"
+EXPORTS
+  __acrt_iob_func
+  __local_stdio_printf_options
+  __stdio_common_vswprintf
+  _aligned_free
+  _aligned_malloc
+  _aligned_realloc
+  _beginthread
+  _endthread
+  _close
+  _configthreadlocale
+  _errno
+  _findclose
+  _findfirst64
+  _findfirst64i32
+  _findnext64
+  _findnext64i32
+  _get_osfhandle
+  _getpid
+  _lseek
+  _lseeki64
+  _open_osfhandle
+  _putenv_s
+  _setmode
+  _vsnwprintf
+  _wchdir
+  _wfindfirst64i32
+  _wfindnext64i32
+  _wgetcwd
+  _wgetenv
+  _wmkdir
+  _wopen
+  _wputenv
+  _wrmdir
+  _wstat64
+  _wsystem
+  _wunlink
+  abort
+  atexit
+  atoi
+  bsearch
+  calloc
+  close
+  exit
+  fflush
+  fprintf
+  fputc
+  fputs
+  free
+  fwrite
+  getenv
+  getpid
+  isprint
+  longjmp
+  lseek
+  malloc
+  memcmp
+  memcpy
+  memmove
+  memset
+  printf
+  putc
+  putchar
+  puts
+  qsort
+  raise
+  rand_s
+  read
+  realloc
+  setjmp
+  setlocale
+  setmode
+  signal
+  snprintf
+  sprintf
+  strcmp
+  strcpy
+  strerror
+  strlen
+  strncmp
+  strncpy
+  strnlen
+  strrchr
+  strtod
+  strtol
+  swscanf
+  vfprintf
+  vsnprintf
+  wcscmp
+  wcslen
+  wcsstr
+  wcstol
+  write
+MSVCRTDEF
+          "${_zig_exe}" dlltool -m arm64 -D "msvcrt.dll" \
+            -d "${_arm64_lib_dir}/msvcrt.def" -l "${_msvcrt_lib}" 2>/dev/null && \
+            echo "  Created libmsvcrt.a (~90 exports)" || echo "  WARNING: libmsvcrt.a generation failed"
+        fi
+
+        # ucrtbase.dll — Universal CRT: math functions + additional C runtime.
+        # Math symbols live in ucrtbase.dll on ARM64 Windows, not msvcrt.dll.
+        _ucrtbase_lib="${_arm64_lib_dir}/libucrtbase.a"
+        if [[ ! -f "${_ucrtbase_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/ucrtbase.def" << 'UCRTDEF'
+LIBRARY "ucrtbase.dll"
+EXPORTS
+  acos
+  acosh
+  asin
+  asinh
+  atan
+  atan2
+  atanh
+  cbrt
+  ceil
+  cos
+  cosh
+  erf
+  erfc
+  exp
+  exp2
+  expm1
+  floor
+  fma
+  fmod
+  frexp
+  hypot
+  ldexp
+  log
+  log10
+  log1p
+  log2
+  modf
+  nextafter
+  pow
+  round
+  sin
+  sinh
+  sqrt
+  strtod
+  tan
+  tanh
+  trunc
+UCRTDEF
+          "${_zig_exe}" dlltool -m arm64 -D "ucrtbase.dll" \
+            -d "${_arm64_lib_dir}/ucrtbase.def" -l "${_ucrtbase_lib}" 2>/dev/null && \
+            echo "  Created libucrtbase.a (~37 math exports)" || echo "  WARNING: libucrtbase.a generation failed"
+        fi
+
+        # Step 2: .def.in templates — SKIPPED (same reason as Step 1).
+        echo "  Skipping bulk lib-common/*.def.in processing (flexlink stack overflow prevention)"
+        # winpthread — OCaml runtime uses pthread_mutex/cond/condattr functions.
+        # The GCC-specific -l:libpthread.a was replaced with -lpthread.
+        # Build from zig's winpthread sources; if not found, create comprehensive
+        # import lib with all pthread functions OCaml needs.
+        _pthread_lib="${_arm64_lib_dir}/libpthread.a"
+        if [[ ! -f "${_pthread_lib}" ]]; then
+          _wp_src="${_zig_mingw}/libsrc"
+          _wp_objs=()
+          for _wp_c in "${_wp_src}"/winpthread/*.c; do
+            [[ -f "${_wp_c}" ]] || continue
+            _wp_obj="${_arm64_lib_dir}/$(basename "${_wp_c%.c}").o"
+            "${_zig_exe}" cc -target aarch64-windows-gnu -c "${_wp_c}" \
+              -I"${_zig_mingw}/include" -o "${_wp_obj}" 2>/dev/null && \
+              _wp_objs+=("${_wp_obj}") || true
+          done
+          if [[ ${#_wp_objs[@]} -gt 0 ]]; then
+            "${_zig_exe}" ar rcs "${_pthread_lib}" "${_wp_objs[@]}" 2>/dev/null && \
+              echo "  Created libpthread.a (${#_wp_objs[@]} objects)" || \
+              echo "  WARNING: libpthread.a creation failed"
+            rm -f "${_wp_objs[@]}"
+          else
+            echo "  No winpthread sources, creating comprehensive stub libpthread.a"
+            cat > "${_arm64_lib_dir}/pthread.def" << 'PTHREADDEF'
+LIBRARY "libwinpthread-1.dll"
+EXPORTS
+  pthread_cancel
+  pthread_detach
+  pthread_equal
+  pthread_exit
+  pthread_mutex_init
+  pthread_mutex_lock
+  pthread_mutex_unlock
+  pthread_mutex_destroy
+  pthread_mutex_trylock
+  pthread_mutexattr_init
+  pthread_mutexattr_destroy
+  pthread_mutexattr_settype
+  pthread_cond_init
+  pthread_cond_destroy
+  pthread_cond_signal
+  pthread_cond_broadcast
+  pthread_cond_wait
+  pthread_cond_timedwait
+  pthread_condattr_init
+  pthread_condattr_destroy
+  pthread_condattr_setclock
+  pthread_create
+  pthread_join
+  pthread_self
+  pthread_key_create
+  pthread_key_delete
+  pthread_getspecific
+  pthread_setspecific
+PTHREADDEF
+            "${_zig_exe}" dlltool -m arm64 -D "libwinpthread-1.dll" \
+              -d "${_arm64_lib_dir}/pthread.def" -l "${_pthread_lib}" 2>/dev/null && \
+              echo "  Created libpthread.a (import stub)" || true
+          fi
+        fi
+
+        # Compiler runtime helpers — __chkstk_ms and _tls_index.
+        # __chkstk_ms is a stack probe function; _tls_index is the TLS base index.
+        # Both are normally in libgcc/CRT but zig handles them internally.
+        # Create a small .c providing weak definitions for flexlink's resolution.
+        _crt_helpers="${_arm64_lib_dir}/libcrt_helpers.a"
+        if [[ ! -f "${_crt_helpers}" ]]; then
+          cat > "${_arm64_lib_dir}/_crt_helpers.c" << 'CRTHELPERS'
+/* Weak stubs for flexlink symbol resolution.
+   Actual implementations provided by zig cc at link time. */
+__attribute__((weak)) void __chkstk(void) {}       /* ARM64 stack probe (no _ms suffix) */
+__attribute__((weak)) void __chkstk_ms(void) {}
+__attribute__((weak)) void ___chkstk_ms(void) {}  /* ARM64 COFF decorated form */
+__attribute__((weak)) unsigned long _tls_index = 0;
+__attribute__((weak)) int __intrinsic_setjmpex(void *buf) { return 0; }
+/* Stack protector — zig compiles flexdll_mingw64arm.obj with these enabled */
+__attribute__((weak)) unsigned long __stack_chk_guard = 0;
+__attribute__((weak)) void __stack_chk_fail(void) { while(1); }
+/* _fpreset: reset x87 FPU state. Called by MinGW CRT startup (crt2.obj,
+   crt_handler.obj, tlsthrd.obj) via IMAGE_REL_ARM64_BRANCH26.  lld-link
+   cannot auto-import through branch relocations, so provide a local stub.
+   On ARM64 there is no x87 FPU — this is genuinely a no-op. */
+__attribute__((weak)) void _fpreset(void) {}
+/* UBSan stubs — zig enables undefined behavior sanitizer on flexdll objects */
+typedef struct { const char *f; unsigned l, c; } SourceLocation;
+typedef struct { SourceLocation l; const void *t; unsigned a; unsigned char p; } TypeMismatchData;
+typedef struct { SourceLocation l; const void *t; } OverflowData;
+typedef struct { SourceLocation l; } UnreachableData;
+typedef struct { SourceLocation l; } NonnullArgData;
+typedef struct { SourceLocation l; const void *t; } PointerOverflowData;
+__attribute__((weak)) void __ubsan_handle_type_mismatch_v1(TypeMismatchData *d, unsigned long p) { (void)d; (void)p; }
+__attribute__((weak)) void __ubsan_handle_add_overflow(OverflowData *d, unsigned long l, unsigned long r) { (void)d; (void)l; (void)r; }
+__attribute__((weak)) void __ubsan_handle_sub_overflow(OverflowData *d, unsigned long l, unsigned long r) { (void)d; (void)l; (void)r; }
+__attribute__((weak)) void __ubsan_handle_divrem_overflow(OverflowData *d, unsigned long l, unsigned long r) { (void)d; (void)l; (void)r; }
+__attribute__((weak)) void __ubsan_handle_pointer_overflow(PointerOverflowData *d, unsigned long b, unsigned long r) { (void)d; (void)b; (void)r; }
+__attribute__((weak)) void __ubsan_handle_nonnull_arg(NonnullArgData *d) { (void)d; }
+__attribute__((weak)) void __ubsan_handle_builtin_unreachable(UnreachableData *d) { (void)d; while(1); }
+CRTHELPERS
+          "${_zig_exe}" cc -target aarch64-windows-gnu -c \
+            "${_arm64_lib_dir}/_crt_helpers.c" \
+            -o "${_arm64_lib_dir}/_crt_helpers.o" 2>/dev/null && \
+          "${_zig_exe}" ar rcs "${_crt_helpers}" \
+            "${_arm64_lib_dir}/_crt_helpers.o" 2>/dev/null && \
+            echo "  Created libcrt_helpers.a (chkstk, tls, setjmpex, stack_chk, ubsan stubs)" || \
+            echo "  WARNING: libcrt_helpers.a creation failed"
+          rm -f "${_arm64_lib_dir}/_crt_helpers.c" "${_arm64_lib_dir}/_crt_helpers.o"
+        fi
+
+        # Step 2b: Import libs for Win32 DLLs used by OCaml runtime.
+        # Only created if no lib exists yet (zig pre-built libs take precedence).
+        # Each lib exports the specific symbols OCaml/flexdll actually reference.
+
+        # version.dll — OCaml win32.c uses version info APIs
+        _version_lib="${_arm64_lib_dir}/libversion.a"
+        if [[ ! -f "${_version_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/version.def" << 'VERSIONDEF'
+LIBRARY "version.dll"
+EXPORTS
+  GetFileVersionInfoSizeW
+  GetFileVersionInfoW
+  VerQueryValueW
+VERSIONDEF
+          "${_zig_exe}" dlltool -m arm64 -D "version.dll" \
+            -d "${_arm64_lib_dir}/version.def" -l "${_version_lib}" 2>/dev/null && \
+            echo "  Created libversion.a" || true
+        fi
+
+        # api-ms-win-core-synch-l1-2-0.dll — OCaml platform.c WaitOnAddress
+        _sync_lib="${_arm64_lib_dir}/libsynchronization.a"
+        if [[ ! -f "${_sync_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/synchronization.def" << 'SYNCDEF'
+LIBRARY "api-ms-win-core-synch-l1-2-0.dll"
+EXPORTS
+  WaitOnAddress
+  WakeByAddressAll
+  WakeByAddressSingle
+SYNCDEF
+          "${_zig_exe}" dlltool -m arm64 -D "api-ms-win-core-synch-l1-2-0.dll" \
+            -d "${_arm64_lib_dir}/synchronization.def" -l "${_sync_lib}" 2>/dev/null && \
+            echo "  Created libsynchronization.a" || true
+        fi
+
+        # shlwapi.dll — OCaml/flexdll uses path utilities
+        _shlwapi_lib="${_arm64_lib_dir}/libshlwapi.a"
+        if [[ ! -f "${_shlwapi_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/shlwapi.def" << 'SHLWAPIDEF'
+LIBRARY "shlwapi.dll"
+EXPORTS
+  PathIsPrefixW
+  PathCombineW
+SHLWAPIDEF
+          "${_zig_exe}" dlltool -m arm64 -D "shlwapi.dll" \
+            -d "${_arm64_lib_dir}/shlwapi.def" -l "${_shlwapi_lib}" 2>/dev/null && \
+            echo "  Created libshlwapi.a" || true
+        fi
+
+        # shell32.dll — OCaml win32.c uses known folder paths
+        _shell32_lib="${_arm64_lib_dir}/libshell32.a"
+        if [[ ! -f "${_shell32_lib}" ]]; then
+          cat > "${_arm64_lib_dir}/shell32.def" << 'SHELL32DEF'
+LIBRARY "shell32.dll"
+EXPORTS
+  SHGetKnownFolderPath
+  SHGetFolderPathW
+SHELL32DEF
+          "${_zig_exe}" dlltool -m arm64 -D "shell32.dll" \
+            -d "${_arm64_lib_dir}/shell32.def" -l "${_shell32_lib}" 2>/dev/null && \
+            echo "  Created libshell32.a" || true
+        fi
+
+        # user32.dll / advapi32.dll — minimal stubs for flexlink default_libs
+        for _stub in "user32:user32.dll" "advapi32:advapi32.dll"; do
+          _stub_name="${_stub%%:*}"
+          _stub_dll="${_stub##*:}"
+          _stub_lib="${_arm64_lib_dir}/lib${_stub_name}.a"
+          [[ -f "${_stub_lib}" ]] && continue
+          _stub_def="${_arm64_lib_dir}/${_stub_name}_stub.def"
+          printf 'LIBRARY "%s"\nEXPORTS\n  DllMain\n' "${_stub_dll}" > "${_stub_def}"
+          "${_zig_exe}" dlltool -m arm64 -D "${_stub_dll}" \
+            -d "${_stub_def}" -l "${_stub_lib}" 2>/dev/null && \
+            echo "  Created fallback lib${_stub_name}.a" || true
+          rm -f "${_stub_def}"
+        done
+
+        # Step 3: uuid — compiled from C source (no DLL import lib)
+        _uuid_src="${_zig_mingw}/libsrc/uuid.c"
+        _uuid_lib="${_arm64_lib_dir}/libuuid.a"
+        if [[ ! -f "${_uuid_lib}" && -f "${_uuid_src}" ]]; then
+          _uuid_obj="${_arm64_lib_dir}/_uuid.o"
+          "${_zig_exe}" cc -target aarch64-windows-gnu -c "${_uuid_src}" \
+            -o "${_uuid_obj}" 2>/dev/null && \
+          "${_zig_exe}" dlltool -m arm64 --output-lib "${_uuid_lib}" \
+            "${_uuid_obj}" 2>/dev/null || \
+          "${_zig_exe}" cc -target aarch64-windows-gnu \
+            -x assembler-with-cpp "${_uuid_src}" -c -o "${_uuid_obj}" 2>/dev/null && \
+          "${_zig_exe}" ar rcs "${_uuid_lib}" "${_uuid_obj}" 2>/dev/null || true
+          rm -f "${_uuid_obj}"
+        fi
+        # Step 4: CRT startup objects (crt2.o, dllcrt2.o) for ARM64.
+        # flexlink's MINGW64ARM default_libs expects crt2.o (EXE) / dllcrt2.o (DLL).
+        # Find the source by searching zig's mingw crt directory tree.
+        _zig_crt="${_zig_mingw}/crt"
+        echo "  DEBUG: zig crt dir contents (crt2/dllcrt2):"
+        find "${_zig_crt}" -name "crt2*" -o -name "dllcrt2*" 2>/dev/null | head -10 || \
+          echo "  (not found in ${_zig_crt})"
+        for _crt_stem in crt2 dllcrt2; do
+          _crt_dst="${_arm64_lib_dir}/${_crt_stem}.o"
+          [[ -f "${_crt_dst}" ]] && continue
+          # Search recursively for source file
+          _csrc=$(find "${_zig_mingw}" -name "${_crt_stem}.c" 2>/dev/null | head -1)
+          if [[ -n "${_csrc}" ]]; then
+            echo "    ${_crt_stem}.o: compiling from ${_csrc}"
+            "${_zig_exe}" cc -target aarch64-windows-gnu -c "${_csrc}" \
+              -I"${_zig_mingw}/include" -I"${_zig_mingw}/crt" \
+              -o "${_crt_dst}" 2>/dev/null && echo "    ${_crt_stem}.o: OK" || \
+              echo "    ${_crt_stem}.o: compile failed"
+          else
+            echo "    ${_crt_stem}.o: source not found in zig mingw sysroot"
+          fi
+        done
+        echo "  arm64 libs/objects generated:"
+        ls "${_arm64_lib_dir}/"*.a "${_arm64_lib_dir}/"*.o 2>/dev/null | xargs -n1 basename | sort | head -30 || echo "  (none)"
+        # Convert to short (8.3) Windows path to avoid spaces in Makefile.config
+        _arm64_lib_dir_win=$(cygpath -ms "${_arm64_lib_dir}" 2>/dev/null || \
+                             cygpath -m "${_arm64_lib_dir}" 2>/dev/null || \
+                             echo "${_arm64_lib_dir}")
+        echo "  Adding generated arm64 lib dir to BYTECCLIBS: ${_arm64_lib_dir_win}"
+        # -lucrtbase provides math + string + I/O symbols from ucrtbase.dll
+        # -lcrt_helpers provides ___chkstk_ms, _tls_index, __intrinsic_setjmpex stubs
+        sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=-L${_arm64_lib_dir_win} -lucrtbase -lcrt_helpers \1|" Makefile.config
+      fi
+    fi
 
     # Fix sak.exe WinMain: zig cc -target windows-gnu may default to GUI subsystem.
     # Strategy 1: probe for a console subsystem linker flag (for correct PE header).
@@ -949,18 +1688,70 @@ except Exception:
       # --- Strategy 2: WinMain stub as ultimate fallback ---
       # Appended to sak.c so it compiles on all Windows builds.
       # When console subsystem is correctly set, WinMain is present but never called.
-      # When GUI subsystem sneaks in, WinMain delegates to main() via CRT __argc/__argv.
+      # When GUI subsystem sneaks in, WinMain delegates to main().
+      # CRITICAL: Only use KERNEL32.DLL APIs — CommandLineToArgvW requires SHELL32.DLL
+      # which may not be loadable in MSYS2 environments, causing sak.exe to fail with
+      # exit code 127 (PE loader can't satisfy DLL imports before main() even starts).
       if [[ -f runtime/sak.c ]]; then
         cat >> runtime/sak.c <<'SAK_WINMAIN_STUB'
 
 /* sak.exe WinMain fallback for zig cc -target windows-gnu GUI subsystem default.
-   MinGW crtexewin.c startup sets __argc/__argv before calling WinMain.
-   When console subsystem flag works, this stub exists but is never entered. */
+   Uses only KERNEL32.DLL APIs — SHELL32.DLL (CommandLineToArgvW) is NOT available
+   in all environments (e.g., MSYS2 on CI) and its mere import causes PE loader
+   failure (exit 127) even when WinMain is never called (console subsystem). */
 #ifdef _WIN32
+
+/* When SAK_NEEDS_MAIN_WRAPPER is set (MSVC target), sak.c defines wmain (via
+   caml/misc.h main_os macro) not main. Provide a main→wmain shim that
+   uses GetCommandLineW (KERNEL32) to get wide args — __argc/__wargv globals
+   are not reliably populated by zig's CRT startup. */
+#ifdef SAK_NEEDS_MAIN_WRAPPER
+#include <wchar.h>
+int wmain(int argc, wchar_t **argv);
+wchar_t * __stdcall GetCommandLineW(void);
+int __stdcall MultiByteToWideChar(unsigned cp, unsigned long flags,
+    const char *mb, int mblen, wchar_t *wc, int wclen);
+int main(int argc, char **argv) {
+  /* Convert narrow argv to wide argv using MultiByteToWideChar (KERNEL32).
+     sak.exe needs at most 3 args: program, command, path. */
+  wchar_t *wargv_buf[5] = {0};
+  wchar_t wbuf[4][1024];
+  int i, wc = (argc > 4) ? 4 : argc;
+  for (i = 0; i < wc; i++) {
+    int n = MultiByteToWideChar(65001/*CP_UTF8*/, 0, argv[i], -1, wbuf[i], 1024);
+    if (n <= 0) n = MultiByteToWideChar(0/*CP_ACP*/, 0, argv[i], -1, wbuf[i], 1024);
+    wargv_buf[i] = wbuf[i];
+  }
+  return wmain(wc, wargv_buf);
+}
+#else
 int main(int argc, char **argv);
+#endif
+
+/* KERNEL32-only API declarations */
+char * __stdcall GetCommandLineA(void);
+void * __stdcall LocalAlloc(unsigned uFlags, unsigned long sz);
 int WinMain(void *h0, void *h1, char *c, int n) {
-  extern int __argc; extern char **__argv;
-  return main(__argc, __argv);
+  /* Simple command-line parsing using GetCommandLineA (KERNEL32 only).
+     sak.exe only needs 2 args: command-name and a path string.
+     For robustness, parse the first 3 tokens from the command line. */
+  char *cmd = GetCommandLineA();
+  if (!cmd || !*cmd) return main(0, (char*[]){(char*)"sak", 0});
+  /* Skip argv[0] (may be quoted) */
+  char *p = cmd;
+  if (*p == '"') { p++; while (*p && *p != '"') p++; if (*p) p++; }
+  else { while (*p && *p != ' ' && *p != '\t') p++; }
+  while (*p == ' ' || *p == '\t') p++;
+  /* Collect up to 3 remaining args (sak needs at most: command path) */
+  char *args[5] = {(char*)"sak", 0, 0, 0, 0};
+  int argc2 = 1;
+  while (*p && argc2 < 4) {
+    if (*p == '\'') { p++; args[argc2++] = p; while (*p && *p != '\'') p++; if (*p) *p++ = 0; }
+    else if (*p == '"') { p++; args[argc2++] = p; while (*p && *p != '"') p++; if (*p) *p++ = 0; }
+    else { args[argc2++] = p; while (*p && *p != ' ' && *p != '\t') p++; if (*p) *p++ = 0; }
+    while (*p == ' ' || *p == '\t') p++;
+  }
+  return main(argc2, args);
 }
 #endif
 SAK_WINMAIN_STUB
@@ -1072,19 +1863,328 @@ SAK_WINMAIN_STUB
       echo "  Copied native boot tools from ${_ocaml_bin}"
     fi
 
+    # ========================================================================
+    # DEBUG: Diagnose sak.exe + OCAML_STDLIB_DIR chain BEFORE make runs
+    # The Makefile generates build_config.h via:
+    #   C_LITERAL = $(shell $(SAK) $(ENCODE_C_LITERAL) '$(1)')
+    #   #define OCAML_STDLIB_DIR $(call C_LITERAL,$(TARGET_LIBDIR))
+    # If sak.exe fails silently, $(shell ...) returns empty → build fails with
+    #   "expected expression" at runtime/dynlink.c:91
+    # ========================================================================
+    echo "  DEBUG-STDLIB-DIR: === sak.exe + OCAML_STDLIB_DIR diagnostic ==="
+    if [[ -f Makefile.build_config ]]; then
+      echo "  DEBUG-STDLIB-DIR: TARGET_LIBDIR from Makefile.build_config:"
+      grep '^TARGET_LIBDIR=' Makefile.build_config || echo "  DEBUG-STDLIB-DIR: TARGET_LIBDIR NOT FOUND in Makefile.build_config!"
+      echo "  DEBUG-STDLIB-DIR: ENCODE_C_LITERAL from Makefile.build_config:"
+      grep '^ENCODE_C_LITERAL=' Makefile.build_config || echo "  DEBUG-STDLIB-DIR: ENCODE_C_LITERAL NOT FOUND!"
+      echo "  DEBUG-STDLIB-DIR: SAK_BUILD from Makefile.build_config:"
+      grep '^SAK_BUILD=' Makefile.build_config || echo "  DEBUG-STDLIB-DIR: SAK_BUILD NOT FOUND!"
+      echo "  DEBUG-STDLIB-DIR: CC_FOR_BUILD from Makefile.build_config:"
+      grep '^CC_FOR_BUILD=' Makefile.build_config || echo "  DEBUG-STDLIB-DIR: CC_FOR_BUILD NOT FOUND!"
+    else
+      echo "  DEBUG-STDLIB-DIR: Makefile.build_config DOES NOT EXIST!"
+    fi
+
+    # Pre-build sak.exe manually and test it produces valid C_LITERAL output
+    local _sak_cc="${SAK_CC_MSVC:-${NATIVE_CC}}"
+    echo "  DEBUG-STDLIB-DIR: Pre-building sak.exe with SAK_CC: ${_sak_cc}"
+    local _sak_src="runtime/sak.c"
+    local _sak_exe="runtime/sak.exe"
+    if [[ -f "${_sak_src}" ]]; then
+      # Build sak.exe with SAK compiler (msvc target on Windows for MSYS2 compat)
+      local _sak_build_cmd="${_sak_cc} ${SAK_SUBSYSTEM_FLAG:-} -o ${_sak_exe} ${_sak_src}"
+      echo "  DEBUG-STDLIB-DIR: sak build cmd: ${_sak_build_cmd}"
+      if eval "${_sak_build_cmd}" 2>&1; then
+        echo "  DEBUG-STDLIB-DIR: sak.exe built successfully"
+        # Check binary: file type, size, PE architecture
+        echo "  DEBUG-STDLIB-DIR: sak.exe size: $(wc -c < "${_sak_exe}") bytes"
+        file "${_sak_exe}" 2>/dev/null | sed 's/^/  DEBUG-STDLIB-DIR: file: /' || true
+        # Check PE subsystem (3=console, 2=GUI) and DLL imports
+        python3 -c "
+import struct, sys
+try:
+    data = open(sys.argv[1], 'rb').read()
+    pe = struct.unpack_from('<I', data, 0x3C)[0]
+    machine = struct.unpack_from('<H', data, pe + 4)[0]
+    sub = struct.unpack_from('<H', data, pe + 92)[0]
+    machines = {0x14c: 'x86', 0x8664: 'x86_64', 0xAA64: 'aarch64'}
+    subs = {2: 'GUI', 3: 'CONSOLE'}
+    print(f'  DEBUG-STDLIB-DIR: PE machine={machines.get(machine, hex(machine))} subsystem={subs.get(sub, sub)}')
+    # Extract DLL imports from PE import table
+    num_sections = struct.unpack_from('<H', data, pe + 6)[0]
+    opt_size = struct.unpack_from('<H', data, pe + 20)[0]
+    sections_offset = pe + 24 + opt_size
+    # Import table RVA is at PE optional header offset 104 (PE32+) or 96 (PE32)
+    import_rva = struct.unpack_from('<I', data, pe + 24 + 120)[0] if machine == 0x8664 else struct.unpack_from('<I', data, pe + 24 + 104)[0]
+    if import_rva:
+        # Find section containing import RVA
+        for i in range(num_sections):
+            s = sections_offset + i * 40
+            vaddr = struct.unpack_from('<I', data, s + 12)[0]
+            vsize = struct.unpack_from('<I', data, s + 8)[0]
+            raw = struct.unpack_from('<I', data, s + 20)[0]
+            if vaddr <= import_rva < vaddr + vsize:
+                dlls = []
+                off = raw + (import_rva - vaddr)
+                while True:
+                    name_rva = struct.unpack_from('<I', data, off + 12)[0]
+                    if name_rva == 0: break
+                    name_off = raw + (name_rva - vaddr)
+                    end = data.index(0, name_off)
+                    dlls.append(data[name_off:end].decode('ascii', errors='replace'))
+                    off += 20
+                print(f'  DEBUG-STDLIB-DIR: DLL imports: {\" \".join(dlls)}')
+                break
+except Exception as e:
+    print(f'  DEBUG-STDLIB-DIR: PE parse error: {e}')
+" "${_sak_exe}" 2>&1 || true
+        # Check DLL deps via objdump if available
+        objdump -p "${_sak_exe}" 2>/dev/null | grep "DLL Name" | sed 's/^/  DEBUG-STDLIB-DIR: /' || true
+
+        # ================================================================
+        # Probe all approaches to make zig-compiled binaries run in MSYS2
+        # Problem: zig cc -target x86_64-windows-gnu links api-ms-win-crt-*.dll
+        # which MSYS2 bash can't find (not in DLL search path)
+        # ================================================================
+        echo "  DEBUG-STDLIB-DIR: === ZIG RUNTIME PROBE ==="
+        local _probe_src="/tmp/zig_probe.c"
+        printf '#include <stdio.h>\nint main(void) { printf("OK"); return 0; }\n' > "${_probe_src}"
+        local _zig_base="${NATIVE_CC%% *}"  # extract zig exe path (before ' cc -target ...')
+
+        # Approach 1: current target (x86_64-windows-gnu) — baseline (expected: fail 127)
+        echo "  DEBUG-STDLIB-DIR: [probe1] x86_64-windows-gnu (baseline)..."
+        local _p="/tmp/probe1.exe"
+        if ${NATIVE_CC} -o "${_p}" "${_probe_src}" 2>&1; then
+          _out=$("${_p}" 2>&1) && _rc=$? || _rc=$?
+          echo "  DEBUG-STDLIB-DIR: [probe1] rc=${_rc} out='${_out}'"
+          objdump -p "${_p}" 2>/dev/null | grep "DLL Name" | sed 's/^/  DEBUG-STDLIB-DIR: [probe1] /' || true
+        else
+          echo "  DEBUG-STDLIB-DIR: [probe1] BUILD FAILED"
+        fi
+        rm -f "${_p}"
+
+        # Approach 2: -static (statically link CRT)
+        echo "  DEBUG-STDLIB-DIR: [probe2] x86_64-windows-gnu -static..."
+        _p="/tmp/probe2.exe"
+        if ${NATIVE_CC} -static -o "${_p}" "${_probe_src}" 2>&1; then
+          _out=$("${_p}" 2>&1) && _rc=$? || _rc=$?
+          echo "  DEBUG-STDLIB-DIR: [probe2] rc=${_rc} out='${_out}'"
+          objdump -p "${_p}" 2>/dev/null | grep "DLL Name" | sed 's/^/  DEBUG-STDLIB-DIR: [probe2] /' || true
+        else
+          echo "  DEBUG-STDLIB-DIR: [probe2] BUILD FAILED"
+        fi
+        rm -f "${_p}"
+
+        # Approach 3: -target x86_64-windows-msvc (MSVC CRT — msvcrt.dll)
+        echo "  DEBUG-STDLIB-DIR: [probe3] x86_64-windows-msvc..."
+        _p="/tmp/probe3.exe"
+        if "${_zig_base}" cc -target x86_64-windows-msvc -o "${_p}" "${_probe_src}" 2>&1; then
+          _out=$("${_p}" 2>&1) && _rc=$? || _rc=$?
+          echo "  DEBUG-STDLIB-DIR: [probe3] rc=${_rc} out='${_out}'"
+          objdump -p "${_p}" 2>/dev/null | grep "DLL Name" | sed 's/^/  DEBUG-STDLIB-DIR: [probe3] /' || true
+        else
+          echo "  DEBUG-STDLIB-DIR: [probe3] BUILD FAILED"
+        fi
+        rm -f "${_p}"
+
+        # Approach 4: add C:\Windows\System32 to PATH then run baseline binary
+        echo "  DEBUG-STDLIB-DIR: [probe4] windows-gnu + System32 in PATH..."
+        _p="/tmp/probe4.exe"
+        if ${NATIVE_CC} -o "${_p}" "${_probe_src}" 2>&1; then
+          _out=$(PATH="/c/Windows/System32:${PATH}" "${_p}" 2>&1) && _rc=$? || _rc=$?
+          echo "  DEBUG-STDLIB-DIR: [probe4] rc=${_rc} out='${_out}'"
+        else
+          echo "  DEBUG-STDLIB-DIR: [probe4] BUILD FAILED"
+        fi
+        rm -f "${_p}"
+
+        # Approach 5: add C:\Windows\System32 to PATH via Windows-style path
+        echo "  DEBUG-STDLIB-DIR: [probe5] windows-gnu + C:\\Windows\\System32 in PATH..."
+        _p="/tmp/probe5.exe"
+        if ${NATIVE_CC} -o "${_p}" "${_probe_src}" 2>&1; then
+          _out=$(PATH="C:\\Windows\\System32:${PATH}" "${_p}" 2>&1) && _rc=$? || _rc=$?
+          echo "  DEBUG-STDLIB-DIR: [probe5] rc=${_rc} out='${_out}'"
+        else
+          echo "  DEBUG-STDLIB-DIR: [probe5] BUILD FAILED"
+        fi
+        rm -f "${_p}"
+
+        # Show current PATH for context
+        echo "  DEBUG-STDLIB-DIR: Current PATH (first 5 entries):"
+        echo "${PATH}" | tr ':' '\n' | head -5 | sed 's/^/  DEBUG-STDLIB-DIR:   /'
+
+        rm -f "${_probe_src}"
+        echo "  DEBUG-STDLIB-DIR: === END ZIG RUNTIME PROBE ==="
+        # Test: does sak.exe run at all? Capture BOTH stdout and stderr separately
+        echo "  DEBUG-STDLIB-DIR: Testing sak.exe (no args)..."
+        local _sak_stdout _sak_stderr _sak_rc
+        _sak_stdout=$("${_sak_exe}" 2>/tmp/sak_stderr.txt) && _sak_rc=$? || _sak_rc=$?
+        _sak_stderr=$(cat /tmp/sak_stderr.txt 2>/dev/null)
+        echo "  DEBUG-STDLIB-DIR: sak.exe exit code: ${_sak_rc}"
+        [[ -n "${_sak_stdout}" ]] && echo "  DEBUG-STDLIB-DIR: sak.exe stdout: '${_sak_stdout}'"
+        [[ -n "${_sak_stderr}" ]] && echo "  DEBUG-STDLIB-DIR: sak.exe stderr: '${_sak_stderr}'"
+        # Test: encode-C-utf16-literal with a sample path
+        local _test_libdir
+        _test_libdir=$(grep '^TARGET_LIBDIR=' Makefile.build_config 2>/dev/null | cut -d= -f2-)
+        if [[ -n "${_test_libdir}" ]]; then
+          echo "  DEBUG-STDLIB-DIR: Testing sak encode-C-utf16-literal '${_test_libdir}'"
+          local _sak_output
+          _sak_output=$("${_sak_exe}" encode-C-utf16-literal "${_test_libdir}" 2>/tmp/sak_stderr.txt) && _sak_rc=$? || _sak_rc=$?
+          _sak_stderr=$(cat /tmp/sak_stderr.txt 2>/dev/null)
+          echo "  DEBUG-STDLIB-DIR: sak output (rc=${_sak_rc}): '${_sak_output}'"
+          [[ -n "${_sak_stderr}" ]] && echo "  DEBUG-STDLIB-DIR: sak stderr: '${_sak_stderr}'"
+          if [[ -z "${_sak_output}" ]]; then
+            echo "  DEBUG-STDLIB-DIR: *** SAK OUTPUT IS EMPTY - THIS WILL CAUSE OCAML_STDLIB_DIR FAILURE ***"
+            echo "  DEBUG-STDLIB-DIR: Trying encode-C-utf8-literal instead..."
+            _sak_output=$("${_sak_exe}" encode-C-utf8-literal "${_test_libdir}" 2>/tmp/sak_stderr.txt) && _sak_rc=$? || _sak_rc=$?
+            _sak_stderr=$(cat /tmp/sak_stderr.txt 2>/dev/null)
+            echo "  DEBUG-STDLIB-DIR: sak utf8 output (rc=${_sak_rc}): '${_sak_output}'"
+            [[ -n "${_sak_stderr}" ]] && echo "  DEBUG-STDLIB-DIR: sak utf8 stderr: '${_sak_stderr}'"
+          fi
+          # Also test with Make's $(shell) invocation pattern (single-quoted path)
+          echo "  DEBUG-STDLIB-DIR: Testing via sh -c (simulating Make shell)..."
+          _sak_output=$(sh -c "'${_sak_exe}' encode-C-utf16-literal '${_test_libdir}'" 2>/tmp/sak_stderr.txt) && _sak_rc=$? || _sak_rc=$?
+          _sak_stderr=$(cat /tmp/sak_stderr.txt 2>/dev/null)
+          echo "  DEBUG-STDLIB-DIR: sh -c output (rc=${_sak_rc}): '${_sak_output}'"
+          [[ -n "${_sak_stderr}" ]] && echo "  DEBUG-STDLIB-DIR: sh -c stderr: '${_sak_stderr}'"
+        else
+          echo "  DEBUG-STDLIB-DIR: Could not extract TARGET_LIBDIR to test sak"
+        fi
+      else
+        echo "  DEBUG-STDLIB-DIR: *** sak.exe BUILD FAILED ***"
+      fi
+    else
+      echo "  DEBUG-STDLIB-DIR: ${_sak_src} not found!"
+    fi
+    echo "  DEBUG-STDLIB-DIR: === end diagnostic ==="
+
     echo "  [4/7] Pre-building bytecode runtime and stdlib with native tools..."
-    run_logged "runtime-all" "${MAKE[@]}" runtime-all \
-      ARCH=amd64 \
-      CC="${NATIVE_CC}" \
-      CFLAGS="${NATIVE_CFLAGS}" \
-      LD="${NATIVE_LD}" \
-      LDFLAGS="${NATIVE_LDFLAGS}" \
-      SAK_CC="${NATIVE_CC}" \
-      SAK_CFLAGS="${NATIVE_CFLAGS}" \
-      SAK_LDFLAGS="${NATIVE_LDFLAGS}" \
-      \
-      ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
-      -j"${CPU_COUNT}"
+    # Save the pre-built boot/ocamlrun.exe from BUILD_PREFIX before make
+    # overwrites it with the zig-compiled ocamlruns.exe. The zig-compiled
+    # bytecode interpreter segfaults when running flexlink bytecode — the
+    # pre-built one (from the native OCaml package) works correctly.
+    if ! is_unix && [[ -f boot/ocamlrun.exe ]]; then
+      cp boot/ocamlrun.exe boot/ocamlrun.exe.prebuilt
+      echo "  Saved pre-built boot/ocamlrun.exe (zig runtime segfaults on bytecode)"
+    fi
+    # Split runtime-all into two phases for win-arm64 cross-compilation:
+    # Phase A: build ocamlruns.exe with native BYTECCLIBS (no arm64 -L paths).
+    #   MKEXE_VIA_CC uses $(CC) directly — the arm64 import libs in BYTECCLIBS
+    #   cause "machine type arm64 conflicts with x64" when linking with native CC.
+    # Phase B: build everything else (ocamlrun.exe, ocamlrund.exe, sak.exe, etc.)
+    #   using Makefile.config's BYTECCLIBS which includes arm64 -L paths for
+    #   flexlink -chain mingw64arm. Make skips ocamlruns.exe (already up-to-date).
+    if ! is_unix && [[ -n "${_native_bytecclibs:-}" ]]; then
+      echo "  [4/7a] Building ocamlruns.exe with native BYTECCLIBS (no arm64 libs)..."
+      run_logged "runtime-ocamlruns" "${MAKE[@]}" runtime/ocamlruns.exe \
+        V=1 \
+        ARCH=amd64 \
+        CC="${NATIVE_CC}" \
+        CFLAGS="${NATIVE_CFLAGS}" \
+        LD="${NATIVE_LD}" \
+        LDFLAGS="${NATIVE_LDFLAGS}" \
+        BYTECCLIBS="${_native_bytecclibs}" \
+        ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
+        -j"${CPU_COUNT}"
+      echo "  [4/7b] Building arm64 runtime targets (cross CC + flexlink arm64 BYTECCLIBS)..."
+      # Phase B for win-arm64: rebuild everything with cross CC (arm64 zig).
+      # Phase A built ocamlruns.exe as x64 — save it, let phase B rebuild all
+      # objects as arm64 (including ocamlruns.exe), then restore the x64 copy.
+      # This avoids the shared-object problem: prims.obj, libcamlrun_non_shared.lib
+      # are used by both ocamlruns and ocamlrun, but can't be both x64 and arm64.
+      # Save x64 ocamlruns.exe + boot/ocamlrun.exe, then clean shared objects.
+      # Phase B builds only ocamlrun.exe and ocamlrund.exe (flexlink arm64 targets).
+      # We do NOT build runtime-all because it includes ocamlruns.exe which uses
+      # MKEXE_VIA_CC (hardcoded x64 in Makefile.build_config) but reads BYTECCLIBS
+      # from Makefile.config (which now has arm64 -L path) → architecture conflict.
+      cp runtime/ocamlruns.exe runtime/ocamlruns.exe.x64
+      cp boot/ocamlrun.exe boot/ocamlrun.exe.x64
+      echo "  Saved x64 ocamlruns.exe, cleaning shared objects for arm64 rebuild..."
+      # Prevent Make from rebuilding ocamlruns.exe during Phase B:
+      # deleting .b.obj files invalidates libcamlrun_non_shared.lib prereqs,
+      # causing Make to rebuild the .lib then re-link ocamlruns.exe with
+      # arm64 BYTECCLIBS against x64 MKEXE_VIA_CC → arch conflict.
+      touch -t 209901010000 runtime/ocamlruns.exe
+      rm -f runtime/*.b.obj runtime/*.bd.obj runtime/*.bpic.obj runtime/prims.obj
+      rm -f runtime/libcamlrun.lib runtime/libcamlrund.lib
+      rm -f runtime/ocamlrun.exe runtime/ocamlrund.exe
+      # Build only the flexlink-linked targets (arm64) — NOT ocamlruns.exe.
+      # Override CC to CROSS_CC so .b.obj/.bd.obj files are compiled for arm64
+      # (Makefile.config CC targets x64; zig just needs a different -target flag).
+      # Write flexdll/version.ml with zig cross-compiler baked in.
+      # version.ml is a GENERATED file (flexdll Makefile target) — distclean
+      # removes it, and Phase A doesn't trigger flexdll rebuild to regenerate.
+      # Flexlink bakes version.ml into bytecode — no PATH lookup needed.
+      # Use cygpath -m (mixed/forward slashes) to avoid OCaml illegal-backslash
+      # errors — forward slashes are valid in both OCaml strings and Windows APIs.
+      _zig_exe="${CROSS_CC%% *}"  # strip "cc -target ..."
+      _zig_exe_win=$(cygpath -m "${_zig_exe}" 2>/dev/null || echo "${_zig_exe}")
+      _zig_cross_cc="${_zig_exe_win} cc -target aarch64-windows-gnu"
+      echo "  Writing flexdll/version.ml: mingw64arm = ${_zig_cross_cc}"
+      cat > flexdll/version.ml <<VERSIONML
+let version = "0.44"
+let mingw_prefix = "i686-w64-mingw32-"
+let mingw64_prefix = "x86_64-w64-mingw32-"
+let mingw64arm_prefix = "aarch64-w64-mingw32-"
+let msvc = "cl"
+let msvc64 = "cl"
+let cygwin64 = "x86_64-pc-cygwin-gcc"
+let mingw = "i686-w64-mingw32-gcc"
+let mingw64 = "x86_64-w64-mingw32-gcc"
+let mingw64arm = "${_zig_cross_cc}"
+let gnat = "gcc"
+VERSIONML
+      # Force flexlink bytecode rebuild with patched version.ml
+      rm -f flexdll/flexlink.exe flexlink.byte.exe
+      run_logged "runtime-arm64" "${MAKE[@]}" \
+        runtime/ocamlrun.exe runtime/ocamlrund.exe \
+        V=1 \
+        CC="${CROSS_CC}" \
+        SAK_CC="${SAK_CC_GNU:-${NATIVE_CC}}" \
+        SAK_CFLAGS="${NATIVE_CFLAGS}" \
+        SAK_LDFLAGS="${NATIVE_LDFLAGS}" \
+        ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
+        -j"${CPU_COUNT}"
+      # Restore x64 ocamlruns.exe + boot/ocamlrun.exe for bytecode tools
+      echo "  Restoring x64 ocamlruns.exe and boot/ocamlrun.exe..."
+      cp runtime/ocamlruns.exe.x64 runtime/ocamlruns.exe
+      cp boot/ocamlrun.exe.x64 boot/ocamlrun.exe
+    else
+      # Non-cross or unix: use native CC for everything
+      run_logged "runtime-all" "${MAKE[@]}" runtime-all \
+        V=1 \
+        ARCH=amd64 \
+        CC="${NATIVE_CC}" \
+        CFLAGS="${NATIVE_CFLAGS}" \
+        LD="${NATIVE_LD}" \
+        LDFLAGS="${NATIVE_LDFLAGS}" \
+        SAK_CC="${SAK_CC_GNU:-${NATIVE_CC}}" \
+        SAK_CFLAGS="${NATIVE_CFLAGS}" \
+        SAK_LDFLAGS="${NATIVE_LDFLAGS}" \
+        \
+        ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
+        -j"${CPU_COUNT}"
+    fi
+
+    # Restore the pre-built boot/ocamlrun.exe.
+    # The zig-compiled ocamlrun.exe works for static C operations (sak.exe)
+    # but segfaults when interpreting OCaml bytecode. The pre-built ocamlrun.exe
+    # from the native OCaml package handles bytecode correctly. crossopt invokes
+    # bytecode tools (ocamlopt.byte, etc.) so it needs the working interpreter.
+    # NOTE: byte/bin/flexlink.exe is built natively by cross-flexdll inside
+    # crossopt — no post-crossopt fixup is needed.
+    if ! is_unix && [[ -f boot/ocamlrun.exe.prebuilt ]]; then
+      echo "  Restoring pre-built boot/ocamlrun.exe over zig-compiled version"
+      cp boot/ocamlrun.exe.prebuilt boot/ocamlrun.exe
+    fi
+
+    # DEBUG: Show generated build_config.h AFTER make
+    if [[ -f runtime/build_config.h ]]; then
+      echo "  DEBUG-STDLIB-DIR: runtime/build_config.h contents:"
+      cat runtime/build_config.h
+    else
+      echo "  DEBUG-STDLIB-DIR: runtime/build_config.h WAS NOT GENERATED!"
+    fi
 
     # NOTE: stdlib pre-build removed - was causing inconsistent assumptions
     # Let crossopt handle stdlib build entirely with consistent variables
@@ -1140,7 +2240,22 @@ SAK_WINMAIN_STUB
       _setup_crossopt_env
 
       # Native compiler stdlib location (for copying fresh .cmi files in crossopt)
-      NATIVE_STDLIB="${OCAML_PREFIX}/lib/ocaml"
+      # On Windows, conda packages install under Library/ (not directly in PREFIX)
+      if is_unix; then
+        NATIVE_STDLIB="${OCAML_PREFIX}/lib/ocaml"
+      else
+        NATIVE_STDLIB="${OCAML_PREFIX}/Library/lib/ocaml"
+      fi
+      # Fix OCAMLLIB: activate.sh sets ${PREFIX}/lib/ocaml (missing Library/ on
+      # Windows).  cross-flexdll calls ocamlopt which needs OCAMLLIB to find Stdlib.
+      export OCAMLLIB="${NATIVE_STDLIB}"
+
+      # Compiler drivers (zig, clang) need -c for assembly-only mode.
+      # Without -c, zig cc tries to link .s files instead of just assembling.
+      if [[ "${NATIVE_ASM}" == *zig* ]] && [[ "${NATIVE_ASM}" != *" -c"* ]]; then
+        NATIVE_ASM="${NATIVE_ASM} -c"
+        export NATIVE_ASM
+      fi
 
       # --- Build crossopt ---
       CROSSOPT_ARGS=(
@@ -1152,16 +2267,28 @@ SAK_WINMAIN_STUB
         TARGET_ZSTD_LIBS="${TARGET_ZSTD_LIBS}"
 
         SAK_AR="${NATIVE_AR}"
-        SAK_CC="${NATIVE_CC}"
+        SAK_CC="${SAK_CC_GNU:-${NATIVE_CC}}"
         SAK_CFLAGS="${NATIVE_CFLAGS}"
         SAK_LDFLAGS="${NATIVE_LDFLAGS}"
+        SAK_BYTECCLIBS="${_native_bytecclibs}"
 
-        NATIVE_AS="${NATIVE_AS}"
+        # ALL executables in cross-compilation run on the BUILD machine (x64).
+        # MKEXE must include -Wl,--subsystem,console to force console subsystem.
+        # Without it, zig's lld selects the GUI CRT (crtexewin.obj) which expects
+        # WinMain() — but ocamlrun uses wmain() (via main_os macro in caml/misc.h).
+        MKEXE="${SAK_CC_GNU:-${NATIVE_CC}} -Wl,--subsystem,console"
+
+        # cygpath -m for NATIVE_AS/CC: Makefile.cross passes these to
+        # CONDA_OCAML_AS/CC overrides for native-tool steps. The conda-ocaml
+        # wrappers (.exe) need Windows paths, not MSYS2 POSIX paths.
+        NATIVE_AS="$( ! is_unix && command -v cygpath &>/dev/null && _to_win "${NATIVE_AS}" || echo "${NATIVE_AS}" )"
         NATIVE_ASM="${NATIVE_ASM}"
-        NATIVE_CC="${NATIVE_CC}"
+        NATIVE_CC="$( ! is_unix && command -v cygpath &>/dev/null && _to_win "${NATIVE_CC}" || echo "${NATIVE_CC}" )"
         NATIVE_STDLIB="${NATIVE_STDLIB}"
       )
 
+      # MKEXE override is now handled inside Makefile.cross crossopt recipe
+      # (sed on Makefile.config, restored at end of crossopt target)
       run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}"
 
       # --- Install crossopt ---
@@ -1550,7 +2677,7 @@ build_cross_target() {
   cat > "${SRC_DIR}/_target_compiler_${target_platform}_env.sh" << EOF
 # CONDA_OCAML_* for runtime
 export CONDA_OCAML_AR="${CROSS_AR}"
-export CONDA_OCAML_AS="${CROSS_ASM}"
+export CONDA_OCAML_AS="${CROSS_AS}"
 export CONDA_OCAML_CC="${CROSS_CC}"
 export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
 export CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
@@ -1661,12 +2788,12 @@ EOF
     ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
     LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
     OCAMLLIB="${OCAMLLIB}"
-    CONDA_OCAML_AS="${CROSS_ASM}"
+    CONDA_OCAML_AS="${CROSS_AS}"
     CONDA_OCAML_CC="${CROSS_CC}"
     CONDA_OCAML_MKEXE="${CROSS_MKEXE:-}"
     CONDA_OCAML_MKDLL="${CROSS_MKDLL:-}"
     SAK_AR="${NATIVE_AR}"
-    SAK_CC="${NATIVE_CC}"
+    SAK_CC="${SAK_CC_GNU:-${NATIVE_CC}}"
     SAK_CFLAGS="${NATIVE_CFLAGS}"
   )
 
@@ -1902,6 +3029,63 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     export NATIVE_LDFLAGS="${NATIVE_LDFLAGS:-}"
     export CROSS_CFLAGS="${CROSS_CFLAGS:-}"
     export CROSS_LDFLAGS="${CROSS_LDFLAGS:-}"
+
+    # CRITICAL: Normalize Windows backslashes to forward slashes in NATIVE_* path vars.
+    # On Windows, setup_toolchain may produce paths like D:\bld\...\zig.exe which bash
+    # interprets as escape sequences (D:bldbld...) causing "command not found".
+    # This also breaks Make's $(shell ...) calls (e.g. sak.exe for OCAML_STDLIB_DIR).
+    for _var in NATIVE_CC NATIVE_AR NATIVE_AS NATIVE_ASM NATIVE_LD NATIVE_NM \
+                NATIVE_RANLIB NATIVE_STRIP NATIVE_MKDLL NATIVE_MKEXE; do
+      if [[ -n "${!_var:-}" ]]; then
+        export "${_var}=${!_var//\\//}"
+      fi
+    done
+
+    # CRITICAL: Create SAK_CC using -target x86_64-windows-msvc for tools that must
+    # run on the build machine during cross-compilation (sak.exe → build_config.h).
+    # zig cc -target x86_64-windows-gnu links api-ms-win-crt-*.dll UCRT shims which
+    # are not in MSYS2's DLL search path → exit 127 for any zig-gnu binary.
+    # The msvc target links only KERNEL32.dll + ntdll.dll → works in MSYS2.
+    _zig_exe="${NATIVE_CC%% *}"  # extract zig exe path (before ' cc -target ...')
+    # sak.c uses wmain (via main_os macro from caml/misc.h when CAML_INTERNALS + _WIN32).
+    # MSVC linker expects main() by default. Zig rejects /entry:wmainCRTStartup.
+    # Solution: compile with -DSAK_NEEDS_MAIN_WRAPPER — we prepend a main→wmain shim.
+    # Create a wrapper script so SAK_CC_MSVC is a single-token path.
+    # Multi-word CC= values get word-split by make (it interprets -target as
+    # its own flags: -t -a -r -g -e -t). Wrapper scripts are the established
+    # pattern in this build for zig toolchain invocations.
+    # Use cygpath on Windows to get a POSIX path - raw $SRC_DIR has Windows
+    # backslashes that get eaten during bash expansion (D:\bld\... → D:bld...).
+    if command -v cygpath &>/dev/null; then
+      _sak_cc_msvc_wrapper="$(cygpath -u "${SRC_DIR}")/sak-cc-msvc"
+    else
+      _sak_cc_msvc_wrapper="${SRC_DIR}/sak-cc-msvc"
+    fi
+    cat > "${_sak_cc_msvc_wrapper}" <<'SAKEOF'
+#!/bin/bash
+exec "@@ZIG_EXE@@" cc -target x86_64-windows-msvc -DSAK_NEEDS_MAIN_WRAPPER "$@"
+SAKEOF
+    sed -i "s|@@ZIG_EXE@@|${_zig_exe}|g" "${_sak_cc_msvc_wrapper}"
+    chmod +x "${_sak_cc_msvc_wrapper}"
+    export SAK_CC_MSVC="${_sak_cc_msvc_wrapper}"
+    echo "  SAK_CC_MSVC: ${SAK_CC_MSVC} (wrapper for: ${_zig_exe} cc -target x86_64-windows-msvc)"
+
+    # Also create a GNU-target wrapper for SAK_CC used in runtime-all compilation.
+    # NATIVE_CC is also multi-word (zig.exe cc -target x86_64-windows-gnu) and
+    # gets word-split by make the same way. Runtime needs GNU target for pthread.h.
+    if command -v cygpath &>/dev/null; then
+      _sak_cc_gnu_wrapper="$(cygpath -u "${SRC_DIR}")/sak-cc-gnu"
+    else
+      _sak_cc_gnu_wrapper="${SRC_DIR}/sak-cc-gnu"
+    fi
+    cat > "${_sak_cc_gnu_wrapper}" <<'GNUEOF'
+#!/bin/bash
+exec "@@ZIG_EXE@@" cc -target x86_64-windows-gnu "$@"
+GNUEOF
+    sed -i "s|@@ZIG_EXE@@|${_zig_exe}|g" "${_sak_cc_gnu_wrapper}"
+    chmod +x "${_sak_cc_gnu_wrapper}"
+    export SAK_CC_GNU="${_sak_cc_gnu_wrapper}"
+    echo "  SAK_CC_GNU: ${SAK_CC_GNU} (wrapper for: ${_zig_exe} cc -target x86_64-windows-gnu)"
   fi
 
   # Debug: dump conda-build env vars available on this platform
@@ -1912,10 +3096,32 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     echo "=== END DEBUG ==="
   fi
 
+  # Rebuild conda-ocaml-* wrappers in BUILD_PREFIX. The native ocaml dependency's
+  # pre-built wrappers may lack multi-word tokenization (e.g., "zig.exe cc -target ...").
+  # build_native() rebuilds them, but cross-compiler mode skips build_native().
+  if ! is_unix; then
+    echo "  Rebuilding conda-ocaml-* wrappers in BUILD_PREFIX (multi-word toolchain support)..."
+    CC="${NATIVE_CC}" "${RECIPE_DIR}/building/build-wrappers.sh" "${BUILD_PREFIX}/Library/bin"
+  fi
+
   OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
   (
     export OCAML_PREFIX="${BUILD_PREFIX}"
     export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
+
+    # Debug: check flexlink availability and runtime library state
+    echo "=== DEBUG: cross-compiler pre-flight ==="
+    echo "  OCAMLLIB=${OCAMLLIB}"
+    echo "  flexlink in PATH: $(command -v flexlink 2>/dev/null || echo 'NOT FOUND')"
+    echo "  flexlink.exe in PATH: $(command -v flexlink.exe 2>/dev/null || echo 'NOT FOUND')"
+    ls -la "${OCAMLLIB}"/libasmrun* 2>/dev/null || echo "  No libasmrun* in OCAMLLIB"
+    ls -la "${OCAMLLIB}"/*.lib 2>/dev/null | head -5 || echo "  No .lib files in OCAMLLIB"
+    echo "  ocamlopt -version: $(ocamlopt -version 2>/dev/null || echo 'NOT FOUND')"
+    echo "  ocamlopt -config (MKEXE): $(ocamlopt -config 2>/dev/null | grep -i mkexe || echo 'NOT FOUND')"
+    echo "  PATH entries with Library/bin:"
+    echo "$PATH" | tr ':' '\n' | grep -i "library/bin" | head -5 || echo "    (none)"
+    echo "=== END DEBUG ==="
+
     OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     build_cross_compiler
   )

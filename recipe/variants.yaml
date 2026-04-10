@@ -1,0 +1,94 @@
+# ==============================================================================
+# OCaml Multi-Output Variants Configuration (GCC Pattern)
+# ==============================================================================
+#
+# Following ctng-compilers-feedstock pattern:
+# - Only cross_target_platform is a variant key (cleaner filenames)
+# - Triplet and build_platform are derived in recipe.yaml using match()
+#
+# Variant filenames will be clean:
+#   linux_64_cross_target_platform_linux-64.yaml
+#   linux_64_cross_target_platform_linux-aarch64.yaml
+#   osx_64_cross_target_platform_osx-arm64.yaml
+#
+# ==============================================================================
+
+c_compiler:
+  - if: linux
+    then:
+      - gcc
+  - if: osx
+    then:
+      - clang
+  - if: not unix
+    then:
+      - vs2022
+      - gcc
+      - zig
+c_compiler_version:
+  - if: linux
+    then:
+      - 14
+  - if: osx
+    then:
+      - 19
+  - if: not unix
+    then:
+      - "2022"
+
+c_stdlib:
+  - if: linux
+    then:
+      - sysroot
+  - if: osx
+    then:
+      - macosx_deployment_target
+  - if: not unix
+    then:
+      - vs
+c_stdlib_version:
+  - if: linux
+    then:
+      - "2.17"
+  - if: osx
+    then:
+      - "11"
+  - if: not unix
+    then:
+      - "2022.14"
+
+m2w64_c_stdlib:
+  - m2w64-sysroot
+m2w64_c_stdlib_version:
+  - 12
+
+vc:
+  - 14
+
+# ==============================================================================
+# Target platform matrix (GCC-style: single variant key)
+# ==============================================================================
+# cross_target_platform: The target platform this package produces code for
+#
+# The corresponding triplet and build_platform are derived in recipe.yaml
+# using match() expressions - NOT as variant keys (avoids long filenames)
+# ==============================================================================
+
+cross_target_platform_:
+  - linux-64
+  - linux-aarch64
+  - linux-ppc64le
+  - osx-64
+  - osx-arm64
+  - win-64
+  - win-arm64
+
+ocaml_compiler:
+  - ocaml
+ocaml_compiler_version:
+  - "5.4.0"
+
+zig_compiler:
+  - zig
+zig_compiler_version:
+  - "0.15.2"
