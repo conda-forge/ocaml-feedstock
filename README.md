@@ -1,7 +1,42 @@
-About ocaml-compiler-feedstock
+About ocaml-packages-feedstock
 ==============================
 
 Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock-5.4.0-altc-feedstock/blob/main/LICENSE.txt)
+
+
+About ocaml-packages
+--------------------
+
+Home: https://ocaml.org/
+
+Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
+
+Summary: Objective Caml (OCaml) is an implementation of the ML language.
+
+Development: https://github.com/ocaml/ocaml
+
+Documentation: https://ocaml.org/docs/
+
+OCaml is an implementation of the ML language, based on the Caml Light
+dialect extended with a complete class-based object system and a powerful
+module system in the style of Standard ML.
+
+OCaml comprises two compilers. One generates bytecode which is then
+interpreted by a C program. This compiler runs quickly, generates compact
+code with moderate memory requirements, and is portable to essentially any
+32 or 64 bit Unix platform. Performance of generated programs is quite good
+for a bytecoded implementation.  This compiler can be used either as a
+standalone, batch-oriented compiler that produces standalone programs, or as
+an interactive, toplevel-based system.
+
+The other compiler generates high-performance native code for a number of
+processors. Compilation takes longer and generates bigger code, but the
+generated programs deliver excellent performance, while retaining the
+moderate memory requirements of the bytecode compiler.
+
+
+About ocaml_win-arm64
+---------------------
 
 Home: https://ocaml.org/
 
@@ -48,73 +83,45 @@ Current build status
         <table>
           <thead><tr><th>Variant</th><th>Status</th></tr></thead>
           <tbody><tr>
-              <td>linux_64_cross_target_platform_linux-64</td>
+              <td>linux_64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_cross_target_platform_linux-64" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_" alt="variant">
                 </a>
               </td>
             </tr><tr>
-              <td>linux_64_cross_target_platform_linux-aarch64</td>
+              <td>linux_aarch64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_cross_target_platform_linux-aarch64" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_aarch64_" alt="variant">
                 </a>
               </td>
             </tr><tr>
-              <td>linux_64_cross_target_platform_linux-ppc64le</td>
+              <td>linux_ppc64le</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_64_cross_target_platform_linux-ppc64le" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_ppc64le_" alt="variant">
                 </a>
               </td>
             </tr><tr>
-              <td>linux_aarch64_cross_target_platform_linux-aarch64</td>
+              <td>osx_64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_aarch64_cross_target_platform_linux-aarch64" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_" alt="variant">
                 </a>
               </td>
             </tr><tr>
-              <td>linux_ppc64le_cross_target_platform_linux-ppc64le</td>
+              <td>osx_arm64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=linux&configuration=linux%20linux_ppc64le_cross_target_platform_linux-ppc64le" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_" alt="variant">
                 </a>
               </td>
             </tr><tr>
-              <td>osx_64_cross_target_platform_osx-64</td>
+              <td>win_64_c_compilerzigcross_target_platform_win-arm64</td>
               <td>
                 <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-64" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>osx_64_cross_target_platform_osx-arm64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-arm64" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>osx_arm64_cross_target_platform_osx-arm64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_cross_target_platform_osx-arm64" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>win_64_c_compilergcccross_target_platform_win-64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_c_compilergcccross_target_platform_win-64" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>win_64_c_compilervs2022cross_target_platform_win-64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=None&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_c_compilervs2022cross_target_platform_win-64" alt="variant">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock-5.4.0-altc-feedstock?branchName=main&jobName=win&configuration=win%20win_64_c_compilerzigcross_target_platform_win-arm64" alt="variant">
                 </a>
               </td>
             </tr>
@@ -130,60 +137,53 @@ Current release info
 
 | Name | Downloads | Version | Platforms |
 | --- | --- | --- | --- |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml-green.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml--compiler-green.svg)](https://anaconda.org/conda-forge/ocaml-compiler) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml-compiler.svg)](https://anaconda.org/conda-forge/ocaml-compiler) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml-compiler.svg)](https://anaconda.org/conda-forge/ocaml-compiler) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml-compiler.svg)](https://anaconda.org/conda-forge/ocaml-compiler) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--64-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--aarch64-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--ppc64le-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) |
 
-Installing ocaml-compiler
+Installing ocaml-packages
 =========================
 
-Installing `ocaml-compiler` from the `conda-forge` channel can be achieved by adding `conda-forge` to your channels with:
+Installing `ocaml-packages` from the `conda-forge` channel can be achieved by adding `conda-forge` to your channels with:
 
 ```
 conda config --add channels conda-forge
 conda config --set channel_priority strict
 ```
 
-Once the `conda-forge` channel has been enabled, `ocaml, ocaml-compiler, ocaml_linux-64, ocaml_linux-aarch64, ocaml_linux-ppc64le, ocaml_osx-64, ocaml_osx-arm64, ocaml_win-64` can be installed with `conda`:
+Once the `conda-forge` channel has been enabled, `ocaml_win-arm64` can be installed with `conda`:
 
 ```
-conda install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
-```
-
-or with `mamba`:
-
-```
-mamba install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
-```
-
-It is possible to list all of the versions of `ocaml` available on your platform with `conda`:
-
-```
-conda search ocaml --channel conda-forge
+conda install ocaml_win-arm64
 ```
 
 or with `mamba`:
 
 ```
-mamba search ocaml --channel conda-forge
+mamba install ocaml_win-arm64
+```
+
+It is possible to list all of the versions of `ocaml_win-arm64` available on your platform with `conda`:
+
+```
+conda search ocaml_win-arm64 --channel conda-forge
+```
+
+or with `mamba`:
+
+```
+mamba search ocaml_win-arm64 --channel conda-forge
 ```
 
 Alternatively, `mamba repoquery` may provide more information:
 
 ```
 # Search all versions available on your platform:
-mamba repoquery search ocaml --channel conda-forge
+mamba repoquery search ocaml_win-arm64 --channel conda-forge
 
-# List packages depending on `ocaml`:
-mamba repoquery whoneeds ocaml --channel conda-forge
+# List packages depending on `ocaml_win-arm64`:
+mamba repoquery whoneeds ocaml_win-arm64 --channel conda-forge
 
-# List dependencies of `ocaml`:
-mamba repoquery depends ocaml --channel conda-forge
+# List dependencies of `ocaml_win-arm64`:
+mamba repoquery depends ocaml_win-arm64 --channel conda-forge
 ```
 
 
@@ -228,17 +228,17 @@ Terminology
                   produce the finished article (built conda distributions)
 
 
-Updating ocaml-compiler-feedstock
+Updating ocaml-packages-feedstock
 =================================
 
-If you would like to improve the ocaml-compiler recipe or build a new
+If you would like to improve the ocaml-packages recipe or build a new
 package version, please fork this repository and submit a PR. Upon submission,
 your changes will be run on the appropriate platforms to give the reviewer an
 opportunity to confirm that the changes result in a successful build. Once
 merged, the recipe will be re-built and uploaded automatically to the
 `conda-forge` channel, whereupon the built conda packages will be available for
 everybody to install and use from the `conda-forge` channel.
-Note that all branches in the conda-forge/ocaml-compiler-feedstock are
+Note that all branches in the conda-forge/ocaml-packages-feedstock are
 immediately built and any created packages are uploaded, so PRs should be based
 on branches in forks, and branches in the main repository should only be used to
 build distinct package versions.

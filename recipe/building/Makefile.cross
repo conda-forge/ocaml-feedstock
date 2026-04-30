@@ -58,11 +58,23 @@ SAK_CC ?= $(CC)
 # SAK_CFLAGS: CFLAGS for BUILD machine (sak runs on build, not target)
 # Must NOT contain target-specific flags like -mtune=power8
 SAK_CFLAGS ?= $(CFLAGS)
-SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$(1) $(2)
+# On Windows (EXE=.exe), MinGW CRT defaults to GUI subsystem (WinMain).
+# build.sh probes NATIVE_CC to find which flag produces PE subsystem=console,
+# then exports SAK_SUBSYSTEM_FLAG. Use ?= so the env var overrides this default.
+# Fallback default tried if build.sh probe is skipped or inconclusive.
+ifeq ($(EXE),.exe)
+SAK_SUBSYSTEM_FLAG ?= -Wl,/subsystem:console
+endif
+SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(SAK_SUBSYSTEM_FLAG) $(OUTPUTEXE)$(1) $(2)
 
 # Override SAK_BUILD to use SAK_CC/SAK_CFLAGS instead of CC/CFLAGS for cross-compilation
 # sak is a build tool that must run on the BUILD machine
 SAK_BUILD = $(SAK_LINK) $(OC_CFLAGS) $(SAK_CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS)
+$(info DEBUG-MAKECROSS: EXE=$(EXE))
+$(info DEBUG-MAKECROSS: SAK_SUBSYSTEM_FLAG=$(SAK_SUBSYSTEM_FLAG))
+$(info DEBUG-MAKECROSS: SAK_BUILD=$(SAK_BUILD))
+$(info DEBUG-MAKECROSS: SAK_LINK=$(SAK_LINK))
+$(info DEBUG-MAKECROSS: SAK_CC=$(SAK_CC))
 
 # CROSS_CC/CROSS_AR must be set on command line for cross-compilation.
 # These are passed through to sub-makes for C libraries (otherlibs).
@@ -175,22 +187,100 @@ RUNTIME_VARS = ARCH=$(ARCH) AR='$(AR)' AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFL
 # SAK_AR: archiver for BUILD machine (llvm-ar on macOS for ld64 compatibility)
 SAK_LDFLAGS ?=
 SAK_AR ?= $(AR)
+SAK_BYTECCLIBS ?= $(BYTECCLIBS)
 BYTECODE_RUNTIME_VARS = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
-  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
+  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -mconsole' \
+  'BYTECCLIBS=$(SAK_BYTECCLIBS) flexdll_stub.$$(O)'
+# BYTECODE_RUNTIME_VARS_WITH_STUB: adds runtime_winmain_stub.obj to BYTECCLIBS.
+# zig's lld maps wmain() → GUI CRT (crtexewin.obj) on ARM64; -mconsole is zig's own
+# flag controlling CRT selection before lld-link (unlike -Wl,--subsystem,console which
+# zig ignores). WinMain stub remains as safety net if -mconsole is unsupported.
+BYTECODE_RUNTIME_VARS_WITH_STUB = \
+  SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
+  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -mconsole' \
+  'BYTECCLIBS=$(SAK_BYTECCLIBS) flexdll_stub.$$(O) runtime_winmain_stub.$$(O)'
 
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 crossopt: cross-flexdll
+	# Override MKEXE directly in Makefile.config. ALL executables in cross-
+	# compilation run on the BUILD machine - none are arm64. The configure-
+	# generated MKEXE (flexlink arm64) is wrong for all exe targets.
+	# Modify the source file so ALL submakes read the correct value.
+	cp Makefile.config Makefile.config.crossopt_bak
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -mconsole|' Makefile.config
+	@echo "=== CROSSOPT DEBUG: MKEXE after sed ==="
+	@grep '^MKEXE=' Makefile.config || echo "MKEXE line not found!"
+	@echo "=== CROSSOPT DEBUG: SAK_CC=$(SAK_CC) MKEXE=$(MKEXE) ==="
+	# Clean runtime objects/archives from prior arm64 build (step 4) before
+	# rebuilding for x64 BUILD machine. Keep executables (sak.exe needed for
+	# build_config.h generation). Without this, make reuses stale arm64 .obj.
+	rm -f runtime/*.$(O) runtime/*.$(A)
+	# Build x64 flexdll stub - the bytecode runtime links libcamlrun which
+	# references flexdll_wdlopen/dlsym/dlclose/dlerror (compiled with
+	# CAML_WITH_FLEXDLL). The real flexdll objects are arm64 (wrong arch).
+	# The x64 ocamlrun doesn't need actual flexdll, just resolved symbols.
+	printf '%s\n' \
+	  '#include <stddef.h>' \
+	  'void *flexdll_wdlopen(wchar_t *f, int m) { return NULL; }' \
+	  'void flexdll_dump_exports(void *h) {}' \
+	  'int flexdll_dlclose(void *h) { return 0; }' \
+	  'void *flexdll_dlsym(void *h, const char *s) { return NULL; }' \
+	  'char *flexdll_dlerror(void) { return "flexdll stub"; }' \
+	  > flexdll_stub.c
+	$(SAK_CC) $(SAK_CFLAGS) -c -o flexdll_stub.$(O) flexdll_stub.c
+	# Build WinMain+main stub for ocamlrun.exe console subsystem.
+	# zig's lld maps wmain() to GUI CRT (crtexewin.obj) regardless of -Wl,--subsystem,console.
+	# Adding WinMain() + main() causes lld to "default to /subsystem:console" and use
+	# mainCRTStartup. main() uses CommandLineToArgvW to obtain wide argv for wmain().
+	printf '%s\n' \
+	  '#include <windows.h>' \
+	  '#include <wchar.h>' \
+	  'extern int wmain(int argc, wchar_t **argv);' \
+	  'int WinMain(HINSTANCE h, HINSTANCE p, LPSTR c, int s) {' \
+	  '  (void)h;(void)p;(void)c;(void)s;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  'int main(int argc, char **argv) {' \
+	  '  (void)argc;(void)argv;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  > runtime_winmain_stub.c
+	$(SAK_CC) $(SAK_CFLAGS) -c -o runtime_winmain_stub.$(O) runtime_winmain_stub.c
 	# Build bytecode runtime with BUILD compiler (ocamlrun runs on BUILD machine)
 	# SAK_* override MAKEFLAGS to prevent cross-compiler flags (e.g., -mtune=power8)
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# MKEXEDEBUGFLAG: configure sets this to '-link -g' (flexlink syntax); strip '-link'
+	# since SAK_CC is zig cc (not flexlink) — '-link' causes zig lld panic (TODO).
+	$(MAKE) runtime-all V=1 CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" MKEXEDEBUGFLAG=-g $(BYTECODE_RUNTIME_VARS_WITH_STUB) $(OLDS)
+	# Freeze x64 runtime executables so make never rebuilds them
+	touch -t 203001010000 runtime/ocamlrun$(EXE) runtime/ocamlrund$(EXE) runtime/ocamlruni$(EXE) 2>/dev/null || true
 else
 crossopt:
-	# Build bytecode runtime with BUILD compiler (ocamlrun runs on BUILD machine)
-	# SAK_* override MAKEFLAGS to prevent cross-compiler flags (e.g., -mtune=power8)
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	cp Makefile.config Makefile.config.crossopt_bak
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -mconsole|' Makefile.config
+	rm -f runtime/*.$(O) runtime/*.$(A)
+	printf '%s\n' \
+	  '#include <windows.h>' \
+	  '#include <wchar.h>' \
+	  'extern int wmain(int argc, wchar_t **argv);' \
+	  'int WinMain(HINSTANCE h, HINSTANCE p, LPSTR c, int s) {' \
+	  '  (void)h;(void)p;(void)c;(void)s;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  'int main(int argc, char **argv) {' \
+	  '  (void)argc;(void)argv;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  > runtime_winmain_stub.c
+	$(SAK_CC) $(SAK_CFLAGS) -c -o runtime_winmain_stub.$(O) runtime_winmain_stub.c
+	$(MAKE) runtime-all V=1 CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" MKEXEDEBUGFLAG=-g $(BYTECODE_RUNTIME_VARS_WITH_STUB) $(OLDS)
+	# Freeze x64 runtime executables (see comment above)
+	touch -t 203001010000 runtime/ocamlrun$(EXE) runtime/ocamlrund$(EXE) runtime/ocamlruni$(EXE) 2>/dev/null || true
 endif
+	# All executables in cross-compilation run on the BUILD machine (x64).
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	# Build stdlib directly (not via library or library-cross targets)
@@ -368,7 +458,7 @@ endif
 	# and looks for stublibs relative to that path. We must copy before CROSSCOMPILERLIBS.
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
-	@for f in otherlibs/*/dll*.so; do \
+	@for f in otherlibs/*/dll*.so otherlibs/*/dll*.dll; do \
 	  if [ -f "$$f" ]; then \
 	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
@@ -384,6 +474,8 @@ endif
 	  file_formats/*.cmi typing/*.cmi driver/*.cmi toplevel/*.cmi asmcomp/*.cmi
 	rm -f middle_end/*.cmi middle_end/**/*.cmi 2>/dev/null || true
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
+	# Restore original Makefile.config (with flexlink MKEXE) for installcross
+	[ -f Makefile.config.crossopt_bak ] && cp Makefile.config.crossopt_bak Makefile.config && rm Makefile.config.crossopt_bak || true
 
 .PHONY: crosscompiledopt
 crosscompiledopt:
@@ -419,7 +511,7 @@ crosscompiledopt:
 	# Copy stublibs to where the cross-compiler expects them (same as crossopt)
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
-	@for f in otherlibs/*/dll*.so; do \
+	@for f in otherlibs/*/dll*.so otherlibs/*/dll*.dll; do \
 	  if [ -f "$$f" ]; then \
 	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
@@ -498,15 +590,22 @@ otherlibrariesopt-cross:
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
 	rm -f $(FLEXDLL_SOURCE_DIR)/flexlink.exe
+	# flexlink.exe is a NATIVE binary (built by native ocamlopt).
+	# Override CONDA_OCAML_AS/CC to native tools (env has cross tools).
+	# Use NATIVE_ASM (not NATIVE_AS) - includes -c for compiler drivers
+	# (zig/clang) so they assemble only, without trying to link.
+	# OCAMLLIB env var points to native stdlib for libasmrun.a.
+	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+	OCAMLLIB="$(NATIVE_STDLIB)" \
 	$(MAKE) -C $(FLEXDLL_SOURCE_DIR) $(FLEXLINK_BUILD_ENV) \
 	  NATDYNLINK=false LINKFLAGS= flexlink.exe support
 	$(LN) $(FLEXDLL_SOURCE_DIR)/flexlink.exe flexlink.opt.exe
 	$(LN) flexlink.opt.exe flexlink.byte.exe
 	cp flexlink.byte.exe $(BYTE_BINDIR)/flexlink
-	cd $(BYTE_BINDIR) && $(LN) flexlink flexlink.exe
+	cd $(BYTE_BINDIR) && $(LN) flexlink flexlink.exe 2>/dev/null || true
 	cp $(addprefix $(FLEXDLL_SOURCE_DIR)/, $(FLEXDLL_OBJECTS)) $(ROOTDIR)
 	cp flexlink.opt.exe $(OPT_BINDIR)/flexlink
-	cd $(OPT_BINDIR) && $(LN) flexlink flexlink.exe
+	cd $(OPT_BINDIR) && $(LN) flexlink flexlink.exe 2>/dev/null || true
 
 # CRITICAL: INSTALLING=1 makes VPATH conditional skip in Makefile.cross line 43
 # Without this, recursive makes re-include Makefile.cross and set VPATH := + $(VPATH)

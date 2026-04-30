@@ -101,7 +101,7 @@ find_tool() {
     echo "Searched in: ${BUILD_PREFIX} ${PREFIX}" >&2
     exit 1
   else
-    echo ""
+    return 1
   fi
 }
 
@@ -142,6 +142,8 @@ get_target_platform() {
   local target="$1"
   
   case "${target}" in
+    aarch64-*mingw32|aarch64-*windows*) echo "win-arm64" ;;
+    x86_64-*mingw32|x86_64-*windows*) echo "win-64" ;;
     aarch64-*) echo "linux-aarch64" ;;
     arm64-*) echo "osx-arm64" ;;
     powerpc64le-*) echo "linux-ppc64le" ;;
@@ -360,6 +362,11 @@ setup_cflags_ldflags() {
   [[ "${target}" != "linux-"* ]] && [[ "${target}" != "osx-"* ]] && target="nonunix-${target#*-}"
   
   case "${name}_${native}_${target}" in
+    CROSS_nonunix-64_nonunix-arm64|CROSS_nonunix-arm64_nonunix-arm64)
+      # cross non-unix arm64 uses zig
+      export "${name}_CFLAGS="
+      export "${name}_LDFLAGS="
+      ;;
     NATIVE_osx-64_osx-64|NATIVE_linux-64_linux-64|NATIVE_nonunix-64_nonunix-64)
       # Native build: use environment CFLAGS (set by conda-build for this platform)
       export "${name}_CFLAGS=${CFLAGS:-}"
@@ -462,16 +469,66 @@ setup_toolchain() {
        _MKEXE="$(basename "${_CC}") -Wl,-E -ldl"
       ;;
     *-mingw32)
-       _AR=$(find_tool "${target}-ar" true)
-       _AS=$(find_tool "${target}-as" true)
-       _CC=$(find_tool "${target}-gcc" true)
-       _LD=$(find_tool "${target}-ld" true)
-       _NM=$(find_tool "${target}-nm" true)
-       _RANLIB=$(find_tool "${target}-ranlib" true)
-       _STRIP=$(find_tool "${target}-strip" true)
+       # GCC in conda prefix first, then zig as fallback
+       # find_tool only searches BUILD_PREFIX/PREFIX (not system PATH)
+       if [[ -n "${ZIG:-}" ]] || command -v "${ZIG}" >/dev/null 2>&1; then
+         echo "  Using Zig cross-compilation for ${target} (native zig + -target)"
+         local _native_zig
+         case "${target}" in
+             x86_64-w64-mingw32*)   _zig_target="x86_64-windows-gnu" ;;
+             aarch64-w64-mingw32*)  _zig_target="aarch64-windows-gnu" ;;
+             x86_64-apple-darwin*)  _zig_target="x86_64-macos-none" ;;
+             arm64-apple-darwin*)   _zig_target="aarch64-macos-none" ;;
+             *-conda-linux-gnu*)    _zig_target="${1%%-conda-linux-gnu*}-linux-gnu" ;;
+             *)                     _zig_target="${target}" ;;  # pass through as-is
+         esac
+         _native_zig=$(echo "${ZIG}")
+         _CC="${_native_zig} cc -target ${_zig_target}"
+         _AS="${_native_zig} cc -target ${_zig_target}"
+         _AR="${ZIG_AR:-${_native_zig} ar}"
+         _LD="${_native_zig} cc -target ${_zig_target}"
+         _NM="${_native_zig} nm"
+         # Derive ranlib from ar path: zig-ar.bat → zig-ranlib.bat, zig-ar → zig-ranlib
+         if [[ -n "${ZIG_AR:-}" ]]; then
+           _RANLIB="${ZIG_AR/zig-ar/zig-ranlib}"
+         else
+           _RANLIB="${_native_zig} ranlib"
+         fi
+         _STRIP="echo strip-skipped"
+         unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS 2>/dev/null || true
+       elif find_tool "${target}-gcc" false >/dev/null 2>&1; then
+         _AR=$(find_tool "${target}-ar" true)
+         _AS=$(find_tool "${target}-as" true)
+         _CC=$(find_tool "${target}-gcc" true)
+         _LD=$(find_tool "${target}-ld" true)
+         _NM=$(find_tool "${target}-nm" true)
+         _RANLIB=$(find_tool "${target}-ranlib" true)
+         _STRIP=$(find_tool "${target}-strip" true)
+       elif find_tool "${target}-zig" false >/dev/null 2>&1 || command -v "${target}-zig" >/dev/null 2>&1; then
+         # Target-specific zig wrapper (injects -target automatically)
+         echo "  Using Zig toolchain for ${target} (triplet-prefixed)"
+         local _zig
+         _zig=$(find_tool "${target}-zig" false 2>/dev/null || command -v "${target}-zig")
+         _CC="${_zig} cc"
+         _AS="${_zig} cc"
+         _AR="${ZIG_AR:-${_zig} ar}"
+         _LD="${_zig} cc"
+         _NM="${_zig} nm"
+         if [[ -n "${ZIG_AR:-}" ]]; then
+           _RANLIB="${ZIG_AR/zig-ar/zig-ranlib}"
+         else
+           _RANLIB="${_zig} ranlib"
+         fi
+         _STRIP="echo strip-skipped"
+         unset CFLAGS CXXFLAGS LDFLAGS CPPFLAGS 2>/dev/null || true
+       else
+         echo "ERROR: No mingw toolchain found for ${target}"
+         echo "  Searched for: ${target}-gcc (find_tool), ${target}-zig (find_tool + PATH)"
+         exit 1
+       fi
 
-       _ASM=$(basename "${_AS}")
-  
+       _ASM=$(basename "${_AS:-${_CC}}")
+
        _MKDLL="$(basename "${_CC}")"
        _MKEXE="$(basename "${_CC}")"
       ;;
