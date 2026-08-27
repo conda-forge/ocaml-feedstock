@@ -394,6 +394,9 @@ outputs:
                 - if: unix
                   then:
                     - ocamlruni
+                - if: unix
+                  then:
+                    - conda-ocaml-common
 
             # CROSS-COMPILER: Prefixed cross tools
             - if: is_cross_compiler
