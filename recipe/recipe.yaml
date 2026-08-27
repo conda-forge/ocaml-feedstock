@@ -30,9 +30,9 @@ context:
       "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                                         else
       "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                                      else
       "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler != "vs2022"              else
-      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022"              else                                            
+      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022"              else
       "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and c_compiler != "vs2022"           else
-      "aarch64-pc-windows"          if cross_target_platform_ == "win-arm64" and c_compiler == "vs2022"           else                                            
+      "aarch64-pc-windows"          if cross_target_platform_ == "win-arm64" and c_compiler == "vs2022"           else
       "unknown_target_triplet"
     }}
   # Which platform builds cross-compilers for each target
@@ -50,12 +50,12 @@ context:
   is_native: ${{ cross_target_platform_ == target_platform and cross_build_platform == target_platform }}
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and cross_build_platform == target_platform }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and cross_build_platform != target_platform }}
-  
+
   qemu_arch: ${{ target_platform | replace("linux-", "") }}
   qemu: ${{ "qemu-execve-" ~ qemu_arch if linux and build_platform != target_platform else "" }}
   qemu_pin: ${{ qemu ~ " >=11" if linux and build_platform != target_platform else "" }}
   sysroot: ${{ "/" ~ target_triplet ~ "/sysroot" if linux else "" }}
-  
+
   skip_compiler: ${{ true if cross_target_platform_ == "win-arm64" and c_compiler != "zig" else false }}
 
 recipe:
@@ -299,7 +299,7 @@ outputs:
         - if: cross_target_platform_ != "linux-s390x"
           then:
             - zstd
-        # OCaml needs a C compiler at runtime — ocamlopt, conda-ocaml-mkexe,
+        # OCaml needs a C compiler at runtime - ocamlopt, conda-ocaml-mkexe,
         # conda-ocaml-mkdll all invoke the C compiler. Must use the activating
         # metapackages (not _impl) because _impl doesn't put tools in PATH.
         - if: is_native or is_cross_target
@@ -316,9 +316,9 @@ outputs:
 
         # --- CROSS-COMPILER ONLY: Include full toolchain ---
         # Like gcc_linux-aarch64 depends on native gcc, our cross-compiler depends
-        # on native OCaml — downstream compiler("ocaml") resolves to the cross-compiler
+        # on native OCaml - downstream compiler("ocaml") resolves to the cross-compiler
         # which needs native ocaml/ocamlc in PATH for tools like findlib/dune.
-        # Native OCaml for the build platform — can't use pin_subpackage because
+        # Native OCaml for the build platform - can't use pin_subpackage because
         # the build_platform output may not be in the same CI job (e.g., osx cross
         # built on linux). Use version pin instead.
         - if: is_cross_compiler

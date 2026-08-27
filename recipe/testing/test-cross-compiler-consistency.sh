@@ -18,9 +18,9 @@ EOF
 
 echo "  Test 1: stdlib + unix.cmxa..."
 if ${CROSS_COMPILER} -I +unix -o /tmp/test_consistency.exe unix.cmxa /tmp/test_consistency.ml 2>&1; then
-  echo "    ✓ Passed"
+  echo "    [OK] Passed"
 else
-  echo "    ✗ FAILED: stdlib.cmxa and unix.cmxa are incompatible"
+  echo "    [FAIL] FAILED: stdlib.cmxa and unix.cmxa are incompatible"
   rm -f /tmp/test_consistency.ml /tmp/test_consistency.exe
   exit 1
 fi
@@ -34,13 +34,13 @@ EOF
 
 echo "  Test 2: unix.cmxa + threads.cmxa..."
 if ${CROSS_COMPILER} -I +unix -I +threads -o /tmp/test_threads.exe unix.cmxa threads.cmxa /tmp/test_threads.ml 2>&1; then
-  echo "    ✓ Passed"
+  echo "    [OK] Passed"
 else
-  echo "    ✗ FAILED: unix.cmxa + threads.cmxa compilation failed (likely CRC mismatch or missing modules)"
+  echo "    [FAIL] FAILED: unix.cmxa + threads.cmxa compilation failed (likely CRC mismatch or missing modules)"
   rm -f /tmp/test_consistency.ml /tmp/test_consistency.exe /tmp/test_threads.ml /tmp/test_threads.exe
   exit 1
 fi
 
 rm -f /tmp/test_consistency.ml /tmp/test_consistency.exe /tmp/test_threads.ml /tmp/test_threads.exe
-echo "  ✓ Cross-compiler is consistent"
+echo "  [OK] Cross-compiler is consistent"
 exit 0

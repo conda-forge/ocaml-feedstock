@@ -31,7 +31,7 @@ run_logged() {
 
   local cmd="$1"
   shift
-  
+
   if [[ "${VERBOSE:-0}" == "1" ]]; then
     echo "${indent}$ $cmd $*"
   else
@@ -110,10 +110,10 @@ find_tool() {
 # ==============================================================================
 
 # Get target ID from triplet (for CONDA_OCAML_<TARGET_ID>_* variables)
-# Usage: get_target_id "aarch64-conda-linux-gnu" → "AARCH64"
+# Usage: get_target_id "aarch64-conda-linux-gnu" -> "AARCH64"
 get_target_id() {
   local target="$1"
-  
+
   case "${target}" in
     aarch64-conda-linux-gnu) echo "AARCH64" ;;
     powerpc64le-conda-linux-gnu) echo "PPC64LE" ;;
@@ -125,10 +125,10 @@ get_target_id() {
 }
 
 # Get target architecture for OCaml ARCH variable
-# Usage: get_target_arch "aarch64-conda-linux-gnu" → "arm64"
+# Usage: get_target_arch "aarch64-conda-linux-gnu" -> "arm64"
 get_target_arch() {
   local target="$1"
-  
+
   case "${target}" in
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
@@ -140,7 +140,7 @@ get_target_arch() {
 }
 
 # Get target platform from triplet
-# Usage: get_target_platform "aarch64-conda-linux-gnu" → "linux-aarch64"
+# Usage: get_target_platform "aarch64-conda-linux-gnu" -> "linux-aarch64"
 get_target_platform() {
   local target="$1"
 
@@ -175,7 +175,7 @@ setup_macos_sysroot() {
   # Download if missing
   if [[ -z "${ARM64_SYSROOT}" ]]; then
     SDK_DIR="${SRC_DIR}/conda-sdks" && mkdir -p "${SDK_DIR}" 2>/dev/null
-  
+
     echo "     Downloading MacOSX11.sdk..."
     local url="https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.0.sdk.tar.xz"
     curl -L --output "${SDK_DIR}"/MacOSX11.0.sdk.tar.xz "${url}"
@@ -327,8 +327,8 @@ sanitize_and_export_cross_flags() {
 }
 
 # Get target architecture from conda target triplet or platform
-# Usage: get_arch_from_triplet "aarch64-conda-linux-gnu" → "aarch64"
-# Usage: get_arch_from_platform "linux-aarch64" → "aarch64"
+# Usage: get_arch_from_triplet "aarch64-conda-linux-gnu" -> "aarch64"
+# Usage: get_arch_from_platform "linux-aarch64" -> "aarch64"
 get_arch_for_sanitization() {
   local input="$1"
 
@@ -363,7 +363,7 @@ setup_cflags_ldflags() {
 
   [[ "${native}" != "linux-"* ]] && [[ "${native}" != "osx-"* ]] && native="nonunix-${native#*-}"
   [[ "${target}" != "linux-"* ]] && [[ "${target}" != "osx-"* ]] && target="nonunix-${target#*-}"
-  
+
   case "${name}_${native}_${target}" in
     NATIVE_osx-64_osx-64|NATIVE_linux-64_linux-64|NATIVE_nonunix-64_nonunix-64|NATIVE_linux-aarch64_linux-aarch64|NATIVE_osx-arm64_osx-arm64)
       # Native build: use environment CFLAGS (set by conda-build for this platform)
@@ -391,7 +391,7 @@ setup_cflags_ldflags() {
     CROSS_linux-64_linux-s390x)
       # Cross-compiling FOR Linux s390x
       # Use -fno-plt to emit GOT-indirect calls for libc (avoids _dl_runtime_resolve_vx
-      # PLT trampoline corrupting OCaml's fiber heap stack — complements upstream PR #14547
+      # PLT trampoline corrupting OCaml's fiber heap stack - complements upstream PR #14547
       # which covers OCaml-generated runtime calls; this covers the C-side gap).
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -march=z13 -mzarch -fno-plt -isystem ${PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
@@ -491,7 +491,7 @@ setup_toolchain() {
        _STRIP=$(find_tool "${target}-strip" true)
 
        _ASM=$(basename "${_AS}")
-  
+
        _MKDLL="$(basename "${_CC}") -shared"
        # -Wl,-E exports symbols for dlopen (required by ocamlnat)
        # -ldl required on glibc 2.17 (conda-forge sysroot) for dlopen/dlclose/dlsym
@@ -507,7 +507,7 @@ setup_toolchain() {
        _STRIP=$(find_tool "${target}-strip" true)
 
        _ASM=$(basename "${_AS}")
-  
+
        _MKDLL="$(basename "${_CC}")"
        _MKEXE="$(basename "${_CC}")"
       ;;
@@ -720,7 +720,7 @@ clean_runtime_launch_info() {
   #
   # Format:
   #   Line 1: launch method ("sh" or "exe") + \n
-  #   Line 2: BINDIR path + \000 + \n    ← null-terminated! This is intentional.
+  #   Line 2: BINDIR path + \000 + \n    <- null-terminated! This is intentional.
   #   Rest:   compiled stub binary (header.exe)
   #
   # BINDIR is used by ocamlc at LINK TIME to construct #!/BINDIR/ocamlrun shebangs
@@ -824,6 +824,13 @@ patch_makefile_config_post_configure() {
 #   dest_bin_dir - destination bin directory (e.g., ${BUILD_PREFIX}/bin or ${PREFIX}/bin)
 install_conda_ocaml_wrappers() {
   local dest_bin_dir="$1"
+
+  # conda-ocaml-common is a SOURCED shared library, not an executable tool:
+  # installed at 644 (not 755) into the same dir the wrappers land in, so
+  # each wrapper's `. "$(dirname "$0")/conda-ocaml-common"` resolves at
+  # runtime (wrappers are exec'd from PATH by ocamlopt/dune/flexlink in the
+  # installed prefix, not sourced by the build).
+  install -m 644 "${RECIPE_DIR}/scripts/conda-ocaml-common" "${dest_bin_dir}/conda-ocaml-common"
 
   for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${dest_bin_dir}/${wrapper}"

@@ -130,7 +130,7 @@ else
 fi
 
 # Check rpath on macOS (prevents "@rpath/libzstd.1.dylib not found" at runtime)
-# Skip on cross-target builds — otool can't inspect binaries for a different architecture
+# Skip on cross-target builds - otool can't inspect binaries for a different architecture
 if [[ "$(uname)" == "Darwin" ]] && [[ -f "${OCAMLOPT_BIN}" ]] && [[ "${MODE}" != "cross-target" ]]; then
   echo "Checking macOS rpath for libzstd..."
   echo "  Binary: ${OCAMLOPT_BIN}"

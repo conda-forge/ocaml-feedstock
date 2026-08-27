@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-cache.sh — Progressive build cache functions for OCaml feedstock builds.
+# build-cache.sh - Progressive build cache functions for OCaml feedstock builds.
 #
 # Caches successful build INSTALLED ARTIFACTS to speed up iterative debugging.
 # Enable with OCAML_USE_CACHE=1 in recipe or environment.
@@ -43,7 +43,7 @@ cache_root() {
 # (e.g., configure.ac format changes, patch updates, Makefile rule changes)
 _cache_source_hash() {
   local hash_input="${PKG_VERSION}"
-  # Include build script and patches in hash — any change invalidates cache
+  # Include build script and patches in hash - any change invalidates cache
   for f in "${RECIPE_DIR}/build.sh" "${RECIPE_DIR}/building/common-functions.sh"; do
     [[ -f "$f" ]] && hash_input+="$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null)"
   done

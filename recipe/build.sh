@@ -13,16 +13,16 @@ IFS=$'\n\t'
 #
 # MODE="native":
 #   OCAML_TARGET_PLATFORM == target_platform (e.g., ocaml_linux-64 on linux-64)
-#   → Build native OCaml compiler
+#   -> Build native OCaml compiler
 #
 # MODE="cross-compiler":
 #   OCAML_TARGET_PLATFORM != target_platform (e.g., ocaml_linux-aarch64 on linux-64)
-#   → Build cross-compiler (native binaries producing target code)
+#   -> Build cross-compiler (native binaries producing target code)
 #
 # MODE="cross-target":
 #   OCAML_TARGET_PLATFORM == target_platform AND CONDA_BUILD_CROSS_COMPILATION == 1
 #   (e.g., ocaml_linux-aarch64 built ON linux-aarch64 via cross-compilation)
-#   → Build using cross-compiler from BUILD_PREFIX
+#   -> Build using cross-compiler from BUILD_PREFIX
 #
 # Environment variables from recipe.yaml:
 #   OCAML_TARGET_PLATFORM:  Target platform this package produces code for
@@ -449,7 +449,7 @@ build_native() {
     # cl.exe uses /O2, /LIBPATH: etc. - incompatible with GCC -O2, -L
     export CFLAGS=""
     export LDFLAGS="${NATIVE_LDFLAGS}"
-    # Don't pass AS — configure's default for MSVC includes critical flags:
+    # Don't pass AS - configure's default for MSVC includes critical flags:
     #   "ml64 -nologo -Cp -c -Fo" (the trailing -Fo is concatenated with output path)
     CONFIG_ARGS+=(
       AR="${NATIVE_AR}"
@@ -543,12 +543,12 @@ build_native() {
   # MSYS2 compatibility patches for MSVC toolchain
   # ============================================================================
   # MSYS2 causes two issues with MSVC tools in Makefile variables:
-  # 1. Path conversion: /link flag → filesystem path of link.exe (breaks cl.exe)
-  # 2. Name shadowing: bare "link" → MSYS2 coreutils link (hard link utility)
+  # 1. Path conversion: /link flag -> filesystem path of link.exe (breaks cl.exe)
+  # 2. Name shadowing: bare "link" -> MSYS2 coreutils link (hard link utility)
   if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
     # MSYS2 path conversion: /link is converted to the filesystem path of link.exe
     # (e.g., %BUILD_PREFIX%/Library/link), breaking cl.exe's /link flag that tells
-    # it to pass remaining args to the linker. Using -link avoids this — cl.exe
+    # it to pass remaining args to the linker. Using -link avoids this - cl.exe
     # accepts both / and - as option prefixes, but MSYS2 only converts /-prefixed args.
     echo "  Applying MSYS2 workarounds for MSVC toolchain..."
     # MSYS2 auto-converts /flag args to Windows paths when spawning non-MSYS2 binaries.
@@ -593,7 +593,7 @@ build_native() {
     # (which doesn't expand shell variables) while still honoring runtime overrides
     patch_config_generated_ml_native
   elif [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
-    # MSVC: Don't override config.generated.ml — configure's defaults include
+    # MSVC: Don't override config.generated.ml - configure's defaults include
     # required flags (e.g., asm = "ml64 -nologo -Cp -c -Fo" where -Fo is
     # concatenated with the output path). The conda-ocaml wrapper mechanism
     # doesn't work for MSVC (no .exe wrappers built, flags can't be injected).
@@ -777,7 +777,7 @@ build_native() {
 
   # Clean up for potential cross-compiler builds
   # Distclean uses xargs which fails on Windows if environment is too large (32KB limit).
-  # Run with minimal environment — cleanup only needs PATH and basic shell vars.
+  # Run with minimal environment - cleanup only needs PATH and basic shell vars.
   run_logged "distclean" env -i PATH="$PATH" SYSTEMROOT="${SYSTEMROOT:-}" "${MAKE[@]}" distclean || true
 
   echo ""
@@ -943,7 +943,7 @@ build_cross_compiler() {
     _cross_ar_base=$(basename "${CROSS_AR}")
     _cross_ld_base=$(basename "${CROSS_LD}")
     _cross_ranlib_base=$(basename "${CROSS_RANLIB}")
-    # ASM/MKEXE/MKDLL may contain flags — basename the command, keep the flags
+    # ASM/MKEXE/MKDLL may contain flags - basename the command, keep the flags
     _cross_asm_base="${CROSS_ASM}"  # already a basename (set by setup_toolchain)
     _cross_mkexe_base="${CROSS_MKEXE//${CROSS_CC}/${_cross_cc_base}}"
     _cross_mkdll_base="${CROSS_MKDLL//${CROSS_CC}/${_cross_cc_base}}"
@@ -1134,14 +1134,14 @@ TOOLWRAPPER
     [[ -n "${CROSS_MODEL}" ]] && echo "    Patched model=${CROSS_MODEL}"
     echo "    Patched native_pack_linker=${target}-ocaml-ld -r -o"
 
-    # Apply Makefile.cross patches (includes otherlibrariesopt → otherlibrariesopt-cross fix)
+    # Apply Makefile.cross patches (includes otherlibrariesopt -> otherlibrariesopt-cross fix)
     apply_cross_patches
 
     # ========================================================================
     # Pre-build bytecode runtime with NATIVE tools
     # ========================================================================
     # runtime-all builds BOTH bytecode (libcamlrun*, ocamlrun*) and native (libasmrun*).
-    # Bytecode runs on BUILD machine → NATIVE tools; Native is for TARGET → CROSS tools.
+    # Bytecode runs on BUILD machine -> NATIVE tools; Native is for TARGET -> CROSS tools.
     #
     # Strategy (prevents Stdlib__Sys consistency errors - see HISTORY.md):
     # 1. Build runtime-all with NATIVE tools (ARCH=amd64) - stable .cmi files
@@ -1622,12 +1622,12 @@ EOF
           *) _expected="${CROSS_ARCH}" ;;
         esac
         if ! echo "$_arch_info" | grep -qiE "$_expected"; then
-          echo "    ✗ ERROR: libasmrun.a has WRONG architecture!"
+          echo "    [FAIL] ERROR: libasmrun.a has WRONG architecture!"
           echo "    Expected: ${CROSS_ARCH}, Got: $_arch_info"
           rm -rf "$_tmpdir"
           exit 1
         fi
-        echo "    ✓ Architecture verified: ${CROSS_ARCH}"
+        echo "    [OK] Architecture verified: ${CROSS_ARCH}"
       fi
       rm -rf "$_tmpdir"
     else
@@ -1686,9 +1686,9 @@ EOF
     CROSS_OCAMLOPT="${OCAML_INSTALL_PREFIX}/bin/${target}-ocamlopt"
 
     if "${CROSS_OCAMLOPT}" -version | grep -q "${PKG_VERSION}"; then
-      echo "    ✓ Version check passed"
+      echo "    [OK] Version check passed"
     else
-      echo "    ✗ ERROR: Version mismatch"
+      echo "    [FAIL] ERROR: Version mismatch"
       exit 1
     fi
 
@@ -1936,14 +1936,6 @@ EOF
 
   run_logged "stage3_configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}"
 
-  # DIAGNOSTIC (read-only, no behaviour change) - W8E C1: capture
-  # config.generated.ml's baked C-library values immediately after configure,
-  # before any patching, to confirm/refute GAP 2 (the shipped compiler's
-  # *_c_libraries come from config.generated.ml, not Makefile.config - see
-  # OCAML_RECIPE_LLM_REFERENCE.md §11.13). Guarded so it cannot abort the build.
-  echo "[W8E-DIAG] C1 (post-configure) utils/config.generated.ml:" || true
-  grep -E '^let (bytecomp|native)_c_libraries = ' "utils/config.generated.ml" 2>/dev/null | sed 's/^/[W8E-DIAG] /' || true
-
   # DIAGNOSTIC (read-only, no behaviour change) - tree 2's m.h for comparison with
   # the [be-diag] tree1 lines. Tree 2 is configured --host="${host_alias}" so this
   # one is expected to show a live "#define ARCH_BIG_ENDIAN 1" on s390x. A tree1
@@ -1983,13 +1975,7 @@ EOF
   # Hello World compile. Baking ANY prefix path into config.generated.ml is
   # fatal - do not reintroduce this. The conda-ocaml-mkexe wrapper already
   # resolves -L${CONDA_PREFIX}/lib at RUN TIME, which is the correct
-  # mechanism (see OCAML_RECIPE_LLM_REFERENCE.md §11.13/§8.2 W8D entry).
-
-  # DIAGNOSTIC (read-only, no behaviour change) - W8E C2: capture
-  # config.generated.ml's baked C-library values here to prove no -L path is
-  # present (expected state post-revert). Guarded so it cannot abort the build.
-  echo "[W8E-DIAG] C2 (pre-build, no patch applied - W8D/W8E bake nothing) ${config_file}:" || true
-  grep -E '^let (bytecomp|native)_c_libraries = ' "${config_file}" 2>/dev/null | sed 's/^/[W8E-DIAG] /' || true
+  # mechanism (see OCAML_RECIPE_LLM_REFERENCE.md section 11.13 / section 8.2 W8D entry).
 
   # Apply Makefile.cross patches
   apply_cross_patches
@@ -2072,7 +2058,7 @@ EOF
     # the target Makefile.config crosscompiledopt is about to link against, and
     # which MKEXE wrapper is in effect, immediately before the make invocation
     # that hits "cannot find -lzstd" at test time (see
-    # OCAML_RECIPE_LLM_REFERENCE.md §11.13). Every command is guarded so it
+    # OCAML_RECIPE_LLM_REFERENCE.md section 11.13). Every command is guarded so it
     # cannot abort the build under `set -euo pipefail`.
     _w8a_diag_makefile_config="$(readlink -f Makefile.config 2>/dev/null || echo "${PWD}/Makefile.config")" || true
     echo "[W8A-DIAG] target Makefile.config: ${_w8a_diag_makefile_config:-<unresolved>}" || true
@@ -2197,15 +2183,6 @@ STRIPDEBUG
   rm -f tools/stripdebug.ml tools/stripdebug.cmi tools/stripdebug.cmo
 
   run_logged "installcross" "${MAKE[@]}" installcross
-
-  # DIAGNOSTIC (read-only, no behaviour change) - W8D C3: capture
-  # config.generated.ml's baked C-library values after the install step
-  # (`make installcross`, above - the only install step in build_cross_target).
-  # config.generated.ml still exists in the source tree here; `make distclean`,
-  # which would remove it, runs later in this function. Guarded so it cannot
-  # abort the build.
-  echo "[W8E-DIAG] C3 (post-installcross) ${config_file:-utils/config.generated.ml}:" || true
-  grep -E '^let (bytecomp|native)_c_libraries = ' "${config_file:-utils/config.generated.ml}" 2>/dev/null | sed 's/^/[W8E-DIAG] /' || true
 
   # ============================================================================
   # Post-install fixes
@@ -2593,7 +2570,7 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   fi
   # Extract default value after :- from wrapper lines like:
   #   export CONDA_OCAML_CC="${CONDA_OCAML_AARCH64_CC:-aarch64-conda-linux-gnu-gcc}"
-  # Strip ${LDFLAGS} from MKEXE/MKDLL — those are build-time only, not for activation.
+  # Strip ${LDFLAGS} from MKEXE/MKDLL - those are build-time only, not for activation.
   _extract_default() {
     grep "CONDA_OCAML_$1=" "${_CROSS_WRAPPER}" | sed 's/.*:-//' | sed 's/\"\s*$//' | sed 's/}$//' | sed 's/\${LDFLAGS}//g' | xargs
   }
