@@ -369,6 +369,9 @@ outputs:
                 - if: unix or c_compiler == "vs2022"
                   then:
                     - ocamlruni
+                - if: unix
+                  then:
+                    - conda-ocaml-common
                 - if: not unix and c_compiler == "vs2022"
                   then:
                     - default_amd64.manifest

@@ -91,7 +91,7 @@ ocaml_exec_selfguarded() {
   # Self-derivation failed or didn't round-trip: fall back to CONDA_PREFIX,
   # which is only trustworthy if its lib dir actually exists (inside a
   # conda build/test sandbox CONDA_PREFIX may point at the build env, not
-  # the prefix under test - see OCAML_RECIPE_LLM_REFERENCE.md section 11.13 W8E).
+  # the prefix under test).
   if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/lib" ]]; then
     # shellcheck disable=SC2086
     exec ${fallback_tool} -L"${CONDA_PREFIX}/lib" "$@"

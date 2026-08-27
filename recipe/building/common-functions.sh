@@ -1,13 +1,11 @@
 # Common functions shared across OCaml build scripts
 # Source this file with: source "${RECIPE_DIR}/building/common-functions.sh"
 
-# =============================================================================
-# CRITICAL: macOS DYLD_LIBRARY_PATH cleanup
-# =============================================================================
+# CRITICAL: macOS DYLD_LIBRARY_PATH cleanup.
 # conda's libiconv can override /usr/lib/libiconv.2.dylib but lacks symbols
-# (_iconv_close, _iconv_open, _iconv) that system tools depend on.
-# This causes segfaults when running sed, make, or any tool that loads libcups.
-# Unsetting DYLD_LIBRARY_PATH at the start prevents this - scripts should use
+# (_iconv_close, _iconv_open, _iconv) that system tools depend on, causing
+# segfaults when running sed, make, or any tool that loads libcups. Unsetting
+# DYLD_LIBRARY_PATH here prevents this; scripts should use
 # DYLD_FALLBACK_LIBRARY_PATH instead (searched AFTER system paths).
 if [[ "$(uname 2>/dev/null)" == "Darwin" ]]; then
   unset DYLD_LIBRARY_PATH 2>/dev/null || true
@@ -105,9 +103,7 @@ find_tool() {
   fi
 }
 
-# ==============================================================================
-# Target Architecture Helpers
-# ==============================================================================
+# --- Target Architecture Helpers ---
 
 # Get target ID from triplet (for CONDA_OCAML_<TARGET_ID>_* variables)
 # Usage: get_target_id "aarch64-conda-linux-gnu" -> "AARCH64"
@@ -156,9 +152,7 @@ get_target_platform() {
   esac
 }
 
-# ==============================================================================
-# macOS SDK Sysroot Detection
-# ==============================================================================
+# --- macOS SDK Sysroot Detection ---
 
 # Find macOS ARM64 SDK sysroot
 # Sets: ARM64_SYSROOT variable
@@ -209,24 +203,18 @@ PYEOF
   export ARM64_SYSROOT
 }
 
-# ==============================================================================
-# CFLAGS and LDFLAGS Sanitization (Portable - can be used in other recipes)
-# ==============================================================================
+# --- CFLAGS and LDFLAGS Sanitization (portable - can be used in other recipes) ---
 
-# Sanitize compiler flags for cross-compilation
-# Removes duplicates and architecture-inappropriate flags
+# Sanitize compiler flags for cross-compilation: removes duplicates and
+# architecture-inappropriate flags.
 # Usage: sanitize_cross_cflags "aarch64" "${CFLAGS}"
 # Usage: sanitize_cross_ldflags "${LDFLAGS}"
 #
-# Problem: conda-build cross-compilation sometimes produces CFLAGS like:
-#   -march=nocona -mtune=haswell ... -march=armv8-a -mtune=cortex-a72 ...
-# This causes errors when the cross-compiler sees incompatible arch flags.
-#
-# This function:
-#   1. Removes x86-specific flags when targeting ARM/PPC
-#   2. Removes ARM-specific flags when targeting x86
-#   3. Removes duplicate flags while preserving order
-#   4. Keeps the LAST occurrence of conflicting flags (target-specific)
+# conda-build cross-compilation sometimes produces CFLAGS mixing target
+# arches (e.g. -march=nocona ... -march=armv8-a ...), which the
+# cross-compiler rejects. This removes x86/ARM/PPC flags inappropriate for
+# the target, deduplicates while preserving order, and keeps the LAST
+# occurrence of conflicting flags (target-specific).
 
 # Architecture-specific flags to filter
 _X86_ARCH_FLAGS="-march=nocona|-march=core2|-march=haswell|-march=skylake|-march=x86-64"
@@ -349,9 +337,7 @@ get_arch_for_sanitization() {
   esac
 }
 
-# ==============================================================================
-# CFLAGS and LDFLAGS Setup
-# ==============================================================================
+# --- CFLAGS and LDFLAGS Setup ---
 
 # Get native CFLAGS/LDFLAGS for the current platform
 # Sets: NATIVE_CFLAGS, NATIVE_LDFLAGS
@@ -378,13 +364,12 @@ setup_cflags_ldflags() {
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
       ;;
     CROSS_linux-64_linux-riscv64)
-      # Cross-compiling FOR Linux riscv64
-      # Same clean generic CFLAGS as aarch64/ppc64le, but riscv64 needs conda-forge's
-      # own linker policy: activate-gcc_linux-riscv64.sh enables -Wl,--allow-shlib-undefined
-      # and omits --disable-new-dtags/--gc-sections, unlike linux-64. Without
+      # Cross-compiling FOR Linux riscv64. Same clean generic CFLAGS as
+      # aarch64/ppc64le, but riscv64 needs conda-forge's own linker policy:
+      # activate-gcc_linux-riscv64.sh enables -Wl,--allow-shlib-undefined and
+      # omits --disable-new-dtags/--gc-sections, unlike linux-64. Without
       # --allow-shlib-undefined the link of ocamlc.opt/ocamlopt.opt fails on
-      # pthread_create@GLIBC_2.34 / pthread_join@GLIBC_2.34 referenced by libzstd.so.
-      # Kept as its own arm so aarch64/ppc64le linker behaviour is unchanged.
+      # pthread_create@GLIBC_2.34 / pthread_join@GLIBC_2.34 (referenced by libzstd.so).
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--allow-shlib-undefined -Wl,-rpath,${PREFIX}/lib -Wl,-rpath-link,${PREFIX}/lib -L${PREFIX}/lib"
       ;;
@@ -414,12 +399,10 @@ setup_cflags_ldflags() {
       export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       ;;
     NATIVE_osx-arm64_osx-64)
-      # Native OCaml build during cross-platform CI (runs on arm64 BUILD machine,
-      # final target osx-64). Mirror of NATIVE_osx-64_osx-arm64 with the direction
-      # reversed: PREFIX holds x86_64 target libs, so point everything at BUILD_PREFIX
-      # and strip -L$PREFIX out of the global LDFLAGS conda-build handed us.
-      # NO -march=core2/-mtune=haswell/-mssse3 here - the build machine is arm64 and
-      # clang rejects those x86 flags.
+      # Native OCaml build during cross-platform CI (runs on arm64 BUILD
+      # machine, final target osx-64). Mirror of NATIVE_osx-64_osx-arm64 with
+      # PREFIX/BUILD_PREFIX reversed (PREFIX holds x86_64 target libs). NO
+      # -march=core2/-mtune=haswell/-mssse3 here - clang on arm64 rejects them.
       export LDFLAGS="-L${BUILD_PREFIX}/lib ${LDFLAGS//-L${PREFIX}\/lib/}"
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
@@ -439,9 +422,7 @@ setup_cflags_ldflags() {
   esac
 }
 
-# ==============================================================================
-# Build-Toolchain Setup
-# ==============================================================================
+# --- Build-Toolchain Setup ---
 
 # Setup BUILD-toolchain variables for a target
 # Sets: BUILD_CC, BUILD_AS, BUILD_AR, BUILD_RANLIB, BUILD_NM, BUILD_STRIP, BUILD_LD
@@ -545,9 +526,7 @@ setup_toolchain() {
   export "${name}_ASM=${_ASM}" "${name}_MKDLL=${_MKDLL}" "${name}_MKEXE=${_MKEXE}"
 }
 
-# ==============================================================================
-# CONDA_OCAML_* Variable Helpers
-# ==============================================================================
+# --- CONDA_OCAML_* Variable Helpers ---
 
 # Get default tool basenames for wrapper scripts
 # Usage: get_cross_tool_defaults "aarch64-conda-linux-gnu"
@@ -575,9 +554,7 @@ get_cross_tool_defaults() {
   fi
 }
 
-# ==============================================================================
-# Wrapper Script Generation
-# ==============================================================================
+# --- Wrapper Script Generation ---
 
 # Generate wrapper script for cross-compiler tool
 # Requires: CROSS_* variables set (call setup_cross_toolchain first)
@@ -627,9 +604,7 @@ WRAPPER
   echo "     Created wrapper: ${wrapper_path}"
 }
 
-# ==============================================================================
-# Post-Install Path Cleaning
-# ==============================================================================
+# --- Post-Install Path Cleaning ---
 
 # Clean build-time -L paths and absolute paths from an installed Makefile.config
 # Usage: clean_makefile_config <config_file> <prefix>
@@ -766,9 +741,7 @@ with open(path, 'wb') as f:
 " "${runtime_launch_info}" "${new_bindir}"
 }
 
-# ==============================================================================
-# Makefile.config Patches
-# ==============================================================================
+# --- Makefile.config Patches ---
 
 # Patch Makefile.config to add CHECKSTACK_CC if missing (OCaml 5.4.0 bug)
 # OCaml 5.4.0 uses CHECKSTACK_CC but doesn't define it - causes build failure:
@@ -791,32 +764,22 @@ patch_makefile_config_post_configure() {
 
   sed -i  's#-fdebug-prefix-map=[^ ]*##g' "${config_file}"
   sed -i  's#-link\s+-L[^ ]*##g' "${config_file}"                             # Remove flexlink's "-link -L..." patterns
-  # Strip ONLY build-sandbox -L paths, using the same pattern the leak checks use
-  # (testing/test-config.sh:90, testing/test-package-integrity.sh:118).
-  # A relocatable -L${PREFIX}/lib MUST SURVIVE: lib/ocaml/Makefile.config is declared
-  # prefix_detection force_file_type: text (recipe.yaml:168), so conda rewrites the
-  # prefix at install time, and the build-time host prefix
-  # (.../build_artifacts/<pkg>/_h_env/lib) does NOT match the leak pattern.
-  # Why this changed: stripping every -L unconditionally broke native Linux lanes.
-  # PR98 linux-riscv64 failed the test-time -output-complete-exe relink with
-  # "cannot find -lzstd" even though zstd WAS installed in the test env
-  # (local log /tmp/ocaml-riscv64.log:7390 vs the error at :7440) - the library was
-  # present but no -L pointed at it. macOS is unaffected because conda-ocaml-mkexe
-  # re-supplies -L"$CONDA_PREFIX/lib" at runtime (recipe/scripts/conda-ocaml-mkexe:15),
-  # but build.sh:174 leaves CONDA_OCAML_MKEXE intentionally unset on Linux.
+  # Strip ONLY build-sandbox -L paths (conda-bld/rattler-build/build_env).
+  # A relocatable -L${PREFIX}/lib MUST SURVIVE: lib/ocaml/Makefile.config is
+  # declared prefix_detection force_file_type: text (recipe.yaml), so conda
+  # rewrites the prefix at install time. Stripping every -L unconditionally
+  # breaks the test-time relink on native Linux lanes (cannot find -lzstd).
+  # macOS is unaffected because conda-ocaml-mkexe re-supplies -L at runtime,
+  # but build.sh leaves CONDA_OCAML_MKEXE unset on Linux.
   sed -Ei 's#-L[^ ]*(conda-bld|rattler-build|build_env)[^ ]*##g' "${config_file}"
-  # These would be found in BUILD_PREFIX and fail relocation
-  # Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
-  # Simple commands: CC, AS, ASM, ASPP, STRIP (line ends with binary name)
+  # Remove prepended build-time binary paths (BUILD_PREFIX, non-relocatable):
+  # CC, AS, ASM, ASPP, STRIP (line ends with binary name).
   sed -Ei 's#^(CC|AS|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"
-  # CPP has flags after binary (e.g., "/path/to/clang -E -P" -> "clang -E -P")
-  # The ( .*)? is optional to handle CPP without flags
+  # CPP has flags after the binary (e.g. "/path/to/clang -E -P" -> "clang -E -P").
   sed -Ei 's#^(CPP)=/.*/([^/ ]+)( .*)?$#\1=\2\3#' "${config_file}"
 }
 
-# ==============================================================================
-# Wrapper Script Installation
-# ==============================================================================
+# --- Wrapper Script Installation ---
 
 # Install conda-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll} wrapper scripts
 # Usage: install_conda_ocaml_wrappers <dest_bin_dir>
@@ -837,17 +800,13 @@ install_conda_ocaml_wrappers() {
   done
 }
 
-# ==============================================================================
-# macOS Runtime Library Path
-# ==============================================================================
+# --- macOS Runtime Library Path ---
 
-# Set up DYLD_FALLBACK_LIBRARY_PATH for macOS so OCaml can find libzstd at runtime
-# IMPORTANT: Uses FALLBACK (not DYLD_LIBRARY_PATH) - FALLBACK doesn't override system libs
-# For cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
-# For native build: PREFIX has same-arch libs
+# Set up DYLD_FALLBACK_LIBRARY_PATH for macOS so OCaml can find libzstd at
+# runtime. Uses FALLBACK (not DYLD_LIBRARY_PATH) since FALLBACK doesn't
+# override system libs. BUILD_PREFIX has x86_64 libs for cross-compilation;
+# PREFIX has same-arch libs for native builds.
 # Usage: setup_dyld_fallback
-# Uses globals: target_platform, CONDA_BUILD_CROSS_COMPILATION, BUILD_PREFIX, PREFIX,
-#               DYLD_FALLBACK_LIBRARY_PATH
 setup_dyld_fallback() {
   if [[ "${target_platform}" == "osx"* ]]; then
     if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
@@ -859,9 +818,7 @@ setup_dyld_fallback() {
   fi
 }
 
-# ==============================================================================
-# macOS rpath Verification
-# ==============================================================================
+# --- macOS rpath Verification ---
 
 # Verify and fix rpath for macOS binaries that use @rpath/libzstd
 # Usage: verify_macos_rpath <binary_dir> <rpath_value>
@@ -895,9 +852,7 @@ verify_macos_rpath() {
   done
 }
 
-# ==============================================================================
-# config.generated.ml Patching
-# ==============================================================================
+# --- config.generated.ml Patching ---
 
 # Patch utils/config.generated.ml to use conda-ocaml-* wrapper scripts (native/target builds)
 # Wrappers expand CONDA_OCAML_* env vars at runtime, compatible with Unix.create_process
@@ -916,21 +871,14 @@ patch_config_generated_ml_native() {
   sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
 }
 
-# ==============================================================================
-# Prefix Transfer
-# ==============================================================================
+# --- Prefix Transfer ---
 
-# Transfer a built OCaml tree from one directory to another and fix embedded paths
+# Transfer a built OCaml tree from one directory to another and fix embedded paths.
 # Usage: transfer_to_prefix <src_dir> <dest_dir>
-# Parameters:
-#   src_dir  - source directory (e.g. a staging build tree)
-#   dest_dir - destination directory (e.g. ${PREFIX})
-# Actions:
-#   1. Copies the full tree via tar pipe
-#   2. Rewrites all src_dir references in Makefile.config to dest_dir
-#   3. Strips prepended build_env bin paths from tool entries in Makefile.config
-#   4. Replaces bare $(CC) with $(CONDA_OCAML_CC) in Makefile.config
-#   5. Writes a fresh ld.conf pointing at dest_dir/lib/ocaml
+# Copies the tree via tar pipe, rewrites all src_dir references in
+# Makefile.config to dest_dir, strips prepended build_env bin paths from tool
+# entries, replaces bare $(CC) with $(CONDA_OCAML_CC), and writes a fresh
+# ld.conf pointing at dest_dir/lib/ocaml.
 transfer_to_prefix() {
   local src_dir="$1"
   local dest_dir="$2"
@@ -947,9 +895,7 @@ transfer_to_prefix() {
     > "${dest_dir}/lib/ocaml/ld.conf"
 }
 
-# ==============================================================================
-# Toolchain Diagnostics
-# ==============================================================================
+# --- Toolchain Diagnostics ---
 
 # Print all toolchain variables for a given prefix (NATIVE or CROSS)
 # Usage: print_toolchain_info <prefix>
@@ -965,9 +911,7 @@ print_toolchain_info() {
   done
 }
 
-# ==============================================================================
-# Unix CRC Consistency Check
-# ==============================================================================
+# --- Unix CRC Consistency Check ---
 
 # Verify that unix.cmxa and threads.cmxa share the same CRC for the unix module
 # Usage: check_unix_crc <ocamlobjinfo_path> <unix_cmxa> <threads_cmxa> <label>
@@ -984,24 +928,11 @@ check_unix_crc() {
   local label="$4"
 
   # ocamlobjinfo is a TARGET binary on cross lanes, so it only runs under
-  # emulation. This prefers an explicit qemu-execve (OCAML_QEMU, from recipe.yaml's
+  # emulation. Prefer an explicit qemu-execve (OCAML_QEMU, from recipe.yaml's
   # ${{ qemu }}) over binfmt_misc, which dispatches to the image's REGISTERED
-  # interpreter (qemu 8.2.8 in conda-forge images).
-  #
-  # STATUS 2026-08-26 - READ BEFORE RE-DERIVING: this routing has never actually
-  # fired on the cross-compiler lane. ${{ qemu }} renders EMPTY there because
-  # recipe.yaml:54-56 key off target_platform, which EQUALS build_platform on that
-  # lane (is_cross_compiler requires cross_build_platform == target_platform). The
-  # build passes anyway, with plain binfmt qemu 8.2.8.
-  #
-  # The real in-build failure was NOT an emulator bug. It was
-  # "s390x-binfmt-P: Could not open '/lib/ld64.so.1'", i.e. QEMU_LD_PREFIX unset,
-  # caused by that export sitting inside a subshell in build.sh; hoisting it fixed
-  # both the PRE- and POST-INSTALL checks. A segfault ("uncaught target signal 11")
-  # was only ever reproduced OUT OF BUILD against the host's qemu and has NEVER
-  # appeared in any build log - do not cite it as the in-build cause.
-  #
-  # OCAML_QEMU is empty on native lanes, where the prefix disappears entirely.
+  # interpreter. QEMU_LD_PREFIX must be exported outside any subshell for this
+  # to resolve dynamic loaders correctly. OCAML_QEMU is empty on native lanes,
+  # where the prefix disappears entirely.
   local -a _runner=()
   if [[ -n "${OCAML_QEMU:-}" ]] && command -v "${OCAML_QEMU}" >/dev/null 2>&1; then
     _runner=("${OCAML_QEMU}")

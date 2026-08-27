@@ -92,8 +92,7 @@ mkdir -p "${SRC_DIR}"/_logs && export LOG_DIR="${SRC_DIR}"/_logs
 # before "/build_artifacts/"), NOT from RECIPE_DIR: in the conda-forge Docker
 # container RECIPE_DIR is a separate bind mount at /home/conda/recipe_root,
 # not <feedstock_root>/recipe, so dirname "$RECIPE_DIR" silently resolves to
-# /home/conda - a container-only path destroyed on exit. See
-# OCAML_RECIPE_LLM_REFERENCE.md for the confirmed evidence.
+# /home/conda - a container-only path destroyed on exit.
 # Purely additive: never touches build logic, never changes the exit code,
 # and every step below is best-effort so a missing/empty log dir can't fail
 # the build.
@@ -432,10 +431,9 @@ build_native() {
     NATIVE_AS="${NATIVE_AS##*/}"
     NATIVE_LD="${NATIVE_LD##*/}"
     NATIVE_RANLIB="${NATIVE_RANLIB##*/}"
-    # CC/STRIP mangle the same way: PR98 win-64 gcc hit it on CC at
-    #   Makefile:494 utils/domainstate.mli Error 127, with
-    #   D:bldbld...build_env/Library/bin/x86_64-w64-mingw32-gcc.exe not found.
-    # Same mechanism as AR above, so they get the same basename treatment.
+    # CC/STRIP mangle the same way (e.g. Makefile:494 utils/domainstate.mli
+    # Error 127, with .../x86_64-w64-mingw32-gcc.exe not found) - same
+    # mechanism as AR above, so they get the same basename treatment.
     NATIVE_CC="${NATIVE_CC##*/}"
     NATIVE_STRIP="${NATIVE_STRIP##*/}"
     export NATIVE_AR NATIVE_AS NATIVE_LD NATIVE_RANLIB NATIVE_CC NATIVE_STRIP
@@ -524,16 +522,6 @@ build_native() {
   echo ""
   echo "  [1/4] Configuring native compiler"
   run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}" || { cat config.log; exit 1; }
-
-  # DIAGNOSTIC (read-only, no behaviour change): capture what CONFIGURE ITSELF put
-  # in the C-library variables, BEFORE any post-configure patching runs.
-  # bytecomp_c_libraries is compiled into the Config module, so this is the only
-  # point where we can tell whether a build-time -L comes from configure or from a
-  # later step. Do NOT "fix" a bad value by sed-ing Makefile.config - refuted, see
-  # OCAML_RECIPE_LLM_REFERENCE.md 11.7.
-  echo "  [diag] post-configure Makefile.config C-library vars:"
-  grep -E '^(BYTECCLIBS|NATIVECCLIBS|ZSTD_LIBS|OC_LDFLAGS)=' Makefile.config || echo "    [diag] (no matching vars)"
-
   # ============================================================================
   # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
   # ============================================================================
@@ -659,20 +647,6 @@ build_native() {
     # this trailing "-link" causes "flexlink ... -link -o output" which passes -o to linker!
     sed -i 's/^\(MK[A-Z]*=.*\)[[:space:]]*-link[[:space:]]*$/\1/' "$config_file"
   fi
-
-  # DIAGNOSTIC (read-only, no behaviour change): same vars as the post-configure
-  # diagnostic above, but AFTER patch_makefile_config_post_configure and after the
-  # per-platform sed blocks. Diffing the two tells us WHICH step is responsible for
-  # a build-time -L surviving into the compiled Config module.
-  # patch_makefile_config_post_configure (recipe/building/common-functions.sh:794)
-  # strips ALL -L globally, so any -L visible HERE was re-introduced after it.
-  # Note the strip also removes the legitimate relocatable -L${PREFIX}/lib; on macOS
-  # conda-ocaml-mkexe re-supplies it at runtime (recipe/scripts/conda-ocaml-mkexe:15),
-  # but on Linux CONDA_OCAML_MKEXE is intentionally unset (see build.sh:174), which is
-  # why native Linux lanes fail the test-time re-link with "cannot find -lzstd".
-  echo "  [diag] post-patch Makefile.config C-library vars:"
-  grep -E '^(BYTECCLIBS|NATIVECCLIBS|ZSTD_LIBS|OC_LDFLAGS|NATIVECCLINKOPTS)=' Makefile.config || echo "    [diag] (no matching vars)"
-
   # ============================================================================
   # Strip build-time -L paths from config.generated.ml (macOS)
   # ============================================================================
@@ -821,12 +795,9 @@ build_cross_compiler() {
   # overrides this with the staging prefix.
   : "${OCAML_CROSS_FINAL_PREFIX:=${PREFIX}}"
 
-  # macOS: Use DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
-  # IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
-  # The native compiler (x86_64) needs BUILD_PREFIX libs, not PREFIX (which has target arch libs)
-  # Cross-compilation: PREFIX=ARM64, BUILD_PREFIX=x86_64
-  # Native build: PREFIX=x86_64, BUILD_PREFIX=x86_64 (same)
-  # Note: fix-macos-install-names.sh unsets DYLD_* before running system tools to avoid iconv issues
+  # macOS: DYLD_FALLBACK_LIBRARY_PATH so the native compiler (x86_64) finds
+  # libzstd under BUILD_PREFIX rather than PREFIX (see build_native() for why
+  # FALLBACK, not DYLD_LIBRARY_PATH, is required).
   setup_dyld_fallback
 
   # Define cross targets based on build platform or explicit env vars
@@ -1059,21 +1030,6 @@ TOOLWRAPPER
     # the CROSS values passed as make arguments. This leads to arch inconsistencies
     # between stdlib and otherlibs (unix), causing "inconsistent assumptions" errors.
     unset CC CFLAGS LDFLAGS
-
-    # DIAGNOSTIC (read-only, no behaviour change) - confirm or refute that tree 1's
-    # generated m.h lacks ARCH_BIG_ENDIAN. If this prints a live
-    # "#define ARCH_BIG_ENDIAN 1" then the injection above is redundant and the
-    # endian defect must be sought elsewhere (stale object surviving the runtime
-    # cleanup below is the next candidate). Guarded so it cannot abort the build.
-    echo "[be-diag] tree1 cross-configure --host=${build_alias} --target=${target}" || true
-    grep -nE 'ARCH_BIG_ENDIAN|ARCH_SIXTYFOUR|SIZEOF_PTR|SIZEOF_LONG' runtime/caml/m.h 2>/dev/null | sed 's/^/[be-diag] tree1 m.h: /' || true
-    echo "[be-diag] tree1 CROSS_CFLAGS=${CROSS_CFLAGS:-<unset>}" || true
-
-    # What configure actually recorded. The compile uses these, not the shell
-    # variable above, so this is the value that decides whether ARCH_BIG_ENDIAN
-    # is defined for the runtime translation units.
-    grep -E '^(CFLAGS|OC_CFLAGS|CPPFLAGS|OC_CPPFLAGS|SHAREDLIB_CFLAGS)=' Makefile.config 2>/dev/null | sed 's/^/[be-diag] tree1 mkcfg: /' || true
-
     # ========================================================================
     # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
     # ========================================================================
@@ -1176,23 +1132,8 @@ TOOLWRAPPER
     rm -f runtime/libasmrun*.a runtime/libasmrun_shared.so
     rm -f runtime/amd64*.o runtime/*.nd.o runtime/*.ni.o runtime/*.npic.o
     rm -f runtime/libcomprmarsh.a  # Also needs CROSS tools
-
-    # DIAGNOSTIC [stale-obj] (read-only, no behaviour change) - the cleanup above
-    # removes *.nd.o / *.ni.o / *.npic.o but NOT *.n.o or *.b.o, and *.n.o are
-    # exactly the objects archived into libasmrun.a. Anything listed here survived
-    # into the crossopt build. A survivor whose Machine is not S/390 or whose Data
-    # is not big endian is a stale object and the likely defect.
-    echo "[stale-obj] runtime objects surviving the cleanup:" || true
-    ls -la runtime/*.o runtime/*.a runtime/*.so 2>/dev/null | sed 's/^/[stale-obj]   /' || true
-    for _so in runtime/*.o; do
-      [[ -e "${_so}" ]] || continue
-      echo "[stale-obj]   $(readelf -h "${_so}" 2>/dev/null | grep -E '^  (Data|Machine):' | sed 's/  */ /g' | tr '\n' '|') ${_so}" || true
-    done
-    echo "[stale-obj] survivor count: $(ls runtime/*.o 2>/dev/null | wc -l)" || true
-
-    # CRITICAL: Clean ALL stdlib files so crossopt rebuilds everything consistently
-    # The working branch (mnt/v5.4.0_1-clean) does this - it works because crossopt
-    # then builds stdlib from scratch with consistent CRCs throughout
+    # CRITICAL: Clean ALL stdlib files so crossopt rebuilds everything from
+    # scratch with consistent CRCs throughout, instead of partially rebuilding
     echo "     Cleaning stdlib compiled files for crossopt rebuild..."
     rm -f stdlib/*.cmi stdlib/*.cmo stdlib/*.cma
     rm -f stdlib/*.cmx stdlib/*.cmxa stdlib/*.o stdlib/*.a
@@ -1260,16 +1201,15 @@ TOOLWRAPPER
 
     echo "  [5/7] Building and installing cross-compiler..."
 
-    # QEMU_LD_PREFIX (2026-08-26): crossopt emulates TARGET binaries on the build
-    # machine (the unix.cmi step execs an s390x ocamlc under qemu-user). Without
-    # this, qemu searches the HOST /lib and dies with
+    # QEMU_LD_PREFIX: crossopt emulates TARGET binaries on the build machine
+    # (the unix.cmi step execs an s390x ocamlc under qemu-user). Without this,
+    # qemu searches the HOST /lib and dies with
     #   qemu-<arch>-static: Could not open '/lib/ld64.so.1'
-    # (conda-forge job 98036298687, lane linux_64_cross_target_platform_linux-s390x).
     # Same idiom the tests: blocks already use - see recipe.yaml's
     # `export QEMU_LD_PREFIX="${PREFIX}${{ sysroot }}"`. Here the target sysroot
     # comes from the sysroot_<target> build dep, which lands under BUILD_PREFIX.
-    # Hoisted out of the crossopt subshell below (was ~1323) so it stays exported
-    # for the POST-INSTALL check_unix_crc call after the subshell closes.
+    # Exported here (outside the crossopt subshell below) so it stays set for
+    # the POST-INSTALL check_unix_crc call after the subshell closes.
     if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
       _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
       if [[ -d "${_qemu_sysroot}" ]]; then
@@ -1327,107 +1267,10 @@ TOOLWRAPPER
       # runtime cannot read. No other target is affected - the knob defaults 0.
       if [[ "${CROSS_PLATFORM}" == "linux-s390x" ]]; then
         CROSSOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
-        echo "  [cmi-zstd] linux-s390x: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
+        echo "  linux-s390x: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
       fi
 
       run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}"
-
-      # DIAGNOSTIC [cmi-zstd] (read-only, no behaviour change) - the shipped
-      # stdlib.cmi carries the COMPRESSED marshal magic 0x8495A6BD
-      # (Intext_magic_number_compressed) which the zstd-less s390x runtime cannot
-      # decompress, surfacing as "Corrupted compiled interface". The cross tree's
-      # configure DOES get --without-zstd for s390x, so the writer is unidentified.
-      # Print the compression capability of every ocamlc in the chain and the magic
-      # actually emitted, to name the writer. See section 8.2.z of the reference doc.
-      for _oc in ./ocamlc ./ocamlc.opt ./boot/ocamlc "$(command -v ocamlc || true)"; do
-        [[ -x "${_oc}" ]] || continue
-        echo "[cmi-zstd] ${_oc}: $("${_oc}" -config 2>/dev/null \
-          | grep -E '^(compression_c_libraries|cmi_magic_number):' | tr '\n' ' ')" || true
-      done
-      for _cmi in stdlib/stdlib.cmi "${LIBDIR:-}/stdlib.cmi"; do
-        [[ -f "${_cmi}" ]] || continue
-        echo "[cmi-zstd] ${_cmi}: offset12=$(od -An -tx1 -j12 -N4 "${_cmi}" | tr -d ' \n')" \
-             "(8495a6bd=COMPRESSED, 8495a6be/8495a6bf=plain)" || true
-      done
-
-      # linux-s390x ONLY: run_logged sends make output to $SRC_DIR/_logs/<step>.log
-      # and only echoes it on FAILURE, so a SUCCESSFUL crossopt leaves no record of
-      # whether its `-C stdlib all` sub-make actually recompiled stdlib or skipped
-      # it as up to date. That distinction decides the fix, so surface just the few
-      # lines that answer it. Bounded output - never dumps the whole log.
-      if [[ "${CROSS_PLATFORM}" == "linux-s390x" ]]; then
-        _co_log="${SRC_DIR}/_logs/crossopt.log"
-        if [[ -f "${_co_log}" ]]; then
-          echo "[cmi-zstd] crossopt.log: $(wc -l < "${_co_log}") lines"
-          echo "[cmi-zstd] --- '-C stdlib all' invocations ---"
-          grep -n -- '-C stdlib all' "${_co_log}" 2>/dev/null | head -5 || true
-          echo "[cmi-zstd] --- stdlib compile activity ---"
-          echo "[cmi-zstd] stdlib__ line count: $(grep -c 'stdlib__' "${_co_log}" 2>/dev/null || echo 0)"
-          echo "[cmi-zstd] 'Nothing to be done' count: $(grep -c 'Nothing to be done' "${_co_log}" 2>/dev/null || echo 0)"
-          grep -n 'stdlib__' "${_co_log}" 2>/dev/null | head -5 || true
-          echo "[cmi-zstd] --- which ocamlrun does the in-tree wrapper exec? ---"
-          [[ -f ./ocamlc ]] && head -3 ./ocamlc 2>/dev/null | sed 's/^/[cmi-zstd]   /' || true
-          echo "[cmi-zstd] --- zstdfree markers inside crossopt.log ---"
-          echo "[cmi-zstd] zstdfree line count: $(grep -c 'zstdfree' "${_co_log}" 2>/dev/null || echo 0)"
-          grep -n 'zstdfree' "${_co_log}" 2>/dev/null | head -20 || true
-        else
-          echo "[cmi-zstd] crossopt.log NOT FOUND at ${_co_log}"
-        fi
-      fi
-
-      # linux-s390x ONLY: measure the IN-TREE runtime before betting a fix on it.
-      # ./ocamlc's shebang execs $BUILD_PREFIX/bin/ocamlrun, which is zstd-ENABLED -
-      # that is why pinning CAMLC alone changed nothing. Before repointing OCAMLRUN,
-      # prove three things about runtime/ocamlrun: it exists, it RUNS on this build
-      # machine, and routing a real compile through it yields a PLAIN .cmi.
-      if [[ "${CROSS_PLATFORM}" == "linux-s390x" ]]; then
-        _rt="./runtime/ocamlrun"
-        echo "[cmi-zstd] --- in-tree runtime audit ---"
-        if [[ -x "${_rt}" ]]; then
-          echo "[cmi-zstd] runtime file : $(file -b "${_rt}" 2>/dev/null | cut -c1-90)"
-          echo "[cmi-zstd] NEEDED zstd  : $(readelf -d "${_rt}" 2>/dev/null | grep -ci zstd)"
-          echo "[cmi-zstd] ZSTD_ syms   : $(nm -D "${_rt}" 2>/dev/null | grep -ci 'ZSTD_')"
-          echo "[cmi-zstd] runs here?   : $("${_rt}" --version 2>&1 | head -1 | cut -c1-70)"
-        else
-          echo "[cmi-zstd] runtime/ocamlrun NOT PRESENT or not executable"
-        fi
-        echo "[cmi-zstd] tree s.h HAS_ZSTD: $(grep -h 'HAS_ZSTD' runtime/caml/s.h 2>/dev/null | head -1)"
-        # END-TO-END: compile a trivial .mli two ways and compare the marshal magic.
-        _zt="$(mktemp -d)"
-        printf 'val zt_probe : int\n' > "${_zt}/zt.mli"
-        if [[ -x "${_rt}" ]] && "${_rt}" ./ocamlc -I stdlib -c "${_zt}/zt.mli" 2>"${_zt}/e1"; then
-          echo "[cmi-zstd] TEST via in-tree runtime: offset12=$(od -An -tx1 -j12 -N4 "${_zt}/zt.cmi" | tr -d ' \n')"
-        else
-          echo "[cmi-zstd] TEST via in-tree runtime FAILED: $(head -2 "${_zt}/e1" 2>/dev/null | tr '\n' ' ' | cut -c1-170)"
-        fi
-        rm -f "${_zt}/zt.cmi"
-        if ./ocamlc -I stdlib -c "${_zt}/zt.mli" 2>"${_zt}/e2"; then
-          echo "[cmi-zstd] CTRL via shebang runtime: offset12=$(od -An -tx1 -j12 -N4 "${_zt}/zt.cmi" | tr -d ' \n')"
-        else
-          echo "[cmi-zstd] CTRL via shebang runtime FAILED: $(head -2 "${_zt}/e2" 2>/dev/null | tr '\n' ' ' | cut -c1-170)"
-        fi
-        rm -rf "${_zt}"
-      fi
-
-      echo "[cmi-zstd] probe complete" || true
-
-      # DIAGNOSTIC [stale-obj] (read-only, no behaviour change) - scan every member
-      # of the archives crossopt just produced and print ONLY the anomalies, i.e.
-      # any member that is not big-endian S/390. On a clean build this prints the
-      # header lines and nothing else. Any ANOMALY line names a stale object that
-      # survived the cleanup and got archived into the target runtime.
-      for _sa in runtime/libasmrun.a runtime/libasmrund.a runtime/libasmruni.a runtime/libasmrun_pic.a runtime/libcamlrun.a; do
-        [[ -e "${_sa}" ]] || continue
-        echo "[stale-obj] scanning ${_sa} ($(ar t "${_sa}" 2>/dev/null | wc -l) members)" || true
-        readelf -h "${_sa}" 2>/dev/null | awk -v a="${_sa}" '
-          /^File:/     { f=$0 }
-          /^  Data:/   { d=$0 }
-          /^  Machine:/{ m=$0
-                         if (m !~ /S\/390/ || d !~ /big endian/)
-                           print "[stale-obj]   ANOMALY " a " " f " |" d " |" m }
-        ' || true
-      done
-      echo "[stale-obj] archive scan complete" || true
 
       # --- Install crossopt ---
       echo "  [6/7] Installing cross-compiler via 'make installcross'..."
@@ -1800,9 +1643,8 @@ build_cross_target() {
     export NATIVE_ASM
   fi
 
-  # macOS: Use DYLD_FALLBACK_LIBRARY_PATH so cross-compiler finds libzstd at runtime
-  # (Stage 3 runs cross-compiler binaries from Stage 2)
-  # IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
+  # macOS: DYLD_FALLBACK_LIBRARY_PATH so the cross-compiler (Stage 3 runs
+  # binaries from Stage 2) finds libzstd (see build_native() for rationale).
   setup_dyld_fallback
 
   echo ""
@@ -1935,18 +1777,6 @@ EOF
   export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
 
   run_logged "stage3_configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}"
-
-  # DIAGNOSTIC (read-only, no behaviour change) - tree 2's m.h for comparison with
-  # the [be-diag] tree1 lines. Tree 2 is configured --host="${host_alias}" so this
-  # one is expected to show a live "#define ARCH_BIG_ENDIAN 1" on s390x. A tree1
-  # vs tree2 mismatch here is the direct evidence for the endian root cause.
-  echo "[be-diag] tree2 stage3_configure --host=${host_alias}" || true
-  grep -nE 'ARCH_BIG_ENDIAN|ARCH_SIXTYFOUR|SIZEOF_PTR|SIZEOF_LONG' runtime/caml/m.h 2>/dev/null | sed 's/^/[be-diag] tree2 m.h: /' || true
-  echo "[be-diag] tree2 CROSS_CFLAGS=${CROSS_CFLAGS:-<unset>}" || true
-
-  # What stage3_configure actually recorded - see the tree1 note above.
-  grep -E '^(CFLAGS|OC_CFLAGS|CPPFLAGS|OC_CPPFLAGS|SHAREDLIB_CFLAGS)=' Makefile.config 2>/dev/null | sed 's/^/[be-diag] tree2 mkcfg: /' || true
-
   # ============================================================================
   # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
   # ============================================================================
@@ -1966,16 +1796,13 @@ EOF
   local config_file="utils/config.generated.ml"
   [[ -n "${CROSS_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${CROSS_MODEL}|}#" "$config_file"
 
-  # NOTE (W8D): a prior round (W8C) baked -L${PREFIX}/lib into
-  # config.generated.ml's bytecomp_c_libraries/native_c_libraries here. That
-  # value becomes a compiled OCaml string constant inside ocamlopt.opt; conda's
-  # binary prefix relocation shrinks and NUL-pads the placeholder path in
-  # place, corrupting the constant and producing
-  # `Error: I/O error: conda-ocaml-mkexe ... : Invalid argument` on a trivial
-  # Hello World compile. Baking ANY prefix path into config.generated.ml is
-  # fatal - do not reintroduce this. The conda-ocaml-mkexe wrapper already
-  # resolves -L${CONDA_PREFIX}/lib at RUN TIME, which is the correct
-  # mechanism (see OCAML_RECIPE_LLM_REFERENCE.md section 11.13 / section 8.2 W8D entry).
+  # Do NOT bake -L${PREFIX}/lib (or any prefix path) into config.generated.ml's
+  # bytecomp_c_libraries/native_c_libraries here. That value becomes a compiled
+  # OCaml string constant inside ocamlopt.opt; conda's binary prefix relocation
+  # shrinks and NUL-pads the placeholder path in place, corrupting the constant
+  # and producing `Error: I/O error: conda-ocaml-mkexe ... : Invalid argument`
+  # on a trivial Hello World compile. The conda-ocaml-mkexe wrapper already
+  # resolves -L${CONDA_PREFIX}/lib at RUN TIME, which is the correct mechanism.
 
   # Apply Makefile.cross patches
   apply_cross_patches
@@ -2054,50 +1881,21 @@ EOF
     # not shipped, so stripping is unnecessary.
     CROSSCOMPILEDOPT_ARGS+=(STRIP=:)
 
-    # DIAGNOSTIC (read-only, no behaviour change) - W8A: trace the zstd -L into
-    # the target Makefile.config crosscompiledopt is about to link against, and
-    # which MKEXE wrapper is in effect, immediately before the make invocation
-    # that hits "cannot find -lzstd" at test time (see
-    # OCAML_RECIPE_LLM_REFERENCE.md section 11.13). Every command is guarded so it
-    # cannot abort the build under `set -euo pipefail`.
-    _w8a_diag_makefile_config="$(readlink -f Makefile.config 2>/dev/null || echo "${PWD}/Makefile.config")" || true
-    echo "[W8A-DIAG] target Makefile.config: ${_w8a_diag_makefile_config:-<unresolved>}" || true
-    grep -E '^(BYTECCLIBS|NATIVECCLIBS|MKEXE)=' "${_w8a_diag_makefile_config:-Makefile.config}" 2>/dev/null | sed 's/^/[W8A-DIAG] /' || true
-    echo "[W8A-DIAG] TARGET_ZSTD_LIBS=${TARGET_ZSTD_LIBS:-<unset>}" || true
-    echo "[W8A-DIAG] CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<unset>}" || true
-    env | grep -E '^CONDA_OCAML_[A-Z0-9]+_MKEXE=' 2>/dev/null | sed 's/^/[W8A-DIAG] /' || true
-
-    # DIAGNOSTIC (read-only, no behaviour change) - trace where the build-directory
-    # RPATH observed in shipped s390x ocamlopt actually originates, now that the
-    # refuted [rpath-fix] config.generated.ml hypothesis has been removed.
-    echo "[rpath-trace] LDFLAGS=${LDFLAGS:-<unset>}" || true
-    echo "[rpath-trace] CROSS_LDFLAGS=${CROSS_LDFLAGS:-<unset>}" || true
-    echo "[rpath-trace] NATIVE_LDFLAGS=${NATIVE_LDFLAGS:-<unset>}" || true
-    echo "[rpath-trace] CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<unset>}" || true
-    env | grep -E 'LDFLAGS|MKEXE' | sed 's/^/[rpath-trace] env: /' || true
-    grep -E '^(MKEXE|OC_LDFLAGS|LDFLAGS|NATIVECCLINKOPTS)=' Makefile.config 2>/dev/null | sed 's/^/[rpath-trace] mkcfg: /' || true
-    cat "${BUILD_PREFIX}/bin/${host_alias}-ocaml-mkexe" 2>/dev/null | sed 's/^/[rpath-trace] wrapper: /' || true
-
-    # linux-s390x ONLY: force the stdlib .cmi compiler to the in-tree ocamlc.
-    # Same fix as the crossopt leg - the bare `ocamlc` in Makefile.cross's
-    # CROSS_OVERRIDES resolves via PATH to $BUILD_PREFIX/bin/ocamlc, which is
-    # zstd-enabled and emits .cmi carrying the COMPRESSED marshal magic
-    # 0x8495A6BD that the zstd-less s390x runtime cannot read. This stage-3 leg
-    # is the one that produces the packaged ocaml-compiler output, so it must be
-    # pinned too. Knob defaults 0; no other target is affected.
+    # linux-s390x ONLY: force the stdlib .cmi compiler to the in-tree ocamlc,
+    # same fix as the crossopt leg (see STDLIB_CMI_PIN_INTREE note above) - the
+    # bare `ocamlc` in Makefile.cross's CROSS_OVERRIDES resolves via PATH to
+    # $BUILD_PREFIX/bin/ocamlc, which is zstd-enabled and emits .cmi carrying
+    # the COMPRESSED marshal magic that the zstd-less s390x runtime cannot
+    # read. This stage-3 leg produces the packaged ocaml-compiler output, so
+    # it must be pinned too.
     if [[ "${CROSS_PLATFORM}" == "linux-s390x" ]]; then
       CROSSCOMPILEDOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
-      echo "  [cmi-zstd] linux-s390x: pinning stdlib CAMLC to in-tree ocamlc for crosscompiledopt"
+      echo "  linux-s390x: pinning stdlib CAMLC to in-tree ocamlc for crosscompiledopt"
     fi
 
-    # QEMU_LD_PREFIX (2026-08-26): crosscompiledopt emulates TARGET binaries on
-    # the build machine (the unix.cmi step execs an s390x ocamlc under
-    # qemu-user). Without this, qemu searches the HOST /lib and dies with
-    #   qemu-<arch>-static: Could not open '/lib/ld64.so.1'
-    # (conda-forge job 98036298687, lane linux_64_cross_target_platform_linux-s390x).
-    # Same idiom the tests: blocks already use - see recipe.yaml's
-    # `export QEMU_LD_PREFIX="${PREFIX}${{ sysroot }}"`. Here the target sysroot
-    # comes from the sysroot_<target> build dep, which lands under BUILD_PREFIX.
+    # QEMU_LD_PREFIX: same rationale as the crossopt leg above - crosscompiledopt
+    # also emulates TARGET binaries on the build machine under qemu-user and
+    # needs the target sysroot, or qemu searches the HOST /lib and dies.
     if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
       _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
       if [[ -d "${_qemu_sysroot}" ]]; then
@@ -2143,19 +1941,6 @@ EOF
 
     run_logged "crosscompiledruntime" "${MAKE[@]}" crosscompiledruntime V=1 "${CROSSCOMPILEDRUNTIME_ARGS[@]}" -j"${CPU_COUNT}"
 
-    # DIAGNOSTIC [cc-line] (read-only) - run_logged sent the V=1 output to a step
-    # log inside the container work dir, which is discarded before we can read it
-    # from the host. Pull the real compiler command lines for the runtime C files
-    # back out to stdout here, while the file still exists. hash.c is the probe
-    # case: its object decides Tag_val's byte offset, and ARCH_BIG_ENDIAN must be
-    # on this command line for the runtime to be big-endian correct.
-    for _cclog in "${SRC_DIR}/_logs/crosscompiledruntime.log" "${SRC_DIR}"/_logs/*.log; do
-      [[ -e "${_cclog}" ]] || continue
-      echo "[cc-line] scanning $(basename "${_cclog}") ($(wc -l < "${_cclog}" 2>/dev/null || echo 0) lines)" || true
-      grep -E -- '-c .*runtime/(hash|major_gc|memory|misc)\.c|runtime/(hash|major_gc|memory|misc)\.c' "${_cclog}" 2>/dev/null | head -8 | sed 's/^/[cc-line]   /' || true
-      echo "[cc-line]   ARCH_BIG_ENDIAN occurrences on compile lines: $(grep -c -- '-DARCH_BIG_ENDIAN' "${_cclog}" 2>/dev/null || echo 0)" || true
-    done
-    echo "[cc-line] scan complete" || true
   )
 
   # ============================================================================
@@ -2357,17 +2142,15 @@ fi
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   CROSS_TARGET="${OCAML_TARGET_TRIPLET}"
 
-  # The ocaml_${target_platform} cross-compiler package is deliberately NOT a build
-  # dependency of this output (see recipe.yaml, is_cross_target branch). For a new
-  # architecture it does not exist on conda-forge yet, and within a single CI run the
-  # lane that produces it (is_cross_compiler, on the designated cross_build_platform)
-  # is a SEPARATE job whose artifacts this job cannot see. Relying on it meant this
-  # path only ever succeeded on a machine that happened to have a locally-built copy
-  # already in the prefix - it failed in CI every time.
+  # The ocaml_${target_platform} cross-compiler package is deliberately NOT a
+  # build dependency of this output (see recipe.yaml, is_cross_target branch):
+  # for a new architecture it may not exist on conda-forge yet, and the lane
+  # that produces it (is_cross_compiler, on the designated cross_build_platform)
+  # is a separate CI job whose artifacts this job cannot see.
   #
-  # Build the cross-compiler in-lane instead, unconditionally. Unconditionally rather
-  # than only-when-missing so that the identical code path runs locally and in CI, and
-  # so the cross-compiler is guaranteed to match this exact source tree and version.
+  # Build the cross-compiler in-lane instead, unconditionally rather than
+  # only-when-missing, so the identical code path runs locally and in CI, and
+  # the cross-compiler is guaranteed to match this exact source tree and version.
   OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
   CROSS_COMPILER_DIR="${OCAML_XCROSS_INSTALL_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
 
@@ -2608,13 +2391,12 @@ echo "Build complete: ${PKG_NAME} (${BUILD_MODE} mode)"
 echo "============================================================"
 
 # ==============================================================================
-# macOS ocamlmklib wrapper: REMOVED
+# macOS: do not wrap bin/ocamlmklib
 # ==============================================================================
-# Previously replaced bin/ocamlmklib (bytecode) with a shell wrapper adding
-# -ldopt "-Wl,-undefined,dynamic_lookup". This is REDUNDANT because:
-# 1. config.generated.ml is patched to use conda-ocaml-mkdll as MKDLL
-# 2. CONDA_OCAML_MKDLL already includes -undefined dynamic_lookup on macOS
-# 3. The wrapper broke dependency-based builds (build_number > 0) because
-#    ocamlrun can't read a shell script as bytecode
+# Do not replace bin/ocamlmklib (bytecode) with a shell wrapper adding
+# -ldopt "-Wl,-undefined,dynamic_lookup". It is redundant - config.generated.ml
+# is patched to use conda-ocaml-mkdll as MKDLL, which already includes
+# -undefined dynamic_lookup on macOS - and it breaks dependency-based builds
+# (build_number > 0) because ocamlrun can't read a shell script as bytecode.
 # If downstream packages need -undefined dynamic_lookup, it should come through
 # CONDA_OCAML_MKDLL (set by activate.sh), not by wrapping the bytecode binary.

@@ -1005,12 +1005,12 @@ crosscompiledruntime:
 # By removing prerequisites, we ensure this target ONLY builds otherlibs when explicitly called.
 .PHONY: otherlibraries
 otherlibraries:
-	# CAMLC pin: CAMLOPT alone does not protect .cmi - see OCAML_RECIPE_LLM_REFERENCE.md 8.2.
+	# CAMLC must be pinned in addition to CAMLOPT: CAMLOPT alone does not protect .cmi files from being rebuilt with the wrong compiler.
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 
 .PHONY: otherlibrariesopt
 otherlibrariesopt: dynlink-allopt
-	# CAMLC pin: CAMLOPT alone does not protect .cmi - see OCAML_RECIPE_LLM_REFERENCE.md 8.2.
+	# CAMLC must be pinned in addition to CAMLOPT: CAMLOPT alone does not protect .cmi files from being rebuilt with the wrong compiler.
 	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 
 # Cross-compilation variant: calls dynlink-allopt with proper compiler variables

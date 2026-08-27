@@ -108,16 +108,6 @@ let () =
   print_endline "complete-exe works"
 EOF
 
-  # DIAGNOSTIC (read-only, no behaviour change) - W8A: dump the C-library/mkexe
-  # config baked into THIS ocamlc, immediately before the -output-complete-exe
-  # re-link that fails with "cannot find -lzstd" (see
-  # OCAML_RECIPE_LLM_REFERENCE.md section 11.13). Guarded so it cannot abort the test
-  # under `set -euo pipefail`.
-  echo "[W8A-DIAG] ocamlc -config-var bytecomp_c_libraries: $(ocamlc -config-var bytecomp_c_libraries 2>/dev/null || echo '<unavailable>')" || true
-  echo "[W8A-DIAG] ocamlc -config-var native_c_libraries: $(ocamlc -config-var native_c_libraries 2>/dev/null || echo '<unavailable>')" || true
-  echo "[W8A-DIAG] ocamlc -config-var mkexe: $(ocamlc -config-var mkexe 2>/dev/null || echo '<unavailable>')" || true
-  echo "[W8A-DIAG] ocamlc -config-var c_compiler: $(ocamlc -config-var c_compiler 2>/dev/null || echo '<unavailable>')" || true
-
   # Compile with -output-complete-exe (embeds bytecode interpreter)
   # This is the exact pattern dune/opam use for bootstrapping
   echo "  compiling with -output-complete-exe..."
