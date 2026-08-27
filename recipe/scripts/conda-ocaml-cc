@@ -2,4 +2,57 @@
 # OCaml C compiler wrapper - expands CONDA_OCAML_CC environment variable
 # This wrapper exists because Unix.create_process doesn't expand shell variables
 # Used by tools like Dune that read ocamlc -config and invoke the compiler directly
+# Automatically adds -L<prefix>/lib for runtime library search (relocatable).
+# Prefix resolution order: (1) derive the prefix from this script's own install
+# location (<prefix>/bin/conda-ocaml-cc), accepted only if the round-trip
+# self-check passes; (2) fall back to ${CONDA_PREFIX} if set and its lib dir
+# exists; (3) no -L injection, exec as before.
+# In a normal user environment the wrapper lives at ${CONDA_PREFIX}/bin, so
+# (1) and (2) resolve identically and behaviour is unchanged. They diverge
+# only inside a conda build/test sandbox, where CONDA_PREFIX points at the
+# build env while the self-derived prefix is the one under test - see
+# OCAML_RECIPE_LLM_REFERENCE.md §11.13 (W8E).
+# shellcheck disable=SC2086
+
+# Derive the prefix from this script's own location (installed at
+# <prefix>/bin/conda-ocaml-cc). Non-fatal on any failure - falls through to
+# the CONDA_PREFIX fallback below, matching prior behaviour.
+#
+# $0 may be a bare basename (e.g. when spawned via execvp/"sh -c
+# conda-ocaml-cc ..." as config.generated.ml does) - PATH lookup happens
+# inside exec, but $0 itself is NOT rewritten to the resolved path. Resolve
+# it through PATH first so dirname doesn't fall back to the caller's CWD.
+_RESOLVED_SELF="$0"
+case "$0" in
+  */*) : ;; # already has a path component, use as-is
+  *) _RESOLVED_SELF="$(command -v -- "$0" 2>/dev/null || echo "$0")" ;;
+esac
+
+_DERIVED_PREFIX=""
+if _SCRIPT_DIR="$(cd -- "$(dirname -- "${_RESOLVED_SELF}")" && pwd -P 2>/dev/null)"; then
+  _DERIVED_PREFIX="${_SCRIPT_DIR%/bin}"
+fi
+
+# MANDATORY round-trip self-check: only accept the derived prefix if it
+# leads back to this same wrapper at <prefix>/bin/conda-ocaml-cc. This is
+# the authoritative guard - without it, a bare $0 that PATH-resolves to
+# nothing (or a $0 containing "/" that isn't actually this install) could
+# fall through dirname/pwd to an unrelated directory (e.g. CWD) that
+# happens to contain a lib/ subdir, silently injecting a wrong -L. The
+# -d .../lib check is kept as a secondary sanity check, not the primary one.
+if [[ -n "${_DERIVED_PREFIX:-}" ]] \
+  && [[ -x "${_DERIVED_PREFIX}/bin/conda-ocaml-cc" ]] \
+  && [[ -d "${_DERIVED_PREFIX}/lib" ]]; then
+  exec ${CONDA_OCAML_CC:-cc} -L"${_DERIVED_PREFIX}/lib" "$@"
+fi
+
+# Self-derivation failed or didn't round-trip: fall back to CONDA_PREFIX,
+# which is only trustworthy if its lib dir actually exists (inside a conda
+# build/test sandbox CONDA_PREFIX may point at the build env, not the
+# prefix under test - see OCAML_RECIPE_LLM_REFERENCE.md §11.13 W8E).
+if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/lib" ]]; then
+  exec ${CONDA_OCAML_CC:-cc} -L"${CONDA_PREFIX}/lib" "$@"
+fi
+
+# Neither resolved: exec with no -L, exactly as before this change.
 exec ${CONDA_OCAML_CC:-cc} "$@"

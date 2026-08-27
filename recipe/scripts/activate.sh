@@ -18,7 +18,7 @@ _get_sourced_filename() {
 }
 
 export _OCAML_OCAMLLIB_CONDA_BACKUP="${OCAMLLIB:-}"
-export _OCAML_OCAML_PREFIX_CONDA_BACKUP="${OCAML_PREFIX:-}"
+export _OCAML_OCAMLPREFIX_CONDA_BACKUP="${OCAML_PREFIX:-}"
 
 if [ "${CONDA_BUILD:-0}" = "1" ]; then
   if [ -f /tmp/old-env-$$.txt ]; then

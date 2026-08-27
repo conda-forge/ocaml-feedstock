@@ -28,6 +28,11 @@ case "${TARGET_PLATFORM}" in
     CHECK_CMD="readelf -h"
     SHARED_EXT="so"
     ;;
+  linux-s390x)
+    ARCH_CHECK="IBM S/390"
+    CHECK_CMD="readelf -h"
+    SHARED_EXT="so"
+    ;;
   osx-arm64)
     ARCH_CHECK="arm64"
     CHECK_CMD="file"

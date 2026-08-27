@@ -131,8 +131,211 @@ NATIVE_COMPILER_OVERRIDES=$(NATIVE_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
 # CAMLOPT is now a variable that can be overridden from command line
 CROSS_COMPILER_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
   BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) BEST_OCAMLLEX=ocamllex
-CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
+# CROSS_COMPILERLIBS_OVERRIDES: CAMLC must match the compiler that actually
+# wrote stdlib.cmi. When STDLIB_CMI_PIN_INTREE=1 (linux-s390x zstd-free path),
+# the crossopt fail-over block above rewrites stdlib.cmi with the in-tree
+# ocamlc (see the `_oc="$(abspath $(ROOTDIR))/ocamlc"` fail-over rebuild just
+# above). If compilerlibs were then built with the PATH ocamlc instead, the
+# two different ocamlc binaries disagree on the interface stamp, producing
+# "inconsistent assumptions over interface Stdlib" errors. Mirrors the
+# STDLIB_CMI_OVERRIDES conditional above. Guarded: only STDLIB_CMI_PIN_INTREE=1
+# changes behaviour; the default/else branch is byte-identical to before.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+# CAMLC here is a bytecode image (ocamlc$(EXE)); run bare it resolves its own
+# #! shebang's ocamlrun, which on linux-s390x is the zstd-ENABLED one, and
+# marshal compression is gated by HAS_ZSTD in the runtime (runtime/extern.c),
+# so bare CAMLC writes COMPRESSED .cmi and disagrees with the in-tree
+# ocamlrun-run consumers. Prefix with the in-tree runtime/ocamlrun to force
+# the zstd-free runtime. Third instance of this defect class (see
+# CROSS_CAMLC_PIN ~284 and NATIVE_L1A_PIN ~241), found by audit (2026-08-24).
+# CAMLOPT below is a NATIVE .opt binary with its own linked runtime and must
+# NOT get an ocamlrun prefix.
+CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)" \
   CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt$(EXE) $(STDLIBFLAGS)"
+else
+CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC="ocamlc $(STDLIBFLAGS)" \
+  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt$(EXE) $(STDLIBFLAGS)"
+endif
+
+# NATIVE_CAMLC_PIN: fail-over LAYER 1 (2026-08-22) for the linux-s390x
+# "inconsistent assumptions over interface Stdlib" defect on utils/compression.cmx.
+# Root cause (crossopt.log build 1787439540): the "native compilers (BUILD
+# platform binaries)" step (NATIVE_COMPILER_OVERRIDES, invoked at the
+# ocamltoolsopt.opt rule below) resolves CAMLC=ocamlc through bare PATH
+# (log:2006-2137), recompiling utils/compression.cmx/.cmi against
+# PREFIX/lib/ocaml's stdlib instead of the in-tree one finalized by the
+# in-tree ocamlc (log:1086-87). When STDLIB_CMI_PIN_INTREE=1, pin CAMLC to
+# the in-tree ocamlc so this step cannot poison compilerlibs' stdlib
+# assumptions. Appended, not substituted, so last-assignment-wins (see the
+# note at lines 208-209) lets it override CAMLC=ocamlc from
+# NATIVE_COMPILER_OVERRIDES itself. No-op (empty) on every other platform.
+#
+# LAYER 1b (2026-08-23, REFUTED - see 2026-08-23 note below): .cmx compiles
+# (e.g. tools/profiling.cmx, build 1787512978 log:2525) go through the generic
+# `%.cmx: %.ml` rule (Makefile:2550), which invokes $(CAMLOPT), NOT $(CAMLC).
+# NATIVE_COMPILER_OVERRIDES sets CAMLOPT/BEST_OCAMLOPT=$(CAMLOPT) (bare, no
+# STDLIBFLAGS) and the L1a call site additionally re-asserts OCAMLOPT=$(CAMLOPT)
+# bare - so without CAMLOPT STDLIBFLAGS, native .cmx compiles resolve
+# stdlib.cmi from $BUILD_PREFIX/lib/ocaml while the paired .cmi came from the
+# in-tree ocamlc pinned above, producing the same "inconsistent assumptions"
+# error one layer down.
+#
+# 2026-08-23 REFUTED: appending STDLIBFLAGS to CAMLOPT/OCAMLOPT/BEST_OCAMLOPT
+# here did fix tools/profiling.cmx (build with 2896-line log), but it broke
+# the ocamlc.opt/ocamlopt.opt NATIVE LINK step immediately after with:
+#   "Error: Files compilerlibs/ocamlcommon.cmxa and
+#    $BUILD_PREFIX/lib/ocaml/stdlib.cmxa make inconsistent assumptions over
+#    interface Stdlib__Uchar" (make[1]: *** [Makefile:556: ocamlc.opt] Error 2,
+#    same for ocamlopt.opt). Reason: -nostdlib -I ./stdlib only fixes
+#    COMPILE-time interface lookup; at LINK time the work-tree native
+#    stdlib.cmxa does not exist yet (it's built later at `-C stdlib allopt`),
+#    so the link falls back to $BUILD_PREFIX/lib/ocaml/stdlib.cmxa, which no
+#    longer matches the freshly recompiled compilerlibs. Do NOT add
+#    STDLIBFLAGS to CAMLOPT/OCAMLOPT/BEST_OCAMLOPT here again - it trades the
+#    L1b .cmx compile-time error for a link-time error one step later. Left
+#    CAMLC-only pinned; the L6b sweep below excludes ./tools instead so
+#    tools/profiling.cmi and .cmx stay compiled against the same (PREFIX)
+#    stdlib consistently.
+#
+# 2026-08-23 W10A UPDATE: the premise above - "the work-tree native
+# stdlib.cmxa does not exist yet" at L1a link time - is exactly what the
+# W10A hoist (see the stdlib.cmxa hoist immediately before L1a, and the
+# bytecode-ocamlopt build in the crossopt recipe above) removes: stdlib.cmxa
+# is now built with a BYTECODE ocamlopt before L1a runs, so it exists by the
+# time ocamlc.opt/ocamlopt.opt link. This REFUTED configuration - pinning
+# CAMLOPT/OCAMLOPT/BEST_OCAMLOPT alongside CAMLC - is therefore being
+# retried under changed conditions via NATIVE_L1A_PIN below, NOT reverted or
+# assumed still-broken. See the NATIVE_L1A_PIN definition below for the retry.
+# NATIVE_CAMLC_PIN runtime-prefix fix (2026-08-24): this pin is LIVE at
+# ~line 774 (ocamltoolsopt.opt) - an earlier audit wrongly called it
+# retired/dead. It was bare (no runtime prefix), so the bytecode ./ocamlc
+# ran under its own #! shebang's zstd-ENABLED ocamlrun and wrote COMPRESSED
+# .cmi (marshalling + HAS_ZSTD live in runtime/extern.c, so the executing
+# runtime decides). This is the third pin needing the in-tree
+# runtime/ocamlrun prefix, alongside CROSS_CAMLC_PIN and NATIVE_L1A_PIN.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+NATIVE_CAMLC_PIN=CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)"
+else
+NATIVE_CAMLC_PIN=
+endif
+
+# NATIVE_OTHERLIBS_CAMLC_PIN (2026-08-24): the five otherlibs allopt blocks in
+# crossopt (unix/str/dynlink/runtime_events/systhreads, ~line 679-707) pin
+# CAMLOPT to the native in-tree ocamlopt.opt but leave CAMLC unpinned. CAMLC
+# then falls through $(CROSS_OTHERLIBS_OVERRIDES)/$(CROSS_OVERRIDES) to bare
+# CAMLC=ocamlc, which resolves via $PATH to the conda zstd-ENABLED bootstrap
+# ocamlc. That writes COMPRESSED .cmi (crossopt.log:3378 `OCAMLC unix.cmi`),
+# which ocamlopt.opt then rejects as corrupted (crossopt.log:3382-3384
+# `Corrupted compiled interface otherlibs/unix/unix.cmi`), run 1787604531.
+# ocamlc.opt is a NATIVE binary with its own zstd-free linked runtime, so it
+# needs no ocamlrun prefix. Must be appended AFTER $(CROSS_OTHERLIBS_OVERRIDES)
+# on each command line so this pin wins over the overrides' CAMLC=ocamlc.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+NATIVE_OTHERLIBS_CAMLC_PIN=CAMLC="$(abspath $(ROOTDIR))/ocamlc.opt"
+else
+NATIVE_OTHERLIBS_CAMLC_PIN=
+endif
+
+# GNU make silently deletes toplevel/byte/*.cmi as chained-implicit-rule
+# intermediates: upstream Makefile:400-402 defines `toplevel/byte/%.cmi:
+# toplevel/%.cmi` which fires only as a side effect of building
+# compilerlibs/ocamltoplevel.cma, and the files are never declared
+# .PRECIOUS or .SECONDARY. But `make install` (upstream Makefile:2717-2719)
+# globs toplevel/byte/*.cmi and fails when they are gone. Restore them from
+# the toplevel/ root copies, which are written by the pinned zstd-free CAMLC.
+# Guarded to OCAML_TOPLEVEL_BYTE_CMI_RESTORE (linux-s390x) so green platforms,
+# whose toplevel/byte .cmi survive, are untouched. OCAML_TOPLEVEL_BYTE_CMI_RESTORE
+# is exported from build.sh (not STDLIB_CMI_PIN_INTREE): the installcross call
+# sites never receive STDLIB_CMI_PIN_INTREE as a make argument, and reusing it
+# here would also flip CAMLC/CAMLOPT pins across the whole install phase.
+ifeq "$(OCAML_TOPLEVEL_BYTE_CMI_RESTORE)" "1"
+TOPLEVEL_BYTE_CMI_RESTORE=cp toplevel/topmain.cmi toplevel/trace.cmi toplevel/topeval.cmi toplevel/byte/
+else
+TOPLEVEL_BYTE_CMI_RESTORE=true
+endif
+
+# NATIVE_L1A_PIN: W10A (2026-08-23) - hoists CAMLOPT/OCAMLOPT/BEST_OCAMLOPT
+# pinning to the in-tree toolchain, in addition to CAMLC, for the L1a
+# native-compiler step below (lines 497-499). This is exactly the
+# configuration the L1b REFUTED note (lines 174-189 above) and the L1a PIN
+# REMOVED note (lines 476-495 below) found broken: pinning CAMLOPT/OCAMLOPT/
+# BEST_OCAMLOPT to STDLIBFLAGS fixed the .cmx compile-time mismatch but broke
+# the ocamlc.opt/ocamlopt.opt NATIVE LINK step, because the work-tree native
+# stdlib.cmxa did not exist yet at link time (it was only built later, at the
+# `-C stdlib allopt` rule AFTER L1a) - the link fell back to
+# $BUILD_PREFIX/lib/ocaml/stdlib.cmxa and produced "inconsistent assumptions"
+# against the freshly recompiled compilerlibs.
+#
+# This pin is viable ONLY because the W10A hoist (immediately before L1a,
+# see the "[W10A] hoisted:" step) now builds the work-tree stdlib.cmxa BEFORE
+# this step runs, using a BYTECODE ocamlopt (see the W10A bytecode-ocamlopt
+# build appended after the `$(MAKE) ocamlc ...` recipe line in crossopt
+# above) - so the work-tree stdlib.cmxa exists at L1a link time and the
+# premise the REFUTED notes relied on no longer holds. CAMLOPT/OCAMLOPT/
+# BEST_OCAMLOPT all launch ocamlopt via the in-tree bytecode runtime
+# (mirroring the "$$_rt $$_oc" idiom used in the zstdfree CAMLC pin above),
+# since no native ocamlopt.opt exists at this point in the recipe - that is
+# what L1a itself builds. No-op (empty) on every other platform.
+#
+# CAMLC-RUNTIME NOTE (2026-08-24): CAMLC was the only one of the four left
+# bare here. A bare bytecode ./ocamlc runs under whatever ocamlrun its own
+# #! shebang names - the zstd-ENABLED one - not the in-tree zstd-free
+# runtime, because marshal compression is gated by HAS_ZSTD in the RUNTIME
+# (runtime/extern.c), not the compiler. So the bare invocation wrote
+# asmcomp/arch.cmi COMPRESSED (crossopt.log:2764, via the [failover-L1a]
+# invocation at :2751-2753), which the correctly-prefixed CAMLOPT then
+# failed to read at :2909-2913. arch.cmi is in L6's purge list
+# (crossopt.log:1187), so this was a fresh compressed re-write, not a
+# bootstrap survivor. Prefixed CAMLC with runtime/ocamlrun to match its
+# three siblings below (same idiom as CROSS_CAMLC_PIN at ~line 272).
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+NATIVE_L1A_PIN=CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)" \
+  CAMLOPT="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlopt$(EXE) $(STDLIBFLAGS)" \
+  OCAMLOPT="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlopt$(EXE) $(STDLIBFLAGS)" \
+  BEST_OCAMLOPT="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlopt$(EXE) $(STDLIBFLAGS)"
+else
+NATIVE_L1A_PIN=
+endif
+
+# CROSS_CAMLC_PIN: fail-over LAYER 7 (2026-08-23), same idiom as
+# NATIVE_CAMLC_PIN above. After L6 purges the stale compilerlibs .cmi (see
+# the ifeq block right after the zstd-free stdlib rebuild in the crossopt
+# recipe), the three crossopt steps that regenerate them
+# ($(MAKE) ocamlc ..., ocamllex, ocaml at lines 296/329/330) use
+# $(CROSS_COMPILER_OVERRIDES), whose CAMLC=ocamlc resolves through bare PATH
+# with no STDLIBFLAGS - i.e. against PATH's stdlib, not the in-tree one just
+# rebuilt. Append this to pin CAMLC to the in-tree ocamlc for those three
+# uses ONLY (last-assignment-wins, see note at lines 208-209). No-op (empty)
+# on every other platform. Must NOT touch the CROSS_COMPILER_OVERRIDES
+# definition itself, nor the crosscompiledopt uses at lines 545/549/550
+# (line 545 already carries its own CAMLC="ocamlc $(STDLIBFLAGS)").
+#
+# LAYER 7b (2026-08-23, REFUTED): same CAMLC-alone gap as NATIVE_CAMLC_PIN/L1b
+# above was suspected here too - CROSS_COMPILER_OVERRIDES also sets
+# CAMLOPT/BEST_OCAMLOPT=$(CAMLOPT) bare. But per the L1b REFUTED note above,
+# appending STDLIBFLAGS to CAMLOPT/OCAMLOPT/BEST_OCAMLOPT causes the native
+# ocamlc.opt/ocamlopt.opt LINK step to fail with "inconsistent assumptions
+# over interface Stdlib__Uchar" against $BUILD_PREFIX/lib/ocaml/stdlib.cmxa,
+# because the work-tree native stdlib.cmxa doesn't exist yet at link time.
+# Same reasoning applies here - do NOT add STDLIBFLAGS to CAMLOPT/OCAMLOPT/
+# BEST_OCAMLOPT. Left CAMLC-only pinned; see the L6b ./tools exclusion below
+# for the actual fix to the paired .cmx/.cmi mismatch.
+# CAMLC-RUNTIME NOTE (2026-08-24): ./ocamlc is a BYTECODE image, so invoking
+# it directly runs it under whatever ocamlrun its own #! shebang names, not
+# the in-tree zstd-free runtime built by this recipe. Marshal-compression is
+# gated by HAS_ZSTD in the RUNTIME (runtime/extern.c), not the compiler -
+# so it's whichever ocamlrun executes ./ocamlc that decides whether the
+# .cmi this pin regenerates come out compressed or plain. Prefixing with
+# $(abspath $(ROOTDIR))/runtime/ocamlrun (same idiom as the W10B tools pin
+# at line ~230 and NATIVE_CAMLC_PIN above) forces the in-tree zstd-free
+# runtime and produces PLAIN .cmi. Evidence: crossopt.log:1621 probe showed
+# offset12=8495a6bd (compressed) right after the unprefixed-pin $(MAKE)
+# ocaml step at line ~507.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+CROSS_CAMLC_PIN=CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)"
+else
+CROSS_CAMLC_PIN=
+endif
 
 CROSSCOMPILED_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
   CAMLOPT="$(CAMLOPT) $(STDLIBFLAGS)"
@@ -150,6 +353,37 @@ endif
 # host as part of the .opt compilers)
 CROSSCOMPILERLIBS := $(addprefix compilerlibs/,$(addsuffix .cmxa,\
     ocamlcommon ocamlmiddleend ocamlbytecomp ocamloptcomp ocamltoplevel))
+
+# L2 fail-over support (2026-08-23): .cmi counterparts of the same _NCOBJS
+# lists used by the "rm -f $(ocamlcommon_NCOBJS) ..." line in the
+# crossopt/crosscompiledopt recipes below. Derived via patsubst, not
+# hand-listed, so this tracks upstream unit-list changes automatically.
+# NCOBJS suffix is .cmx (each entry is a compiler source unit's native
+# object target, e.g. utils/compression.cmx) - the adjacent rm line in this
+# same file already treats them as such. $(filter %.cmx,...) guards against
+# any non-.cmx entries before the substitution, so this can only ever
+# produce compilerlibs source .cmi paths (utils/, parsing/, typing/,
+# bytecomp/, middle_end/, asmcomp/, driver/, toplevel/), never stdlib/*.cmi.
+#
+# UNION with <lib>_CMI_FILES (2026-08-23): per upstream Makefile.common,
+# <lib>_NCOBJS = <lib>_NO_FILES + <lib>_CMX_FILES (common.mk:453-455), and
+# <lib>_CMX_FILES is patsubst'd from .ml files only (common.mk:448-451). An
+# interface-only module - a .mli with no corresponding .ml, e.g. the
+# suspected middle_end/backend_intf - therefore has a .cmi but NEVER
+# appears in _NCOBJS/_CMX_FILES, so the patsubst below alone misses it.
+# Upstream already derives the correct interface-only-inclusive list as
+# <lib>_CMI_FILES = $(subst .mli,.cmi,<lib>_MLI_FILES) (common.mk:277-278).
+# Union both halves per lib via foreach, then $(sort ...) to dedupe (GNU
+# make's sort also uniquifies). If a given <lib>_CMI_FILES variable happens
+# not to exist, it expands empty and is silently harmless - no fallback
+# needed.
+CROSSCOMPILERLIBS_NCOBJS := $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
+    $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) $(ocamltoplevel_NCOBJS)
+CROSSCOMPILERLIBS_LIBNAMES := ocamlcommon ocamlmiddleend ocamlbytecomp \
+    ocamloptcomp ocamltoplevel
+CROSSCOMPILERLIBS_CMI := $(sort \
+    $(patsubst %.cmx,%.cmi,$(filter %.cmx,$(CROSSCOMPILERLIBS_NCOBJS))) \
+    $(foreach lib,$(CROSSCOMPILERLIBS_LIBNAMES),$($(lib)_CMI_FILES)))
 
 # RUNTIME_VARS: variables that must be passed to runtimeopt for cross-compilation
 # ARCH selects the correct .S file (arm64.S vs amd64.S)
@@ -179,6 +413,44 @@ BYTECODE_RUNTIME_VARS = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
   'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
 
+# --- linux-s390x ONLY: pin the stdlib .cmi compiler to the in-tree ocamlc ----
+# linux-s390x has no zstd conda package, so its runtime is configured
+# --without-zstd and CANNOT decompress a compressed marshal payload. The bare
+# `ocamlc` on the `-C stdlib all` rule below resolves through PATH to
+# $BUILD_PREFIX/bin/ocamlc, which IS zstd-enabled (verified: it reports
+# `compression_c_libraries: -lzstd` while the in-tree ./ocamlc reports empty).
+# It therefore writes stdlib.cmi with Intext_magic_number_compressed
+# (0x8495A6BD), and the s390x runtime fails to read it at test time with
+# "Corrupted compiled interface .../stdlib.cmi".
+# The in-tree ./ocamlc is built at the `$(MAKE) ocamlc ...` rule just below and
+# is configured --without-zstd, so it emits a plain payload. This mirrors the
+# CAMLOPT pin already used on the `-C stdlib allopt` rule.
+# MUST be appended AFTER $(CROSS_OVERRIDES) on the recipe line: CROSS_OVERRIDES
+# itself sets CAMLC=ocamlc, and the LAST command-line assignment wins.
+# Defaults OFF - every other target keeps the existing PATH ocamlc behaviour.
+# NOTE: STDLIB_CMI_OVERRIDES itself is now unused (crossopt/crosscompiledopt no
+# longer append it) - the crossopt fail-over rebuild block below reads
+# STDLIB_CMI_PIN_INTREE directly instead. Kept defined since build.sh still
+# passes the knob and other consumers may reference it.
+# TEMP DIAGNOSTIC (remove before merge): these three $(info) calls sit OUTSIDE
+# any recipe (column 0, not inside a target's command list) so they are safe -
+# make evaluates $(info) at parse time for ALL lanes, not just linux-s390x.
+# WARNING: NEVER place a $(info) call between TAB-prefixed recipe lines inside
+# a target's recipe - unlike `ifeq`, which make special-cases inside recipes,
+# $(info) is an ordinary function call and terminates the recipe early, giving
+# "recipe commences before first target.  Stop." (seen at Makefile.cross:234).
+$(info [zstdfree-parse] Makefile.cross parsed; STDLIB_CMI_PIN_INTREE=[$(STDLIB_CMI_PIN_INTREE)] origin=$(origin STDLIB_CMI_PIN_INTREE))
+$(info [zstdfree-parse] MAKEFILE_LIST=$(MAKEFILE_LIST))
+$(info [zstdfree-parse] CURDIR=$(CURDIR))
+$(info TEMP DIAGNOSTIC (remove before merge): [failover-parse] NATIVE_CAMLC_PIN=[$(NATIVE_CAMLC_PIN)])
+$(info TEMP DIAGNOSTIC (remove before merge): [failover-parse] CROSS_COMPILERLIBS_OVERRIDES=[$(CROSS_COMPILERLIBS_OVERRIDES)])
+STDLIB_CMI_PIN_INTREE ?= 0
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+STDLIB_CMI_OVERRIDES = CAMLC=$(abspath $(ROOTDIR))/ocamlc$(EXE)
+else
+STDLIB_CMI_OVERRIDES =
+endif
+
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 crossopt: cross-flexdll
@@ -191,17 +463,165 @@ crossopt:
 	# SAK_* override MAKEFLAGS to prevent cross-compiler flags (e.g., -mtune=power8)
 	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
 endif
+	# NOTE: CROSS_CAMLC_PIN deliberately NOT applied here (2026-08-23):
+	# chicken-and-egg - this step BUILDS ocamlc, so pinning CAMLC to the
+	# in-tree $(ROOTDIR)/ocamlc would point at a binary that doesn't exist
+	# yet. Also pointless - this runs before the stdlib rebuild and the L6
+	# purge below, so any .cmi it produces is discarded and regenerated
+	# anyway. Do NOT re-add $(CROSS_CAMLC_PIN) to this invocation.
+	# W10B (2026-08-24): STDLIB_CMI_PIN_INTREE=1 (linux-s390x) splits this
+	# single command into bootstrap ocamlc / early in-tree stdlib / CAMLC-pinned
+	# tools, so the 16 tools/*.cmi are written PLAIN by the in-tree zstd-free
+	# ocamlc instead of by the zstd-enabled PATH ocamlc, which later fails
+	# "Corrupted compiled interface" against the --without-zstd in-tree
+	# compiler. Non-s390x keeps the single original command unchanged.
+ifeq ($(STDLIB_CMI_PIN_INTREE),1)
+	@echo "[W10B] STDLIB_CMI_PIN_INTREE=1: building in-tree ocamlc now; tools deferred until stdlib settles"
+	$(MAKE) ocamlc $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	@echo "[W10B] pinned CAMLC=$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE)"
+	@$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) -config 2>&1 | grep compression_c_libraries || true
+else
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+endif
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+	@echo "[W10A] building bytecode ocamlopt for early stdlib.cmxa"
+	# W10A: bytecode ocamlopt links only compilerlibs/{ocamlcommon,ocamloptcomp}.cma
+	# and has NO stdlib.cmxa dependency - this is what makes the W10A stdlib.cmxa
+	# hoist below (immediately before L1a) possible without a native compiler.
+	$(MAKE) ocamlopt $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+endif
 	# Build stdlib directly (not via library or library-cross targets)
 	# - library depends on ocamlc which triggers rebuild
 	# - library-cross sets OCAMLRUN=../runtime/ocamlrun which doesn't work for cross
 	# - COMPILER_DEPS= disables the file dependency check on ../ocamlc
-	# - CAMLC=ocamlc uses the installed ocamlc from PATH
+	# - CAMLC=ocamlc uses the installed ocamlc from PATH; on linux-s390x the
+	#   ifeq block below attempts a fail-over rebuild via the in-tree runtime
 	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+	@echo "[zstdfree] linux-s390x: attempting zstd-free stdlib rebuild"
+	@_rt="$(abspath $(ROOTDIR))/runtime/ocamlrun"; _oc="$(abspath $(ROOTDIR))/ocamlc"; \
+	if [ -x "$$_rt" ] && [ -f "$$_oc" ]; then \
+	  rm -f stdlib/*.cmi stdlib/*.cmo stdlib/*.cma; \
+	  if $(MAKE) -C stdlib all COMPILER_DEPS= $(CROSS_OVERRIDES) CAMLC="$$_rt $$_oc" $(OLDS); then \
+	    _m=$$(od -An -tx1 -j12 -N4 stdlib/stdlib.cmi 2>/dev/null | tr -d ' \n'); \
+	    echo "[zstdfree] rebuilt stdlib.cmi offset12=$$_m"; \
+	    if [ "$$_m" = "8495a6be" ] || [ "$$_m" = "8495a6bf" ]; then \
+	      echo "[zstdfree] SUCCESS: stdlib written PLAIN via in-tree runtime"; \
+	    else \
+	      echo "[zstdfree] FAILOVER: magic still $$_m - reverting to default toolchain"; \
+	      rm -f stdlib/*.cmi stdlib/*.cmo stdlib/*.cma; \
+	      $(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS); \
+	    fi; \
+	  else \
+	    echo "[zstdfree] FAILOVER: zstd-free stdlib build FAILED - reverting to default toolchain"; \
+	    rm -f stdlib/*.cmi stdlib/*.cmo stdlib/*.cma; \
+	    $(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS); \
+	  fi; \
+	else \
+	  echo "[zstdfree] FAILOVER: in-tree runtime or ocamlc missing (_rt=$$_rt _oc=$$_oc) - keeping default build"; \
+	fi
+	@echo "[zstdfree] archive scan: checking built archives for stale compressed marshal objects"
+	@for _af in stdlib/stdlib.cma otherlibs/dynlink/dynlink.cma compilerlibs/*.cma; do \
+	  if [ -f "$$_af" ]; then \
+	    _n=$$(od -An -tx1 "$$_af" 2>/dev/null | tr -d ' \n' | grep -o 8495a6bd | wc -l | tr -d ' '); \
+	    echo "[zstdfree] archive scan: $$_af compressed_objects=$$_n"; \
+	    if [ "$$_n" -gt 0 ]; then \
+	      echo "[zstdfree] WARNING ================================================"; \
+	      echo "[zstdfree] WARNING: $$_af contains $$_n compressed marshal object(s)"; \
+	      echo "[zstdfree] WARNING: (byte sequence 84 95 a6 bd) - a compressed object in"; \
+	      echo "[zstdfree] WARNING: a shipped archive makes the --without-zstd ocamlc fail"; \
+	      echo "[zstdfree] WARNING: at -output-complete-exe -g with 'input_value:"; \
+	      echo "[zstdfree] WARNING: compressed object, cannot decompress'."; \
+	      echo "[zstdfree] WARNING: a zstd-free runtime CANNOT emit compressed output"; \
+	      echo "[zstdfree] WARNING: (runtime/extern.c strips the COMPRESSED flag), so any"; \
+	      echo "[zstdfree] WARNING: such object found here is STALE from an earlier"; \
+	      echo "[zstdfree] WARNING: unpinned build, not freshly written by this rebuild."; \
+	      echo "[zstdfree] WARNING: the stdlib.cmi check above alone is NOT sufficient"; \
+	      echo "[zstdfree] WARNING: evidence that the rebuild was clean."; \
+	      echo "[zstdfree] WARNING ================================================"; \
+	    fi; \
+	  fi; \
+	done; \
+	true
+	# TODO: make this fatal once the stale-archive root cause is fixed - it currently
+	# reports only, so the build still reaches the test stage where the failure is visible.
+endif
+# L6 fail-over (2026-08-23): the compilerlibs .cmi built by the
+# $(MAKE) ocamlc ... rule just above (originally lines 295-296) predate the
+# zstd-free stdlib rebuild in the ifeq block right above this one (originally
+# lines 304-327), so once that rebuild changes stdlib.cmi's CRCs, those
+# already-built compilerlibs .cmi are stale. Purge them here so the
+# CROSS_CAMLC_PIN-pinned rebuilds below (the ocamlc/ocamllex/ocaml uses,
+# originally lines 296/329/330, L7) regenerate them against the NEW stdlib
+# instead of colliding with the stale siblings at L1a.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+	@echo "[failover-L6] purging $(words $(CROSSCOMPILERLIBS_CMI)) stale compilerlibs .cmi after stdlib rebuild"
+	rm -f $(CROSSCOMPILERLIBS_CMI)
+	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
+	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
+	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
+endif
+# L6b general sweep (2026-08-23): L6 above purged only the five
+# CROSSCOMPILERLIBS_CMI members, but the true invariant is broader - once
+# the zstd-free stdlib rebuild above (lines 328-351) changes stdlib.cmi's
+# CRCs, EVERY .cmi anywhere in the work tree compiled BEFORE that rebuild
+# is stale, not just the five compilerlibs libraries. Proof: expunge.cmi
+# is built by TOOLS_BYTECODE_TARGETS at line 319 - a standalone bytecode
+# tool, not a member of any of the five compilerlibs libraries - so
+# CROSSCOMPILERLIBS_CMI never covered it, and it survived L6 to collide
+# with the freshly rebuilt stdlib.cmi at the `$(MAKE) ocaml ...` step (L7,
+# line 370: "toplevel/expunge.cmi"). Sweep every remaining work-tree .cmi
+# except: ./stdlib/ (the freshly rebuilt ones we are pinning to - MUST
+# survive), ./flexdll/ (vendored/third-party), and ./.git/, ./_logs/
+# (not build artefacts). -prune on each excluded dir stops find from ever
+# descending into it, so files under ./stdlib/ are never visited let
+# alone matched - this is a directory-level exclusion, not a filename
+# filter, so it cannot accidentally match a similarly-named .cmi outside
+# those trees. -exec rm -f {} + deletes only what -name '*.cmi' -print
+# would have printed; the whole find is a no-op (exit 0, prints/deletes
+# nothing) when no non-excluded .cmi remain, so it cannot fail the build.
+# GOTCHA: do NOT change `-exec rm -f {} +` back to `-delete` - GNU find's
+# -delete implies -depth, and -prune has no effect when -depth is in
+# effect, so -delete would silently defeat the ./stdlib prune and wipe
+# the freshly rebuilt stdlib .cmi files this whole fix depends on.
+# ./tools EXCLUSION (2026-08-23): tools/profiling.cmx (and its .cmi) are
+# compiled by the NATIVE_CAMLC_PIN/CROSS_CAMLC_PIN steps' unpinned $(CAMLOPT)
+# (see the REFUTED notes on those two pins above) - i.e. against
+# $BUILD_PREFIX/lib/ocaml's stdlib, not the in-tree one. If this sweep deleted
+# tools/*.cmi, it would be regenerated by the pinned CAMLC against the LOCAL
+# stdlib while profiling.cmx still resolves via the unpinned CAMLOPT against
+# PREFIX - reproducing the same "inconsistent assumptions" mismatch. Excluding
+# ./tools leaves its interfaces PREFIX-consistent, matching the compiler that
+# actually builds that step. Both finds below MUST stay byte-identical except
+# for this exclusion.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+	@_n=$$(find . \( -path ./stdlib -o -path ./flexdll -o -path ./.git -o -path ./_logs -o -path ./tools \) -prune -o -name '*.cmi' -print | wc -l); \
+	echo "[failover-L6b] general sweep: removing $$_n non-stdlib .cmi"; \
+	find . \( -path ./stdlib -o -path ./flexdll -o -path ./.git -o -path ./_logs -o -path ./tools \) -prune -o -name '*.cmi' -exec rm -f {} + >/dev/null
+endif
+	@echo "[failover-L7] CROSS_CAMLC_PIN=$(CROSS_CAMLC_PIN)"
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS)
-	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)
+	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)
+ifeq ($(STDLIB_CMI_PIN_INTREE),1)
+	# W10B relocation (2026-08-24): moved here (after the `ocaml` line above
+	# and after the L6/L6b compilerlibs purge+rebuild) because compilerlibs
+	# .cmi are only zstd-free once L6 (rm -f $(CROSSCOMPILERLIBS_CMI)) and L6b
+	# (general .cmi sweep) have run and the CROSS_CAMLC_PIN-pinned ocamlyacc/
+	# ocamllex/ocaml steps have rebuilt them; before this point driver/*.cmi
+	# and utils/*.cmi are still the zstd-compressed ones written by the
+	# bootstrap. Must run BEFORE otherlibs because ocamlmklib is a
+	# $(TOOLS_BYTECODE_TARGETS) member that otherlibs depends on.
+	@_m=$$(od -An -tx1 -j12 -N4 driver/main_args.cmi 2>/dev/null | tr -d ' \n'); echo "[W10B] probe driver/main_args.cmi offset12=$$_m" || true
+	@echo "[W10B] compilerlibs purged+rebuilt zstd-free; building tools with CAMLC pinned to in-tree ocamlc"
+	# W10B: append $(STDLIBFLAGS) so the generic %.cmi: %.mli rule (which uses
+	# $(CAMLC) verbatim, with no stdlib flags from CROSS_COMPILER_OVERRIDES)
+	# resolves stdlib from the in-tree stdlib instead of the baked-in
+	# Config.standard_library (PREFIX/lib/ocaml) of this in-tree ocamlc.
+	$(MAKE) $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
+	  $(CROSS_COMPILER_OVERRIDES) CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)" $(OLDS)
+endif
 	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
@@ -225,11 +645,49 @@ endif
 	# NOTE: Do NOT clean compilerlibs here - they were built at line 194-195 with matching
 	# stdlib CRCs. Cleaning them would force rebuild with PATH ocamlopt which uses
 	# $PREFIX/lib/ocaml stdlib (different CRCs from work tree stdlib)
+	# AMENDED 2026-08-23: the above is now false when STDLIB_CMI_PIN_INTREE=1 -
+	# the zstd-free stdlib rebuild block earlier in this recipe invalidates
+	# those CRCs, which is why the L6 purge + CROSS_CAMLC_PIN (L7) fail-over
+	# exists just after that rebuild, upstream of this point.
 	# Set CONDA_OCAML_* env vars so ocamlopt finds NATIVE tools (not cross-tools)
 	# NATIVE_ASM includes "-c" for macOS clang (space-separated, hence quoted)
+	# L1a PIN REMOVED (2026-08-23): $(NATIVE_CAMLC_PIN) used to be appended here,
+	# pinning CAMLC to the in-tree ocamlc while CAMLOPT/OCAMLOPT/BEST_OCAMLOPT
+	# stayed bare (PREFIX) via $(NATIVE_COMPILER_OVERRIDES)/OCAMLOPT=$(CAMLOPT)
+	# above. Evidence (build 1787518156 crossopt.log:2354-2356): this made the
+	# step internally inconsistent - interfaces were written against the LOCAL
+	# in-tree stdlib (CAMLC) while native objects were compiled against
+	# PREFIX's stdlib (CAMLOPT/OCAMLOPT/BEST_OCAMLOPT), producing "inconsistent
+	# assumptions" on $BUILD_PREFIX/lib/ocaml/stdlib.cmi vs work/lambda/switch.cmi
+	# and stdlib__Obj.cmi vs work/parsing/camlinternalMenhirLib.cmi. The pin
+	# predates L6/L6b below, which now purge ALL stale compilerlibs .cmi
+	# (including tools/, excluded only from L6b) immediately after the
+	# zstd-free stdlib rebuild - there are no stale interfaces left here for
+	# the pin to correct, so it's now the only source of the mismatch. This
+	# step's own comment says it builds "using CAMLOPT from PATH", so leaving
+	# it uniformly PREFIX-based (no pin) matches that intent.
+	# REFUTED alternative: pinning CAMLOPT/OCAMLOPT/BEST_OCAMLOPT instead of
+	# CAMLC fixes the compiles but breaks the native LINK of
+	# ocamlc.opt/ocamlopt.opt, because the work-tree stdlib.cmxa does not
+	# exist yet (it's built later at `-C stdlib allopt`) - see the L1b REFUTED
+	# note above (lines 174-189). Do NOT re-add either pin here.
+	#
+	# 2026-08-23 W10A UPDATE: same premise-removal as the L1b REFUTED note
+	# above (lines 174-189) - "the work-tree native stdlib.cmxa does not
+	# exist yet" no longer holds once the W10A hoist (immediately below,
+	# before this L1a command) builds it with a bytecode ocamlopt ahead of
+	# this step. NATIVE_L1A_PIN (defined above, near NATIVE_CAMLC_PIN) is
+	# appended to the L1a command line below to retry the previously-REFUTED
+	# CAMLOPT/OCAMLOPT/BEST_OCAMLOPT pin under these changed conditions.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+	@echo "[W10A] hoisted: building work-tree stdlib.cmxa with bytecode ocamlopt (pre-L1a)"
+	$(MAKE) -C stdlib allopt CAMLOPT="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlopt$(EXE)" OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+	@ls -l stdlib/stdlib.cmxa stdlib/stdlib.a 2>&1 | sed 's/^/[W10A] /' || true
+endif
+	@echo "[failover-L1a] NATIVE_L1A_PIN=$(NATIVE_L1A_PIN)"
 	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
 	  $(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
-	  $(NATIVE_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(HOST_ZSTD_LIBS)" $(OLDS)
+	  $(NATIVE_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(HOST_ZSTD_LIBS)" $(OLDS) $(NATIVE_L1A_PIN)
 	# CRITICAL FIX: Clean LIBDIR before building to prevent CRC mismatches
 	# If LIBDIR has old .cmi files, unix.cmxa might find them via Config.standard_library
 	# while stdlib.cmxa uses local .cmi files, causing "inconsistent assumptions"
@@ -287,7 +745,7 @@ endif
 	# Build unix first (no external otherlib dependencies)
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Copy fresh Unix.cmi, Unix.cmx AND unix.cmxa to LIBDIR for systhreads dependency
 	# CRITICAL: Unix.cmx contains implementation CRC - without it, VPATH finds NATIVE Unix.cmx
 	# causing threads.cmxa to link against wrong Unix implementation CRC
@@ -298,22 +756,22 @@ endif
 	# Build str (no Unix dependency)
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/str/*.cmi "$(LIBDIR)/str/"
 	# Build dynlink
 	OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OVERRIDES) $(OLDS)
+	  $(CROSS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/dynlink/*.cmi "$(LIBDIR)/dynlink/" 2>/dev/null || true
 	# Build runtime_events (no external deps)
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/runtime_events/*.cmi "$(LIBDIR)/runtime_events/"
 	# Build systhreads LAST (depends on Unix.cmi now in LIBDIR)
 	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads allopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/systhreads/*.cmi "$(LIBDIR)/systhreads/"
 	# CRITICAL: Rebuild bytecode otherlibs with OCAMLLIB override
 	# Same CRC issue as native - ocamlc's Config.standard_library points to NATIVE_STDLIB
@@ -332,22 +790,35 @@ endif
 	@rm -f "$(LIBDIR)/unix/"*.cmi "$(LIBDIR)/str/"*.cmi "$(LIBDIR)/dynlink/"*.cmi
 	@rm -f "$(LIBDIR)/systhreads/"*.cmi "$(LIBDIR)/runtime_events/"*.cmi
 	@echo "=== Rebuilding bytecode otherlibs with OCAMLLIB override ==="
+	# All five otherlibs bytecode reruns below must carry NATIVE_OTHERLIBS_CAMLC_PIN.
+	# Without it they overwrite the good .cmi written by the pinned allopt block above
+	# with output from the bare PATH ocamlc, and `make install` copies the bad file
+	# verbatim into the package (proven for unix.cmi, run 1787624485: pinned write at
+	# crossopt.log:3378, unpinned overwrite at :3481, plain install -c -p at
+	# installcross.log:168-170, work-tree and installed files byte-identical).
+	# The pin is self-scoping: NATIVE_OTHERLIBS_CAMLC_PIN is empty unless
+	# STDLIB_CMI_PIN_INTREE=1, i.e. linux-s390x only.
 	# Build unix FIRST (no external otherlib dependencies)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Copy fresh Unix.cmi to LIBDIR for systhreads dependency
 	@echo "=== Copying fresh Unix.cmi to LIBDIR for systhreads ==="
 	@cp otherlibs/unix/*.cmi "$(LIBDIR)/unix/"
 	# Build str (no Unix dependency)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/str/*.cmi "$(LIBDIR)/str/"
 	# Build dynlink
-	OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
+	# dynlink_types.cmi / dynlink_config.cmi are read by every compilerlibs
+	# compilation (upstream Makefile:33 puts -I otherlibs/dynlink on CAMLOPT).
+	# Without the pin this bytecode rerun overwrites the good .cmi written by
+	# the pinned dynlink-allopt above, and the later compilerlibs native
+	# rebuild fails with "Corrupted compiled interface".
+	OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/dynlink/*.cmi "$(LIBDIR)/dynlink/" 2>/dev/null || true
 	# Build runtime_events (no external deps)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/runtime_events/*.cmi "$(LIBDIR)/runtime_events/"
 	# Build systhreads LAST (depends on Unix.cmi now in LIBDIR)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/systhreads/*.cmi "$(LIBDIR)/systhreads/"
 	# Build ocamltoolsopt separately - these link against NATIVE stdlib (not cross)
 	$(MAKE) ocamltoolsopt \
@@ -361,8 +832,22 @@ endif
 	# - if we copy NEW unix.cmi here, users get OLD cma + NEW cmi = error
 	# The cross-compiler should use LIBDIR for its own files, not modify NATIVE_STDLIB.
 	# ocamltoolsopt.opt builds NATIVE tools (ocamllex.opt etc.) - need NATIVE overrides
+	# [failover-L1] PIN SWITCH (2026-08-24): NATIVE_CAMLC_PIN pins CAMLC only, so
+	# CAMLOPT falls back to bare `ocamlopt` (see CAMLOPT ?= ocamlopt ~line 83),
+	# passed as a bare token by NATIVE_COMPILER_OVERRIDES (~line 128) - no path,
+	# no $(STDLIBFLAGS). Bare `ocamlopt` resolves via $PATH to the conda
+	# bootstrap compiler, whose baked-in Config.standard_library is
+	# build_env/lib/ocaml, producing "inconsistent assumptions over interface
+	# Stdlib" against work/lex/table.cmi (crossopt.log:3620-3623, run
+	# 1787607407, 2026-08-24). Sibling [failover-L1a] block (~line 644) already
+	# proved NATIVE_L1A_PIN, which pins all four of CAMLC/CAMLOPT/OCAMLOPT/
+	# BEST_OCAMLOPT with $(STDLIBFLAGS) - reuse it here instead of inventing a
+	# new pin. NATIVE_CAMLC_PIN's definition (~line 217) is left in place; this
+	# was its last known call site, so it may now be unused, but do NOT assert
+	# it is dead (a prior audit wrongly declared it dead and was contradicted).
+	@echo "[failover-L1] NATIVE_L1A_PIN=$(NATIVE_L1A_PIN)"
 	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
-	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS)
+	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS) $(NATIVE_L1A_PIN)
 	# Copy stublibs to where the cross-compiler expects them
 	# The compiler has Config.standard_library baked in (pointing to PREFIX/lib/ocaml)
 	# and looks for stublibs relative to that path. We must copy before CROSSCOMPILERLIBS.
@@ -375,22 +860,77 @@ endif
 	  fi; \
 	done
 	# We now build the compiler libs again, but for target this time
-	# CRITICAL: Also remove .cmi files from compilerlibs to prevent CRC mismatches
-	# The .cmi files from earlier stages have OLD stdlib CRCs
+# NOTE 2026-08-22: the .cmi removal that used to sit here was REMOVED. Its premise
+# ("earlier-stage .cmi have OLD stdlib CRCs") is falsified - crossopt.log:2133 shows
+# utils/int_replace_polymorphic_compare.cmx compiling cleanly against the pre-rm .cmi
+# ~1000 lines after the plain stdlib.cmi rebuild. The real defect was an unpinned
+# CAMLC (fixed at line 134); the rm caused the mismatch it claimed to prevent.
+# CORRECTION 2026-08-22: the above reasoning is UNSOUND. crossopt.log:2133 sits
+# inside the PATH-ocamlc/PREFIX-stdlib region (log:2006-2137) - that whole region
+# is internally consistent with PREFIX's stdlib, so a clean compile there proves
+# NOTHING about compatibility with the in-tree stdlib finalized at log:1086-87.
+# Confirmed root cause: log:2137 recompiles utils/compression.cmx/.cmi against
+# PREFIX's stdlib inside that region; the log:2976 rm only deletes *.cmx, not
+# the poisoned utils/compression.cmi, which then survives into the log:2979
+# in-tree-pinned rebuild and causes "inconsistent assumptions over interface
+# Stdlib". LAYER 1 (NATIVE_CAMLC_PIN above, applied at the ocamltoolsopt.opt
+# rule) is the primary fix - it stops the poisoning at the source.
+# CONFIRMED 2026-08-23: L1a (line 326-328 NATIVE_CAMLC_PIN on the
+# ocamlc.opt/ocamlopt.opt rule) works - the [failover-L1a] marker fired and
+# utils/compression.cm* no longer fails anywhere in that build.
+# BROADENED 2026-08-23: the failure moved downstream (driver/optcompile.cmi,
+# middle_end/backend_intf.cmi, lambda/lambda.cmi, utils/linkdeps.cmi,
+# utils/misc.cmi, typing/env.cmi) because the ocamlc.opt/ocamlopt.opt build at
+# line 326-328 pulls in the ENTIRE compilerlibs tree, poisoning every .cmi it
+# touches with PREFIX-stdlib CRCs - not just utils/compression.cmi. LAYER 2
+# below is broadened from that single file to the .cmi counterparts of the
+# same ocaml*_NCOBJS lists the adjacent .cmx rm already uses (see
+# CROSSCOMPILERLIBS_CMI above), so it clears the whole poisoned set before the
+# $(CROSSCOMPILERLIBS) rebuild regenerates them. STATUS: UNTESTED.
+	@if [ "$(STDLIB_CMI_PIN_INTREE)" = "1" ]; then \
+	  echo "[failover-L2] STDLIB_CMI_PIN_INTREE=1: removing $(words $(CROSSCOMPILERLIBS_CMI)) poisoned compilerlibs .cmi before rebuild"; \
+	  rm -f $(CROSSCOMPILERLIBS_CMI); \
+	fi
 	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
 	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
-	rm -f utils/*.cmi parsing/*.cmi lambda/*.cmi bytecomp/*.cmi \
-	  file_formats/*.cmi typing/*.cmi driver/*.cmi toplevel/*.cmi asmcomp/*.cmi
-	rm -f middle_end/*.cmi middle_end/**/*.cmi 2>/dev/null || true
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
 
 .PHONY: crosscompiledopt
 crosscompiledopt:
+	# W10B (2026-08-24): STDLIB_CMI_PIN_INTREE=1 (linux-s390x) splits this
+	# single command into bootstrap ocamlc / CAMLC-pinned tools, so the 16
+	# tools/*.cmi are written PLAIN by the in-tree zstd-free ocamlc. Unlike
+	# crossopt above, this target runs AFTER the in-tree stdlib already
+	# exists, so no early stdlib step is needed here. NOTE: this target
+	# previously had NO STDLIB_CMI_PIN_INTREE guard at all - adding one here
+	# makes build.sh's existing STDLIB_CMI_PIN_INTREE=1 for
+	# CROSSCOMPILEDOPT_ARGS newly effective for this target.
+ifeq ($(STDLIB_CMI_PIN_INTREE),1)
+	@echo "[W10B] STDLIB_CMI_PIN_INTREE=1: splitting ocamlc bootstrap / CAMLC-pinned tools build"
+	$(MAKE) ocamlc $(CROSS_COMPILER_OVERRIDES) CAMLC="ocamlc $(STDLIBFLAGS)" $(OLDS)
+else
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
-	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
-	# Build stdlib directly (same reason as crossopt)
-	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+	  $(CROSS_COMPILER_OVERRIDES) CAMLC="ocamlc $(STDLIBFLAGS)" $(OLDS)
+endif
+	# Build stdlib directly (same reason as crossopt).
+	# CAMLC pin: without it this bare `ocamlc` resolves via PATH to the zstd-ENABLED conda
+	# bootstrap, which REWRITES stdlib.cma compressed and silently undoes the [zstdfree]
+	# failover in crossopt. Proven run 1787686963: crossopt.log:1187 stdlib.cma
+	# compressed_objects=0 (clean after failover) -> crosscompiledopt.log:2247
+	# compressed_objects=2. A --without-zstd ocamlc then fails -output-complete-exe -g with
+	# `input_value: compressed object, cannot decompress`. Unlike the stdlib rebuilds inside
+	# crossopt, the in-tree compiler DOES exist by this point, so pinning here is safe.
+	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS) $(NATIVE_CAMLC_PIN)
+ifeq ($(STDLIB_CMI_PIN_INTREE),1)
+	@echo "[W10B] stdlib built; building tools with CAMLC pinned to in-tree zstd-free ocamlc"
+	# W10B: append $(STDLIBFLAGS) so the generic %.cmi: %.mli rule (which uses
+	# $(CAMLC) verbatim, with no stdlib flags from CROSS_COMPILER_OVERRIDES)
+	# resolves stdlib from the in-tree stdlib instead of the baked-in
+	# Config.standard_library (PREFIX/lib/ocaml) of this in-tree ocamlc.
+	$(MAKE) $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
+	  $(CROSS_COMPILER_OVERRIDES) CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)" $(OLDS)
+endif
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS)
@@ -411,8 +951,9 @@ crosscompiledopt:
 	rm -fv otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o 2>/dev/null || true
 	rm -fv otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o 2>/dev/null || true
 	# Build otherlibs and tools with cross-compiler
-	$(MAKE) otherlibrariesopt CAMLOPT=$(CAMLOPT) OCAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	$(MAKE) ocamltoolsopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	# CAMLC pin on A/B below: these pin CAMLOPT only; CAMLC would fall through to bare ocamlc.
+	$(MAKE) otherlibrariesopt CAMLOPT=$(CAMLOPT) OCAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
+	$(MAKE) ocamltoolsopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Build native tools (ocamllex.opt) with NATIVE tools
 	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
 	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS)
@@ -430,6 +971,14 @@ crosscompiledopt:
 	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSSCOMPILED_COMPILERLIBS_OVERRIDES) $(OLDS)
+	@echo "[zstdfree] archive scan (ckpt2-end-crosscompiledopt): checking crosscompiledopt output archives"
+	@for _af in stdlib/stdlib.cma otherlibs/dynlink/dynlink.cma compilerlibs/*.cma; do \
+	  if [ -f "$$_af" ]; then \
+	    _n=$$(od -An -tx1 "$$_af" 2>/dev/null | tr -d ' \n' | grep -o 8495a6bd | wc -l | tr -d ' '); \
+	    echo "[zstdfree] archive scan (ckpt2-end-crosscompiledopt): $$_af compressed_objects=$$_n"; \
+	  fi; \
+	done; \
+	true
 
 # ============================================================================
 # crosscompiledruntime: Build runtime for TARGET platform
@@ -456,11 +1005,13 @@ crosscompiledruntime:
 # By removing prerequisites, we ensure this target ONLY builds otherlibs when explicitly called.
 .PHONY: otherlibraries
 otherlibraries:
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES)
+	# CAMLC pin: CAMLOPT alone does not protect .cmi - see OCAML_RECIPE_LLM_REFERENCE.md 8.2.
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 
 .PHONY: otherlibrariesopt
 otherlibrariesopt: dynlink-allopt
-	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES)
+	# CAMLC pin: CAMLOPT alone does not protect .cmi - see OCAML_RECIPE_LLM_REFERENCE.md 8.2.
+	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 
 # Cross-compilation variant: calls dynlink-allopt with proper compiler variables
 # Use this instead of otherlibrariesopt when cross-compiling to avoid
@@ -480,20 +1031,29 @@ otherlibrariesopt-cross:
 	rm -f "$(OCAMLLIB)/unix/"*.cmi "$(OCAMLLIB)/str/"*.cmi "$(OCAMLLIB)/dynlink/"*.cmi 2>/dev/null || true
 	rm -f "$(OCAMLLIB)/threads/"*.cmi "$(OCAMLLIB)/runtime_events/"*.cmi 2>/dev/null || true
 	# Build in dependency order: unix FIRST, then systhreads LAST (depends on Unix interface)
+	# These five pin CAMLOPT but must ALSO pin CAMLC: CAMLC is what writes the .cmi,
+	# and without the pin it falls through to the bare `CAMLC=ocamlc` inside
+	# CROSS_OTHERLIBS_OVERRIDES/CROSS_OVERRIDES (Makefile.cross:102), i.e. the PATH
+	# zstd-enabled bootstrap. The rm -f above deletes the .cmi first, so these calls
+	# regenerate them from scratch - a bad CAMLC here is not an overwrite of a good
+	# file, it is the only writer. Proven run 1787625543: crosscompiledopt.log:1764
+	# `ocamlc -c ... unix.mli` then :1769 `Corrupted compiled interface unix.cmi`.
+	# Self-scoping: NATIVE_OTHERLIBS_CAMLC_PIN is empty unless STDLIB_CMI_PIN_INTREE=1,
+	# which build.sh:2083 sets for crosscompiledopt on linux-s390x only.
 	@echo "=== Building native otherlibs in dependency order ==="
 	# Build unix first (no external otherlib dependencies)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/unix allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/unix allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Copy fresh Unix.cmi to OCAMLLIB for systhreads dependency
 	@mkdir -p "$(OCAMLLIB)/unix"
 	@cp otherlibs/unix/*.cmi "$(OCAMLLIB)/unix/"
 	# Build str (no Unix dependency)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/str allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/str allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Build dynlink
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) dynlink-allopt OCAMLOPT=$(CAMLOPT) CAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) dynlink-allopt OCAMLOPT=$(CAMLOPT) CAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Build runtime_events (no external deps)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/runtime_events allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/runtime_events allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Build systhreads LAST (depends on Unix.cmi now in OCAMLLIB)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/systhreads allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/systhreads allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
@@ -528,4 +1088,27 @@ installcross:
 	# Deleting unix.cma/.cmi from there breaks the native package.
 	# VPATH pollution is prevented by INSTALLING=1 VPATH= in INSTALL_OVERRIDES.
 	# Real installation (VPATH= is in INSTALL_OVERRIDES to propagate to recursive sub-makes)
+	$(TOPLEVEL_BYTE_CMI_RESTORE)
+	@echo "[zstdfree] archive scan (ckpt3-libdir-preinstall): comparing LIBDIR vs work-tree archives before install"
+	@for _af in "$(LIBDIR)"/stdlib.cma "$(LIBDIR)"/dynlink/dynlink.cma "$(LIBDIR)"/compiler-libs/*.cma; do \
+	  if [ -f "$$_af" ]; then \
+	    _n=$$(od -An -tx1 "$$_af" 2>/dev/null | tr -d ' \n' | grep -o 8495a6bd | wc -l | tr -d ' '); \
+	    echo "[zstdfree] archive scan (ckpt3-libdir-preinstall): $$_af compressed_objects=$$_n"; \
+	  fi; \
+	done; \
+	for _af in stdlib/stdlib.cma compilerlibs/*.cma; do \
+	  if [ -f "$$_af" ]; then \
+	    _n=$$(od -An -tx1 "$$_af" 2>/dev/null | tr -d ' \n' | grep -o 8495a6bd | wc -l | tr -d ' '); \
+	    echo "[zstdfree] archive scan (ckpt3-libdir-preinstall): worktree:$$_af compressed_objects=$$_n"; \
+	  fi; \
+	done; \
+	true
 	$(MAKE) install $(INSTALL_OVERRIDES)
+	@echo "[zstdfree] archive scan (ckpt4-postinstall): checking install-destination archives after install"
+	@for _af in "$(LIBDIR)"/stdlib.cma "$(LIBDIR)"/dynlink/dynlink.cma "$(LIBDIR)"/compiler-libs/*.cma; do \
+	  if [ -f "$$_af" ]; then \
+	    _n=$$(od -An -tx1 "$$_af" 2>/dev/null | tr -d ' \n' | grep -o 8495a6bd | wc -l | tr -d ' '); \
+	    echo "[zstdfree] archive scan (ckpt4-postinstall): $$_af compressed_objects=$$_n"; \
+	  fi; \
+	done; \
+	true

@@ -12,6 +12,20 @@ fi
 
 echo "=== OCaml Compilation Tests ==="
 
+# DIAGNOSTIC (read-only, no behaviour change) - W8E: prove whether
+# CONDA_PREFIX/CONDA_OCAML_CC are set in the test environment, and what the
+# shipped compiler's config actually carries for *_c_libraries. Every line is
+# guarded so it cannot abort under set -euo pipefail.
+echo "[W8E-DIAG] CONDA_PREFIX=${CONDA_PREFIX:-<unset>}" || true
+echo "[W8E-DIAG] CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<unset>}" || true
+echo "[W8E-DIAG] CONDA_OCAML_CC=${CONDA_OCAML_CC:-<unset>}" || true
+echo "[W8E-DIAG] command -v conda-ocaml-mkexe: $(command -v conda-ocaml-mkexe 2>/dev/null || echo '<not-found>')" || true
+echo "[W8E-DIAG] command -v conda-ocaml-cc: $(command -v conda-ocaml-cc 2>/dev/null || echo '<not-found>')" || true
+echo "[W8E-DIAG] ocamlc -config-var bytecomp_c_libraries: $(ocamlc -config-var bytecomp_c_libraries 2>/dev/null || echo '<error>')" || true
+echo "[W8E-DIAG] ocamlopt -config-var native_c_libraries: $(ocamlopt -config-var native_c_libraries 2>/dev/null || echo '<error>')" || true
+echo "[W8E-DIAG] ocamlc -config full dump:" || true
+ocamlc -config 2>/dev/null | sed 's/^/[W8E-DIAG] /' || true
+
 # Create test file
 printf 'print_endline "Hello World"\n' > hi.ml
 
@@ -107,6 +121,16 @@ let () =
   Printf.printf "CWD: %s\n" cwd;
   print_endline "complete-exe works"
 EOF
+
+  # DIAGNOSTIC (read-only, no behaviour change) - W8A: dump the C-library/mkexe
+  # config baked into THIS ocamlc, immediately before the -output-complete-exe
+  # re-link that fails with "cannot find -lzstd" (see
+  # OCAML_RECIPE_LLM_REFERENCE.md §11.13). Guarded so it cannot abort the test
+  # under `set -euo pipefail`.
+  echo "[W8A-DIAG] ocamlc -config-var bytecomp_c_libraries: $(ocamlc -config-var bytecomp_c_libraries 2>/dev/null || echo '<unavailable>')" || true
+  echo "[W8A-DIAG] ocamlc -config-var native_c_libraries: $(ocamlc -config-var native_c_libraries 2>/dev/null || echo '<unavailable>')" || true
+  echo "[W8A-DIAG] ocamlc -config-var mkexe: $(ocamlc -config-var mkexe 2>/dev/null || echo '<unavailable>')" || true
+  echo "[W8A-DIAG] ocamlc -config-var c_compiler: $(ocamlc -config-var c_compiler 2>/dev/null || echo '<unavailable>')" || true
 
   # Compile with -output-complete-exe (embeds bytecode interpreter)
   # This is the exact pattern dune/opam use for bootstrapping
