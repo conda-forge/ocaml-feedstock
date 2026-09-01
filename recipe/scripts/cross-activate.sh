@@ -2,8 +2,8 @@
 # Cross-compiler activation for ocaml_$target (installed alongside native ocaml_$build)
 #
 # Provides functions to swap between native and cross-compiler toolchains:
-#   ocaml_use_cross   — switch CONDA_OCAML_* to cross-compiler tools
-#   ocaml_use_native  — restore CONDA_OCAML_* to native tools
+#   ocaml_use_cross   - switch CONDA_OCAML_* to cross-compiler tools
+#   ocaml_use_native  - restore CONDA_OCAML_* to native tools
 #
 # @TARGET@ and @TARGET_ID@ are replaced at install time by build.sh
 

@@ -28,6 +28,11 @@ case "${TARGET_PLATFORM}" in
     CHECK_CMD="readelf -h"
     SHARED_EXT="so"
     ;;
+  linux-riscv64)
+    ARCH_CHECK="RISC-V"
+    CHECK_CMD="readelf -h"
+    SHARED_EXT="so"
+    ;;
   osx-arm64)
     ARCH_CHECK="arm64"
     CHECK_CMD="file"

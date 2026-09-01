@@ -2,4 +2,5 @@
 # OCaml C compiler wrapper - expands CONDA_OCAML_CC environment variable
 # This wrapper exists because Unix.create_process doesn't expand shell variables
 # Used by tools like Dune that read ocamlc -config and invoke the compiler directly
-exec ${CONDA_OCAML_CC:-cc} "$@"
+. "$(dirname "$0")/conda-ocaml-common"
+ocaml_exec_selfguarded conda-ocaml-cc "${CONDA_OCAML_CC:-cc}" "$@"
