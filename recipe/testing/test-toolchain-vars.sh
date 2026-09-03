@@ -46,13 +46,42 @@ fi
 # Test 2b: Verify wrapper scripts exist and are executable
 echo ""
 echo "Test 2b: Verify wrapper scripts are installed"
-for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
-    if [[ -x "${CONDA_PREFIX}/bin/${wrapper}" ]]; then
-        echo "  $wrapper: OK"
+
+# Derive the active naming scheme (bare "conda" or triplet-prefixed) from
+# CONDA_OCAML_CC, which activation already resolved for this environment.
+# Test 1 above already guarantees CONDA_OCAML_CC is set at this point.
+WRAPPER_TAG=""
+if [[ "${CONDA_OCAML_CC:-}" == *-ocaml-cc ]]; then
+    WRAPPER_TAG="${CONDA_OCAML_CC%-ocaml-cc}"
+fi
+
+WRAPPER_FAIL=0
+WRAPPER_SKIP=0
+for tool in cc as ar ranlib mkexe mkdll; do
+    wrapper="conda-ocaml-${tool}"
+    resolved=""
+    if command -v "${wrapper}" >/dev/null 2>&1; then
+        resolved="$(command -v "${wrapper}")"
+    elif [[ -n "${WRAPPER_TAG}" ]] && command -v "${WRAPPER_TAG}-ocaml-${tool}" >/dev/null 2>&1; then
+        wrapper="${WRAPPER_TAG}-ocaml-${tool}"
+        resolved="$(command -v "${wrapper}")"
+    fi
+
+    if [[ -n "${resolved}" ]]; then
+        echo "  ${wrapper}: OK (${resolved})"
+    elif [[ -z "${WRAPPER_TAG}" ]]; then
+        echo "  ${wrapper}: SKIPPED (cannot determine expected wrapper naming for this mode)"
+        WRAPPER_SKIP=$((WRAPPER_SKIP + 1))
     else
-        echo "  $wrapper: MISSING"
+        echo "  ${wrapper}: MISSING"
+        WRAPPER_FAIL=$((WRAPPER_FAIL + 1))
     fi
 done
+
+if [[ ${WRAPPER_FAIL} -gt 0 ]]; then
+    echo "FAIL: ${WRAPPER_FAIL} toolchain wrapper(s) could not be resolved via PATH (bare or triplet-prefixed)"
+    exit 1
+fi
 
 # Test 3: Custom CC is respected in compilation
 echo ""
@@ -123,4 +152,8 @@ else
 fi
 
 echo ""
-echo "=== All CONDA_OCAML_* toolchain tests passed ==="
+if [[ ${WRAPPER_SKIP} -eq 0 ]]; then
+    echo "=== All CONDA_OCAML_* toolchain tests passed ==="
+else
+    echo "=== CONDA_OCAML_* toolchain tests completed (${WRAPPER_SKIP} wrapper(s) SKIPPED - could not determine naming scheme) ==="
+fi

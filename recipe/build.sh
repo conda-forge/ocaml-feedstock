@@ -171,13 +171,21 @@ fi
 
 # Export CONDA_OCAML_* cross-compilation env and add cross-tools to PATH.
 # Used by both crossopt and installcross subshells in build_cross_compiler().
-# NOTE: CONDA_OCAML_MKEXE intentionally NOT set - use native linker.
+# NOTE: CONDA_OCAML_MKEXE gets the NATIVE linker here, not the cross one.
+# It used to be left unset for that purpose, but "not setting" it stopped
+# meaning "unset": an activated build dep (ocaml_osx-arm64) exports its own
+# baked CONDA_OCAML_MKEXE, so declining to set it inherited that value - on
+# osx a "<triplet>-gcc" that does not exist, which killed crossopt. Setting
+# it explicitly overrides the inherited value; the :- keeps it safe under
+# set -u, and an empty value still lets the wrapper fall back to the native
+# linker, which is the original intent either way.
 _setup_crossopt_env() {
   export CONDA_OCAML_AS="${CROSS_ASM}"
   export CONDA_OCAML_CC="${CROSS_CC}"
   export CONDA_OCAML_AR="${CROSS_AR}"
   export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
   export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+  export CONDA_OCAML_MKEXE="${NATIVE_MKEXE:-}"
   PATH="${OCAML_PREFIX}/bin:${PATH}"
   hash -r
 }
@@ -299,9 +307,9 @@ build_native() {
     export PYTHONUTF8=1
     # Needed to find zstd
     if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
-      export NATIVE_LDFLAGS="/LIBPATH:${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
+      export NATIVE_LDFLAGS="/LIBPATH:${PREFIX}/Library/lib ${NATIVE_LDFLAGS:-}"
     else
-      export NATIVE_LDFLAGS="-L${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
+      export NATIVE_LDFLAGS="-L${PREFIX}/Library/lib ${NATIVE_LDFLAGS:-}"
     fi
   fi
 
@@ -350,6 +358,30 @@ build_native() {
   # Add toolchain to configure args
   # NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as environment variables, not configure args.
   # Passing them as args causes make to misparse flags like -O2 as filenames.
+  # non-unix: pass BARE TOOL NAMES to configure, not absolute paths.
+  # find_tool() returns an absolute path, and on Windows BUILD_PREFIX carries
+  # backslashes. When make hands that string to /bin/sh the backslashes are eaten
+  # as escapes, producing e.g.
+  #   D:bldbldrattler-build_ocaml_win-64_...build_env/Library/bin/x86_64-w64-mingw32-ar.exe
+  # -> "No such file or directory", make[1] Makefile:1412 libcamlrun_non_shared.a
+  #    Error 127, make Makefile:852 world.opt Error 2.
+  # Basenames resolve via PATH instead, so no path conversion (cygpath) is needed.
+  # generate_native_env_file() already basenames these, but only inside the heredoc
+  # it writes to _native_compiler_env.sh - the LIVE shell vars keep the full path.
+  # GUARDED to non-unix only: unix lanes pass absolute paths today and work.
+  if ! is_unix; then
+    NATIVE_AR="${NATIVE_AR##*/}"
+    NATIVE_AS="${NATIVE_AS##*/}"
+    NATIVE_LD="${NATIVE_LD##*/}"
+    NATIVE_RANLIB="${NATIVE_RANLIB##*/}"
+    # CC/STRIP mangle the same way (e.g. Makefile:494 utils/domainstate.mli
+    # Error 127, with .../x86_64-w64-mingw32-gcc.exe not found) - same
+    # mechanism as AR above, so they get the same basename treatment.
+    NATIVE_CC="${NATIVE_CC##*/}"
+    NATIVE_STRIP="${NATIVE_STRIP##*/}"
+    export NATIVE_AR NATIVE_AS NATIVE_LD NATIVE_RANLIB NATIVE_CC NATIVE_STRIP
+    echo "  non-unix: using bare tool names AR=${NATIVE_AR} AS=${NATIVE_AS} LD=${NATIVE_LD} RANLIB=${NATIVE_RANLIB} CC=${NATIVE_CC} STRIP=${NATIVE_STRIP}"
+  fi
   export CC="${NATIVE_CC}"
   export STRIP="${NATIVE_STRIP}"
 
@@ -478,8 +510,9 @@ build_native() {
   echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config_file" | head -1 || echo '(not found)')"
 
   # NOTE: Do NOT remove -L paths here - they're needed for the build.
-  # The -L path removal for bytecomp_c_libraries happens AFTER world.opt build
-  # but BEFORE install, to avoid non-relocatable paths in installed binaries.
+  # The -L removal for the *_c_libraries values happens further down, still
+  # BEFORE world.opt: world.opt compiles those values into the Config module,
+  # so any edit made after it has no effect on `ocamlopt -config-var`.
 
   if is_unix; then
     # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
@@ -552,6 +585,31 @@ build_native() {
     # Configure generates "... $(addprefix...) -link " but when OC_LDFLAGS is empty,
     # this trailing "-link" causes "flexlink ... -link -o output" which passes -o to linker!
     sed -i 's/^\(MK[A-Z]*=.*\)[[:space:]]*-link[[:space:]]*$/\1/' "$config_file"
+  fi
+
+  # Strip build-time -L paths from config.generated.ml (macOS)
+  #
+  # utils/config.generated.ml holds the *_c_libraries values that configure
+  # produced. world.opt compiles these INTO the Config module, so
+  # `ocamlc/ocamlopt -config-var bytecomp_c_libraries` reads THIS file, not
+  # Makefile.config. Cleaning Makefile.config cannot affect it (refuted twice).
+  #
+  # This MUST run BEFORE world.opt. Editing config.generated.ml afterwards has no
+  # effect. The strip also removes the legitimate relocatable -L${PREFIX}/lib; on
+  # macOS conda-ocaml-mkexe re-supplies it at runtime, which is why this is
+  # guarded to osx only.
+  if [[ "${target_platform}" == "osx"* ]]; then
+    local _cfg_ml="utils/config.generated.ml"
+    echo "  - Stripping build-time -L paths from ${_cfg_ml}..."
+    local _cvar
+    for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+      if grep -q "^let ${_cvar} = " "${_cfg_ml}" 2>/dev/null; then
+        sed -i -E "/^let ${_cvar} = /s#-L[^ |]+ *##g" "${_cfg_ml}"
+      fi
+    done
+    echo "  [diag] post-strip config.generated.ml C-library vars:"
+    grep -E '^let (bytecomp|native|compression)_c_libraries = ' "${_cfg_ml}" \
+      | sed 's/^/    /' || echo "    [diag] (no matching vars)"
   fi
 
   # ============================================================================
@@ -657,6 +715,13 @@ build_cross_compiler() {
   # OCAML_INSTALL_PREFIX = where cross-compilers will be installed (destination)
   : "${OCAML_PREFIX:=${PREFIX}}"
   : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
+  # Where the cross-compiler will FINALLY live, baked into config.ml's
+  # standard_library_default and into the cross Makefile.config. For the
+  # ocaml_<target> cross-compiler output this is ${PREFIX} (the staged tree is
+  # transferred there after this function returns). For an in-lane cross-target
+  # build the tree is consumed in place and never transferred, so the caller
+  # overrides this with the staging prefix.
+  : "${OCAML_CROSS_FINAL_PREFIX:=${PREFIX}}"
 
   # macOS: Use DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
   # IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
@@ -804,7 +869,21 @@ TOOLWRAPPER
     # Get env path from conda info (envs are in $CONDA_PREFIX/envs/ or default location)
     CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
     TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
-    TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
+    # conda create above is best-effort (|| true): some targets have no zstd on
+    # conda-forge at all (PackagesNotFoundInChannelsError). Probe the
+    # actual outcome rather than assuming success - emitting -lzstd for a library
+    # that was never installed fails the libcamlrun_shared.so link.
+    # libzstd.dylib: conda's macOS zstd ships ONLY the .dylib, so a .so/.a-only
+    # probe is blind on every osx-* target and always reports "not available".
+    if [[ -f "${TARGET_ZSTD_LIB}/libzstd.so" || -f "${TARGET_ZSTD_LIB}/libzstd.a" || -f "${TARGET_ZSTD_LIB}/libzstd.dylib" ]]; then
+      TARGET_ZSTD_AVAILABLE=1
+      TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
+    else
+      TARGET_ZSTD_AVAILABLE=0
+      TARGET_ZSTD_LIBS=""
+      echo "  [zstd-probe] no target-arch zstd for ${CROSS_PLATFORM}; building without zstd"
+    fi
+    export TARGET_ZSTD_AVAILABLE
     echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
 
     # ========================================================================
@@ -833,6 +912,14 @@ TOOLWRAPPER
         TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
         ;;
     esac
+
+    # No target-arch zstd for this platform (see [zstd-probe] above). Without this,
+    # configure bakes -lzstd into Makefile.config's BYTECCLIBS and the crossopt link
+    # of runtime/libcamlrun_shared.so fails with "cannot find -lzstd" - emptying
+    # TARGET_ZSTD_LIBS alone is not enough, the token also comes from BYTECCLIBS.
+    if [[ "${TARGET_ZSTD_AVAILABLE:-1}" == "0" ]]; then
+      TARGET_CONFIG_ARGS+=(--without-zstd)
+    fi
 
     run_logged "cross-configure" ${CONFIGURE[@]} \
       -prefix="${OCAML_CROSS_PREFIX}" \
@@ -884,7 +971,7 @@ TOOLWRAPPER
     # OCAML_CROSS_LIBDIR may point to work/_xcross_compiler/... during build
     # We need to use ${PREFIX} (the conda prefix) which will be correct after install
     # Conda/rattler-build will relocate these paths during packaging
-    FINAL_STDLIB_PATH="${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+    FINAL_STDLIB_PATH="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
     sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${FINAL_STDLIB_PATH}|}#" "$config_file"
 
     # CRITICAL: Patch architecture - this is baked into the binary!
@@ -973,11 +1060,13 @@ TOOLWRAPPER
     # ========================================================================
 
     # Shared cross-toolchain args for crossopt and installcross
+    # OCaml's runtime/%.o: runtime/%.S rule expands $(ASPP) $(OC_ASPPFLAGS) only;
+    # ASPPFLAGS is never referenced, so arch-specific assembler flags must ride on ASPP.
     CROSS_TOOLCHAIN_ARGS=(
       ARCH="${CROSS_ARCH}"
       AR="${CROSS_AR}"
       AS="${CROSS_AS}"
-      ASPP="${CROSS_CC} -c"
+      ASPP="${CROSS_CC} -c ${CROSS_ASPPFLAGS:-}"
       CC="${CROSS_CC}"
       CFLAGS="${CROSS_CFLAGS}"
       CROSS_AR="${CROSS_AR}"
@@ -993,6 +1082,25 @@ TOOLWRAPPER
 
     echo "  [5/7] Building and installing cross-compiler..."
 
+    # QEMU_LD_PREFIX: crossopt emulates TARGET binaries on the build machine
+    # (the unix.cmi step execs a cross ocamlc under qemu-user). Without this,
+    # qemu searches the HOST /lib and dies with
+    #   qemu-<arch>-static: Could not open '/lib/ld64.so.1'
+    # Same idiom the tests: blocks already use - see recipe.yaml's
+    # `export QEMU_LD_PREFIX="${PREFIX}${{ sysroot }}"`. Here the target sysroot
+    # comes from the sysroot_<target> build dep, which lands under BUILD_PREFIX.
+    # Exported here (outside the crossopt subshell below) so it stays set for
+    # the POST-INSTALL check_unix_crc call after the subshell closes.
+    if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
+      _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
+      if [[ -d "${_qemu_sysroot}" ]]; then
+        export QEMU_LD_PREFIX="${_qemu_sysroot}"
+        echo "  [qemu] QEMU_LD_PREFIX=${QEMU_LD_PREFIX}"
+      else
+        echo "  [qemu] WARNING: expected target sysroot not found at ${_qemu_sysroot}; leaving QEMU_LD_PREFIX unset"
+      fi
+    fi
+
     (
       # Export CONDA_OCAML_* for cross-compilation and add cross-tools to PATH
       _setup_crossopt_env
@@ -1000,13 +1108,26 @@ TOOLWRAPPER
       # Native compiler stdlib location (for copying fresh .cmi files in crossopt)
       NATIVE_STDLIB="${OCAML_PREFIX}/lib/ocaml"
 
+      # No target-arch zstd for this platform (see [zstd-probe] above, and the
+      # matching --without-zstd guard a few lines up). The in-tree build was
+      # configured --without-zstd, so Makefile.config already has an EMPTY
+      # ZSTD_LIBS; passing the BUILD_PREFIX (x86_64 host) libzstd here on the
+      # command line overrides that and reintroduces -lzstd onto the target
+      # cross-linker's command line, which then fails with
+      # "skipping incompatible .../libzstd.so ... cannot find -lzstd".
+      if [[ "${TARGET_ZSTD_AVAILABLE:-1}" == "0" ]]; then
+        CROSSOPT_ZSTD_LIBS=""
+      else
+        CROSSOPT_ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+      fi
+
       # --- Build crossopt ---
       CROSSOPT_ARGS=(
         "${CROSS_TOOLCHAIN_ARGS[@]}"
         CAMLOPT=ocamlopt
         CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
         LIBDIR="${OCAML_CROSS_LIBDIR}"
-        ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+        ZSTD_LIBS="${CROSSOPT_ZSTD_LIBS}"
         TARGET_ZSTD_LIBS="${TARGET_ZSTD_LIBS}"
 
         SAK_AR="${NATIVE_AR}"
@@ -1139,8 +1260,8 @@ EOF
       # Standard library path - use actual ${PREFIX} which conda will relocate
       # The OCAML_CROSS_LIBDIR variable contains build-time work directory path
       # We need to use the FINAL installed path: ${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml
-      FINAL_CROSS_LIBDIR="${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
-      FINAL_CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
+      FINAL_CROSS_LIBDIR="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+      FINAL_CROSS_PREFIX="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}"
       sed -i "s|^prefix=.*|prefix=${FINAL_CROSS_PREFIX}|" "${makefile_config}"
       sed -i "s|^LIBDIR=.*|LIBDIR=${FINAL_CROSS_LIBDIR}|" "${makefile_config}"
       sed -i "s|^STUBLIBDIR=.*|STUBLIBDIR=${FINAL_CROSS_LIBDIR}/stublibs|" "${makefile_config}"
@@ -1210,6 +1331,9 @@ EOF
           arm64) _expected="arm64|ARM64|AArch64|aarch64" ;;
           aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
           power) _expected="PowerPC|ppc64" ;;
+          riscv) _expected="RISC-V|RISCV|riscv" ;;
+          amd64) _expected="x86-64|x86_64|X86-64|amd64" ;;
+          s390x) _expected="S/390|s390|IBM S/390" ;;
           *) _expected="${CROSS_ARCH}" ;;
         esac
         if ! echo "$_arch_info" | grep -qiE "$_expected"; then
@@ -1472,6 +1596,42 @@ EOF
     CONFIG_ARGS+=(ac_cv_func_getentropy=no)
   fi
 
+  # TARGET_ZSTD_AVAILABLE is exported by the [zstd-probe] in build_cross_compiler()
+  # (~line 907), but that runs in a SEPARATE subshell from build_cross_target() (see
+  # the two independent `( ... )` invocations around line 1985/1998) - exports do not
+  # cross subshell boundaries. Recompute the same outcome-based probe locally; the
+  # conda env itself persists on disk from the in-lane cross-compiler build above, so
+  # this finds the real result rather than re-running conda create.
+  if [[ -z "${TARGET_ZSTD_AVAILABLE:-}" ]]; then
+    _TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
+    _TARGET_ZSTD_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
+    _TARGET_ZSTD_LIB="${_TARGET_ZSTD_ENVS_DIR}/${_TARGET_ZSTD_ENV}/lib"
+    # libzstd.dylib: see the matching [zstd-probe] note above - macOS ships only .dylib.
+    if [[ -f "${_TARGET_ZSTD_LIB}/libzstd.so" || -f "${_TARGET_ZSTD_LIB}/libzstd.a" || -f "${_TARGET_ZSTD_LIB}/libzstd.dylib" ]]; then
+      TARGET_ZSTD_AVAILABLE=1
+    else
+      TARGET_ZSTD_AVAILABLE=0
+    fi
+  fi
+
+  # No target-arch zstd for this platform (see [zstd-probe]); configure OCaml
+  # without it rather than letting it emit -lzstd for a library that is absent.
+  if [[ "${TARGET_ZSTD_AVAILABLE:-1}" == "0" ]]; then
+    CONFIG_ARGS+=(--without-zstd)
+  fi
+
+  # zstd has no build for some targets; the [zstd-probe] sets
+  # TARGET_ZSTD_AVAILABLE=0 there and configure got --without-zstd above. The
+  # NATIVECCLIBS/BYTECCLIBS assignments below (crosscompiledopt at [3/5] and
+  # crosscompiledruntime at [4/5]) are passed ON THE MAKE COMMAND LINE, which
+  # OUTRANKS Makefile.config - a hardcoded -lzstd there puts the flag back and
+  # the otherlibs link fails with "cannot find -lzstd". Computed once here
+  # since both steps below use it.
+  _zstd_lib=""
+  if [[ "${TARGET_ZSTD_AVAILABLE:-1}" != "0" ]]; then
+    _zstd_lib=" -lzstd"
+  fi
+
   # Install conda-ocaml-* wrapper scripts to BUILD_PREFIX (needed during build)
   echo "    Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
   install_conda_ocaml_wrappers "${BUILD_PREFIX}/bin"
@@ -1503,6 +1663,32 @@ EOF
   local config_file="utils/config.generated.ml"
   [[ -n "${CROSS_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${CROSS_MODEL}|}#" "$config_file"
 
+  # Strip build-time -L paths from config.generated.ml (macOS)
+  #
+  # stage3_configure (above) regenerates utils/config.generated.ml with a
+  # build-time -L baked into bytecomp_c_libraries/native_c_libraries, and
+  # patch_config_generated_ml_native only rewrites tool names - it does not
+  # strip -L. crosscompiledopt below bakes whatever is in this file into the
+  # cross ocamlopt's Config module, so this must run after both of those and
+  # before crosscompiledopt. Guarded to osx only: it also removes the
+  # legitimate relocatable -L${PREFIX}/lib, which macOS conda-ocaml-mkexe
+  # re-supplies at runtime, but Linux cross-target lanes (aarch64/ppc64le/
+  # riscv64) do NOT and would fail with "cannot find -lzstd" if unguarded.
+  # Intentionally duplicates the build_native block at ~601-613.
+  if [[ "${target_platform}" == "osx"* ]]; then
+    local _cfg_ml="utils/config.generated.ml"
+    echo "  - Stripping build-time -L paths from ${_cfg_ml}..."
+    local _cvar
+    for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+      if grep -q "^let ${_cvar} = " "${_cfg_ml}" 2>/dev/null; then
+        sed -i -E "/^let ${_cvar} = /s#-L[^ |]+ *##g" "${_cfg_ml}"
+      fi
+    done
+    echo "  [diag] post-strip config.generated.ml C-library vars:"
+    grep -E '^let (bytecomp|native|compression)_c_libraries = ' "${_cfg_ml}" \
+      | sed 's/^/    /' || echo "    [diag] (no matching vars)"
+  fi
+
   # Apply Makefile.cross patches
   apply_cross_patches
 
@@ -1511,12 +1697,15 @@ EOF
     ARCH="${CROSS_ARCH}"
     CAMLOPT="${CROSS_OCAMLOPT}"
     AS="${CROSS_AS}"
-    ASPP="${CROSS_CC} -c"
+    ASPP="${CROSS_CC} -c ${CROSS_ASPPFLAGS:-}"
     CC="${CROSS_CC}"
     CROSS_CC="${CROSS_CC}"
     CROSS_AR="${CROSS_AR}"
     CROSS_MKLIB="${CROSS_OCAMLMKLIB}"
-    ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
+    # Guarded like NATIVECCLIBS/BYTECCLIBS below: a make command-line assignment
+    # OUTRANKS Makefile.config, so a hardcoded -lzstd here reaches the stage-3
+    # ocamlc.opt link (Makefile:556) even though configure got --without-zstd.
+    ZSTD_LIBS="-L${PREFIX}/lib${_zstd_lib}"
     LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
     OCAMLLIB="${OCAMLLIB}"
     CONDA_OCAML_AS="${CROSS_ASM}"
@@ -1527,6 +1716,27 @@ EOF
     SAK_CC="${NATIVE_CC}"
     SAK_CFLAGS="${NATIVE_CFLAGS}"
   )
+
+  # riscv64 only: the cross-compiler package in BUILD_PREFIX ships
+  # <triplet>-ocaml-mkexe, whose built-in default is
+  #   x86_64-conda-linux-gnu-zig cc -target riscv64-linux-gnu -Wl,-E -ldl
+  # i.e. zig (hence ld.lld) carrying no LDFLAGS at all. lld then defaults to
+  # --no-allow-shlib-undefined, and the ocamlc.opt/ocamlopt.opt link fails on
+  # pthread_create/pthread_join@GLIBC_2.34 referenced by the target libzstd.so.
+  # Only riscv64 conda packages carry those versioned refs, which is exactly why
+  # conda-forge enables --allow-shlib-undefined for riscv64 and no other linux
+  # arch. That wrapper reads CONDA_OCAML_RISCV64_MKEXE (same name pattern this
+  # recipe builds at recipe/scripts/cross-activate.sh:44), NOT CONDA_OCAML_MKEXE.
+  # Point it at the cross gcc with the full CROSS_LDFLAGS set so the flag
+  # actually reaches the link, and so a gcc lane stops linking via lld.
+  if [[ "${CROSS_ARCH}" == "riscv" ]]; then
+    # mkexe is a command PREFIX ($MKEXE -o out <objects> <cclibs>), so a bare -lm would land
+    # before the objects and CROSS_LDFLAGS' -Wl,--as-needed would drop it. --no-as-needed forces
+    # a DT_NEEDED on libm.so regardless of position. The cross ocamlopt's own native_c_libraries
+    # omits -lm (baked into its Config module, not readable from Makefile.config).
+    export CONDA_OCAML_RISCV64_MKEXE="${CROSS_CC} ${CROSS_LDFLAGS} -Wl,-E -ldl -Wl,--no-as-needed -lm -Wl,--as-needed"
+    echo "  CONDA_OCAML_RISCV64_MKEXE=${CONDA_OCAML_RISCV64_MKEXE}"
+  fi
 
   # ============================================================================
   # Build crosscompiledopt
@@ -1544,9 +1754,27 @@ EOF
     if [[ "${target_platform}" == "linux-"* ]]; then
       CROSSCOMPILEDOPT_ARGS+=(
         CPPFLAGS="-D_DEFAULT_SOURCE"
-        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd"
-        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd"
+        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl${_zstd_lib}"
+        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl${_zstd_lib}"
       )
+    fi
+
+    # Override STRIP to a no-op for cross-compile builds.
+    # The crosscompiledopt step builds tmpheader.exe as a cross-arch ELF (e.g.
+    # riscv64-linux-gnu); the host x86_64 GNU strip cannot parse it and fails with
+    # 'Unable to recognise the format'. tmpheader.exe is a build-time tool only,
+    # not shipped, so stripping is unnecessary.
+    CROSSCOMPILEDOPT_ARGS+=(STRIP=:)
+
+    # QEMU_LD_PREFIX: same rationale as the crossopt leg above.
+    if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
+      _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
+      if [[ -d "${_qemu_sysroot}" ]]; then
+        export QEMU_LD_PREFIX="${_qemu_sysroot}"
+        echo "  [qemu] QEMU_LD_PREFIX=${QEMU_LD_PREFIX}"
+      else
+        echo "  [qemu] WARNING: expected target sysroot not found at ${_qemu_sysroot}; leaving QEMU_LD_PREFIX unset"
+      fi
     fi
 
     run_logged "crosscompiledopt" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" -j"${CPU_COUNT}"
@@ -1576,8 +1804,8 @@ EOF
     else
       CROSSCOMPILEDRUNTIME_ARGS+=(
         CPPFLAGS="-D_DEFAULT_SOURCE"
-        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd"
-        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd"
+        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl${_zstd_lib}"
+        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl${_zstd_lib}"
         SAK_LINK="${NATIVE_CC} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)"
       )
     fi
@@ -1766,24 +1994,46 @@ fi
 # Build using cross-compiler from BUILD_PREFIX (cross-compiled native)
 # ==============================================================================
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
-  # Cross-compiler is available in BUILD_PREFIX (from ocaml_$target_platform dependency)
   CROSS_TARGET="${OCAML_TARGET_TRIPLET}"
-  CROSS_COMPILER_DIR="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
+
+  # The ocaml_${target_platform} cross-compiler package is deliberately NOT a
+  # build dependency of this output (see recipe.yaml, is_cross_target branch):
+  # for a new architecture it may not exist on conda-forge yet, and the lane
+  # that produces it (is_cross_compiler, on the designated cross_build_platform)
+  # is a separate CI job whose artifacts this job cannot see.
+  #
+  # Build the cross-compiler in-lane instead, unconditionally rather than
+  # only-when-missing, so the identical code path runs locally and in CI, and
+  # the cross-compiler is guaranteed to match this exact source tree and version.
+  OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
+  CROSS_COMPILER_DIR="${OCAML_XCROSS_INSTALL_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
 
   echo ""
-  echo "=== Cross-target build: Using cross-compiler from BUILD_PREFIX ==="
+  echo "=== Cross-target build: building cross-compiler in-lane ==="
   echo "  Cross-compiler: ${CROSS_COMPILER_DIR}"
 
+  (
+    # setup_toolchain/setup_cflags_ldflags are required by build_cross_compiler
+    # (NATIVE_CC, SAK_*, NATIVE_CFLAGS/LDFLAGS). Kept INSIDE this subshell so the
+    # NATIVE_* exports cannot leak into build_cross_target below.
+    setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
+    setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
+    export OCAML_PREFIX="${BUILD_PREFIX}"
+    export OCAML_CROSS_FINAL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}"
+    export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
+    OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    build_cross_compiler
+  )
+
   if [[ ! -f "${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma" ]]; then
-    echo "ERROR: Cross-compiler not found at ${CROSS_COMPILER_DIR}"
-    echo "The ocaml_${target_platform} package must be installed as a build dependency"
+    echo "ERROR: in-lane cross-compiler build produced no ${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma"
     exit 1
   fi
 
   OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
   (
     export OCAML_PREFIX="${BUILD_PREFIX}"
-    export CROSS_COMPILER_PREFIX="${BUILD_PREFIX}"
+    export CROSS_COMPILER_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}"
     OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     build_cross_target
   )
@@ -1857,13 +2107,30 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     # The package runs on OCAML_TARGET_PLATFORM, so it needs that platform's tools
     if [[ "${BUILD_MODE}" == "cross-target" ]]; then
       echo "  (Using TARGET toolchain: ${OCAML_TARGET_TRIPLET}-*)"
+      # macOS has no -gcc driver; common-functions.sh selects -clang for *-apple-*
+      # and only linux/mingw use -gcc. Mirror that here.
+      _drv="gcc"
+      _mkexe_flags=""
+      _mkdll_flags="-shared"
+      case "${OCAML_TARGET_TRIPLET}" in
+        *-apple-*)
+          _drv="clang"
+          # Mirror common-functions.sh setup_toolchain()'s *-apple-* branch (MKEXE/MKDLL
+          # composition) so the flags baked into the SHIPPED activation script match what
+          # a native build would use. -isysroot is deliberately excluded: it is a BUILD-
+          # machine absolute SDK path and would be a relocation hazard once baked in.
+          _vmin="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+          _mkexe_flags="${_vmin} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
+          _mkdll_flags="${_vmin} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+          ;;
+      esac
       export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
       export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
-      export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
+      export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-${_drv}"
       export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
       export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
-      export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
+      export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-${_drv}${_mkexe_flags:+ ${_mkexe_flags}}"
+      export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-${_drv} ${_mkdll_flags}"
       export CONDA_OCAML_WINDRES="${OCAML_TARGET_TRIPLET}-windres"
     elif [[ -z "${CONDA_OCAML_AR:-}" ]]; then
       # Stage 3 fast path (native mode): use triplet-prefixed names from BUILD_PREFIX
