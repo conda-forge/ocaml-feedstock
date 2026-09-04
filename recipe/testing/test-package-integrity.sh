@@ -14,6 +14,12 @@ TARGET="${2:-}"
 
 echo "=== OCaml Package Integrity Tests (mode: ${MODE}) ==="
 
+# Track check groups so the final banner reflects reality: legitimate skips
+# (e.g. cannot execute cross-target binaries) do not fail the build, but they
+# must not be silently folded into an "all passed" banner either.
+PASSED_CHECKS=0
+SKIPPED_CHECKS=0
+
 # ============================================================================
 # HELPER: Check a file for staging/build-time paths
 # Usage: check_no_staging_paths <file> <label>
@@ -67,6 +73,7 @@ if [[ "${MODE}" == "cross" ]]; then
     exit 1
   fi
   echo "  ${TARGET}-ocamlopt: exists and executable"
+  PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
   # --- -config-var checks ---
   echo "Checking ${CROSS_OCAMLOPT} -config-var values..."
@@ -128,10 +135,12 @@ if [[ "${MODE}" == "cross" ]]; then
     exit 1
   fi
   echo "  native_c_libraries: clean"
+  PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
   # --- Makefile.config ---
   echo "Checking Makefile.config..."
   check_no_staging_paths "${MAKEFILE_CONFIG}" "Makefile.config"
+  PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
   # --- ld.conf ---
   echo "Checking ld.conf..."
@@ -142,6 +151,7 @@ if [[ "${MODE}" == "cross" ]]; then
       exit 1
     fi
     echo "  ld.conf: clean"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
   else
     echo "  WARNING: ld.conf not found"
   fi
@@ -155,6 +165,7 @@ if [[ "${MODE}" == "cross" ]]; then
       exit 1
     fi
     echo "  ocamlopt.opt binary: clean"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
   else
     echo "  WARNING: ocamlopt.opt not found at ${OCAMLOPT_BIN}"
   fi
@@ -169,6 +180,7 @@ if [[ "${MODE}" == "cross" ]]; then
     fi
   done
   echo "  ${TARGET}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}: all present"
+  PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
 # ============================================================================
 # NATIVE / CROSS-TARGET mode
@@ -195,6 +207,7 @@ else
   else
     echo "  OCAMLLIB: not set (will use default)"
   fi
+  PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
   # --- runtime-launch-info BINDIR check ---
   echo "Checking runtime-launch-info..."
@@ -217,6 +230,7 @@ else
       exit 1
     fi
     echo "  runtime-launch-info: clean"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
   else
     echo "  runtime-launch-info: not found (may be OK for some versions)"
   fi
@@ -233,6 +247,7 @@ else
       exit 1
     fi
     echo "  ld.conf: clean"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
   else
     echo "  WARNING: ld.conf not found"
   fi
@@ -240,6 +255,7 @@ else
   # --- Makefile.config ---
   echo "Checking Makefile.config..."
   check_no_staging_paths "${MAKEFILE_CONFIG}" "Makefile.config"
+  PASSED_CHECKS=$((PASSED_CHECKS + 1))
 
   # --- -config-var checks (skip for cross-target) ---
   if [[ "${CAN_EXECUTE}" == "true" ]]; then
@@ -303,8 +319,10 @@ else
       exit 1
     fi
     echo "  native_c_libraries: clean"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
   else
     echo "Skipping -config-var checks (cannot execute cross-target binaries)"
+    SKIPPED_CHECKS=$((SKIPPED_CHECKS + 1))
   fi
 
   # --- Binary strings check ---
@@ -317,6 +335,7 @@ else
       exit 1
     fi
     echo "  ocamlc.opt binary: clean"
+    PASSED_CHECKS=$((PASSED_CHECKS + 1))
   else
     echo "  WARNING: ocamlc.opt not found"
   fi
@@ -350,4 +369,8 @@ else
   fi
 fi
 
-echo "=== All package integrity tests passed ==="
+if [[ ${SKIPPED_CHECKS} -eq 0 ]]; then
+  echo "=== All package integrity tests passed ==="
+else
+  echo "=== Package integrity: ${PASSED_CHECKS} passed, ${SKIPPED_CHECKS} skipped ==="
+fi

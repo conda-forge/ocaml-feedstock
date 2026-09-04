@@ -1,0 +1,21 @@
+c_compiler:
+  - if: not unix
+    then:
+      - vs2022
+      - gcc
+
+# conda-forge has no gcc_impl_linux-s390x newer than 14.
+c_compiler_version:
+  - if: s390x
+    then:
+      - "14"
+
+cross_target_platform_:
+  - linux-64
+  - linux-aarch64
+  - linux-ppc64le
+  - linux-riscv64
+  - linux-s390x
+  - osx-64
+  - osx-arm64
+  - win-64

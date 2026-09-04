@@ -107,6 +107,16 @@ if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
   else
     echo "ppc64le cross-compiler not found, skipping"
   fi
+
+  if command -v s390x-conda-linux-gnu-ocamlopt >/dev/null 2>&1; then
+    test_cross_compiler \
+      "s390x-conda-linux-gnu" \
+      "Linux S390X" \
+      "qemu-execve-s390x" \
+      "${PREFIX}/s390x-conda-linux-gnu/sysroot"
+  else
+    echo "s390x cross-compiler not found, skipping"
+  fi
 fi
 
 # macOS x86_64: test arm64 cross-compiler

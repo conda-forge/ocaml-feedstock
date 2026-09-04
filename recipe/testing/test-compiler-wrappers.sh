@@ -18,8 +18,18 @@ if [[ "${MODE}" == "cross-target" ]]; then
     echo "  FAIL: CONDA_OCAML_CC is not set after activation"
     exit 1
   fi
-  echo "  CONDA_OCAML_CC=${CONDA_OCAML_CC} (set but cannot verify execution)"
-  echo "=== Wrapper tests passed (cross-target, limited) ==="
+  echo "  CONDA_OCAML_CC=${CONDA_OCAML_CC}"
+  # command -v does not execute anything, so a missing tool here is a genuine
+  # failure (e.g. broken activation), not a cross-target execution limitation.
+  if command -v "${CONDA_OCAML_CC}" >/dev/null 2>&1; then
+    echo "  PASS: '${CONDA_OCAML_CC}' found in PATH"
+  else
+    echo "  FAIL: '${CONDA_OCAML_CC}' not found in PATH"
+    echo "  PATH=${PATH}"
+    exit 1
+  fi
+  echo "  SKIPPED: compile/link/execute tests (target binaries cannot run on this host)"
+  echo "=== Wrapper tests passed (cross-target, limited, 1 skipped) ==="
   exit 0
 fi
 
