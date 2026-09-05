@@ -10,13 +10,6 @@ c_compiler:
       - gcc
       - zig
 
-# PR103: restore the local pin deleted by the "(ref) set channels" commit. Without it this
-# key falls back to the conda-forge-pinning global default of 15, so the win-64 gcc lane
-# solves for `gcc_win-64 15.*` while m2w64-sysroot's run_export demands
-# `gcc_win-64 ==14.4.0`, giving "Failed to resolve dependencies". Deliberately NOT
-# restoring the other keys that commit removed (c_compiler_version, c_stdlib,
-# c_stdlib_version, m2w64_c_stdlib, m2w64_c_stdlib_version, vc) - the vs2022 lane is
-# green without them and the solver names only gcc_win-64.
 m2w64_c_compiler_version:
   - "14"
 

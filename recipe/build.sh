@@ -129,7 +129,7 @@ fi
 echo ""
 echo "============================================================"
 echo "OCaml Build Script - Mode Detection"
-echo "  BUILD_SCRIPT_VERSION: 2026-09-05A-PR103-archcheck-amd64-s390x-portable-crossopt-timeout"
+echo "  BUILD_SCRIPT_VERSION: 2026-09-08-PR103X-drop-osx64-pin-and-native-intree"
 echo "============================================================"
 
 # ============================================================================
@@ -1563,7 +1563,19 @@ CRTHELPERS_X86
     # path byte-for-byte (feedback_shared_helper_scope: the green legs must not change).
     # This is scoped to win-arm64 because PR97's scope is win-arm64 only; the same latent
     # defect exists on the other zig win legs but they are green and are not in scope.
-    if [[ "${host_platform:-}" == "win-arm64" ]]; then
+    # PR103H round 4: third instance of the mis-keyed host_platform guard family (after W7II-A at
+    # build.sh:1674 and W7XX at build.sh:1768). On the win-64 HOST -> win-arm64 TARGET cross lane
+    # host_platform reports "win-64" (it names the BUILDER), so this test failed and control fell
+    # to the elif below, which sets IFS=":" and word-splits the zig lib dir list. A Windows
+    # drive-letter path then splits on its own colon: `D:\bld\...` became `-LD -L\bld\...`.
+    # Observed verbatim in GHA run 34138598528 job 101795227826 at log:9746,9747,9749,9917:
+    #   -LD -L\bld\bld\rattler-build_ocaml_win-arm64_1788795048\build_env/Library/lib/zig/libc/mingw/lib64
+    # Discriminating on OCAML_TARGET_PLATFORM (the TARGET) rather than the ocaml-arm64-imports
+    # directory check used by W7II-A/W7XX, because that directory does not exist yet on the FIRST
+    # stage_x86_64_imports() call (confirmed: the W7XX guard fired only on the second invocation,
+    # log:9737, not the first, log:2216). OCAML_TARGET_PLATFORM is set at script entry.
+    if [[ "${host_platform:-}" == "win-arm64" ]] \
+       || [[ "${OCAML_TARGET_PLATFORM:-}" == "win-arm64" ]]; then
       if [[ ${#_zig_x86_lib_dirs[@]} -gt 0 ]]; then
         for _path in "${_zig_x86_lib_dirs[@]}"; do
           echo "  [W7NN] adding zig lib dir (array, no colon split): ${_path}"
@@ -1660,8 +1672,20 @@ CRTHELPERS_X86
     # host_platform is therefore TRUE on the failing leg and FALSE on the green one.
     # NOTE: OCAML_TARGET_PLATFORM is identical (win-arm64) on BOTH legs - it is NOT a
     # discriminator, which is why W7CC/W7DD's guard cannot be reused for a subtractive change.
-    if [[ "${host_platform:-}" == "win-arm64" ]]; then
-      echo "  [W7II-A] win-arm64 NATIVE: omitting -lmsvcrt (ucrt/ucrtbase sole CRT family; msvcrt overlaps by 157 symbols)"
+    # PR103G: host_platform alone is insufficient here. stage_x86_64_imports() (this
+    # function) is also called from build_cross_compiler() (build.sh:10236), which runs
+    # for the win-64 HOST cross-building to a win-arm64 TARGET (BUILD_MODE ==
+    # cross-compiler). On that lane host_platform reports "win-64" (it describes the
+    # BUILDER, not the target), so this test never fired there and -lmsvcrt stayed
+    # alongside -lucrtbase, producing lld-link "duplicate symbol" errors (log/ucrtbase
+    # overlap) at the flexdll self-link in Makefile.cross:897. ocaml-arm64-imports
+    # (mkdir'd at build.sh:6130, only inside build_cross_compiler()) is only ever
+    # populated on that win-arm64 cross-compiler lane, so OR'ing it in reaches the
+    # cross case without affecting the vs2022/gcc win-64 native lanes (BUILD_MODE ==
+    # native never calls build_cross_compiler(), so the dir never exists there).
+    if [[ "${host_platform:-}" == "win-arm64" ]] \
+       || [[ -d "${BUILD_PREFIX}/Library/lib/ocaml-arm64-imports" ]]; then
+      echo "  [W7II-A] win-arm64 NATIVE or win-64-host->win-arm64 CROSS: omitting -lmsvcrt (ucrt/ucrtbase sole CRT family; msvcrt overlaps by 157 symbols)"
       export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-lkernel32 -lucrtbase -lucrt -lws2_32"
     else
       export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-lkernel32 -lmsvcrt -lucrtbase -lucrt -lws2_32"
@@ -1736,9 +1760,26 @@ CRTHELPERS_X86
       # .../Library/x86_64-w64-mingw32/sysroot/usr/lib (log:9869) — a path
       # zig-feedstock confirms the zig package does NOT populate and which our own
       # nm arch check previously rejected as i386-decorated.
+      # PR103H: host_platform alone is insufficient at this site, same defect as the
+      # W7II-A guard at build.sh:1674 in this same function.
+      # stage_x86_64_imports() is also called from build_cross_compiler(), which runs for
+      # the win-64 HOST cross-building to a win-arm64 TARGET; there host_platform reports
+      # "win-64" because it describes the BUILDER, not the target.
+      # Consequence observed in CI: GHA run 34129868880 job 101767142939, lane
+      # win_64_c_compilerzigcross_target_platform_win-arm64, failed after 28 min at
+      # Makefile.cross:974 cross-flexdll with `lld-link: error: pthread_cancel was replaced`,
+      # because the guard did not fire and a lone -lpthread was appended, binding the
+      # 2112-byte dynamic libwinpthread-1.dll import lib as a second pthread_cancel provider
+      # on top of the static winpthreads zig already folds into libmingw32.
+      # ocaml-arm64-imports is only ever populated on the win-arm64 cross-compiler lane, so
+      # OR'ing it in reaches the cross case without affecting the vs2022/gcc win-64 native
+      # lanes. Same rationale as build.sh:1670-1673.
+      # Note the sibling lane win_64_c_compilerzigcross_target_platform_win-64 PASSED in the
+      # same run, confirming this is win-arm64-target specific.
       echo "[W7XX-DIAG] host_platform='${host_platform:-}' winpthread_lib_dir='${_winpthread_lib_dir}'"
-      if [[ "${host_platform:-}" == "win-arm64" ]]; then
-        echo "[W7XX] win-arm64: NOT appending -L${_winpthread_lib_dir} -lpthread to FLEXLINKFLAGS (zig's libmingw32 already provides static winpthreads)"
+      if [[ "${host_platform:-}" == "win-arm64" ]] \
+         || [[ -d "${BUILD_PREFIX}/Library/lib/ocaml-arm64-imports" ]]; then
+        echo "[W7XX] win-arm64 NATIVE or win-64-host->win-arm64 CROSS: NOT appending -L${_winpthread_lib_dir} -lpthread to FLEXLINKFLAGS (zig's libmingw32 already provides static winpthreads)"
       else
         export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-L${_winpthread_lib_dir} -lpthread"
       fi
@@ -3658,6 +3699,19 @@ if not defined NATIVE_CC (
         set NATIVE_CC=x86_64-w64-mingw32-zig.exe cc -target x86_64-windows-gnu
     )
 )
+
+REM W-DIAG: unconditional (not gated behind DEBUG_ZIG_WRAPPER) diagnostic so a
+REM missing/unresolved zig exe is visible in plain test-env output, not just
+REM under the opt-in DEBUG_ZIG_WRAPPER log file.
+if defined CONDA_PREFIX (
+    set _wdiag_zig_exe=%CONDA_PREFIX%\Library\bin\x86_64-w64-mingw32-zig.exe
+) else (
+    set _wdiag_zig_exe=x86_64-w64-mingw32-zig.exe
+)
+echo [W-DIAG] CONDA_PREFIX=%CONDA_PREFIX%
+echo [W-DIAG] NATIVE_CC=%NATIVE_CC%
+echo [W-DIAG] CD=%CD%
+if not exist "%_wdiag_zig_exe%" echo [W-DIAG] zig exe MISSING at %_wdiag_zig_exe%
 
 if defined DEBUG_ZIG_WRAPPER (
     if defined SRC_DIR (
@@ -5859,7 +5913,7 @@ NOEXT_EOF
     # Fast-path: known minority arches lack zstd on conda-forge; skip the slow conda create probe
     TARGET_ZSTD_AVAILABLE="${TARGET_ZSTD_AVAILABLE:-1}"
     case "${CROSS_PLATFORM}" in
-      linux-riscv64)
+      linux-s390x)
         TARGET_ZSTD_AVAILABLE=0
         echo "  [zstd-fast-path] ${CROSS_PLATFORM}: known to lack zstd; setting TARGET_ZSTD_AVAILABLE=0"
         ;;
@@ -5872,19 +5926,32 @@ NOEXT_EOF
       TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
       # v05_03CR: only export TARGET_ZSTD_LIBS if the conda create succeeded (lib dir exists with libzstd).
       # For platforms where conda-forge doesn't ship zstd (e.g. linux-riscv64), set empty + flag to drop -lzstd.
-      if [[ -f "${TARGET_ZSTD_LIB}/libzstd.so" || -f "${TARGET_ZSTD_LIB}/libzstd.a" ]]; then
+      # libzstd.dylib: conda's macOS zstd ships ONLY the .dylib, so a .so/.a-only
+      # probe is blind on every osx-* target and always reports "not available".
+      if [[ -f "${TARGET_ZSTD_LIB}/libzstd.so" || -f "${TARGET_ZSTD_LIB}/libzstd.a" || -f "${TARGET_ZSTD_LIB}/libzstd.dylib" ]]; then
         TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
         TARGET_ZSTD_AVAILABLE=1
         echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
       else
         TARGET_ZSTD_LIBS=""
         TARGET_ZSTD_AVAILABLE=0
-        echo "  TARGET_ZSTD_LIBS: <empty> (conda-forge ${CROSS_PLATFORM} has no zstd; will configure --without-zstd)"
+        echo "  [zstd-probe] no target-arch zstd for ${CROSS_PLATFORM}; building without zstd"
       fi
     else
       TARGET_ZSTD_LIBS=""
       echo "  TARGET_ZSTD_LIBS: <empty> (fast-path: ${CROSS_PLATFORM} known to lack zstd)"
     fi
+
+    # PR103W follow-up (2026-09-08): re-invoke setup_dyld_fallback now that
+    # TARGET_ZSTD_LIB is known. The earlier call at build.sh:5702 runs before
+    # this zstd block assigns TARGET_ZSTD_LIB (~5926), so on osx-64 cross
+    # lanes its guard (common-functions.sh setup_dyld_fallback) always saw an
+    # unset/empty TARGET_ZSTD_LIB and never prepended the target-arch zstd
+    # dir. Recompute here, before the crossopt call sites, so
+    # DYLD_FALLBACK_LIBRARY_PATH actually includes it. The second call is safe
+    # because TARGET_ZSTD_LIB is de-duplicated; the duplicate BUILD_PREFIX/lib
+    # entry is harmless and intentional.
+    setup_dyld_fallback
 
     # ========================================================================
     # Clean and configure
@@ -7540,7 +7607,7 @@ SAK_WINMAIN_STUB
     # Ensure boot/ has ocamlrun + ocamlc — flexdll build needs them to compile flexlink.exe.
     # For cross-compilation, use the installed native OCaml from BUILD_PREFIX.
     mkdir -p boot
-    if [[ ! -f boot/ocamlrun.exe ]]; then
+    if ! is_unix && [[ ! -f boot/ocamlrun.exe ]]; then
       local _ocaml_bin="${BUILD_PREFIX}/Library/bin"
       [[ -f "${_ocaml_bin}/ocamlrun.exe" ]] || _ocaml_bin="${BUILD_PREFIX}/bin"
       for _tool in ocamlrun ocamlc ocamllex; do
@@ -10330,8 +10397,19 @@ CROSS_WINMAIN_STUB_C
         # W5Y site is inside the arm64+x86_64 double-guard, which is true on BOTH win-arm64
         # legs; narrow further to the NATIVE runner so the green win_64 -> win-arm64 cross
         # keeps its existing -lmsvcrt (feedback_shared_helper_scope).
-        if [[ "${host_platform:-}" == "win-arm64" ]]; then
-          echo "  [W7II-A] win-arm64 NATIVE: omitting -lmsvcrt from W5Y crossopt flags"
+        # PR103G: same insufficiency as the stage_x86_64_imports() W7II-A site
+        # (build.sh ~1663). This block runs inside build_cross_compiler() for the
+        # win-64 HOST -> win-arm64 TARGET cross lane, where host_platform reports
+        # "win-64", not "win-arm64" - the guard never fired and left -lmsvcrt next
+        # to -lucrtbase in FLEXLINKFLAGS, causing the flexdll self-link duplicate-
+        # symbol failures. We are already inside the arm64+x86_64 ocaml-*-imports
+        # double-guard above (line ~10323), which is true only on this cross lane
+        # and on the win-arm64 native lane; OR the directory check in here too so
+        # the cross lane is covered without loosening the win-64 native lanes
+        # (which never populate ocaml-arm64-imports; see build.sh:6130).
+        if [[ "${host_platform:-}" == "win-arm64" ]] \
+           || [[ -d "${BUILD_PREFIX}/Library/lib/ocaml-arm64-imports" ]]; then
+          echo "  [W7II-A] win-arm64 NATIVE or win-64-host->win-arm64 CROSS: omitting -lmsvcrt from W5Y crossopt flags"
           export FLEXLINKFLAGS="${FLEXLINKFLAGS} -lkernel32 -lucrtbase -lucrt -lws2_32 -lmingwex -lcrt_helpers"
         else
           export FLEXLINKFLAGS="${FLEXLINKFLAGS} -lkernel32 -lmsvcrt -lucrtbase -lucrt -lws2_32 -lmingwex -lcrt_helpers"
@@ -10568,10 +10646,115 @@ CROSS_WINMAIN_STUB_C
         "NUKE_ZIG_HOST_CRT2_CACHE=${_w42_nuke_zig_crt2}"
       )
 
+      # zstd-free TARGET ONLY: force the stdlib .cmi compiler to the in-tree ocamlc.
+      # The bare `ocamlc` in Makefile.cross's CROSS_OVERRIDES resolves via PATH
+      # to $BUILD_PREFIX/bin/ocamlc, which is zstd-enabled and emits .cmi with
+      # the COMPRESSED marshal magic 0x8495A6BD that a --without-zstd runtime
+      # cannot read. Guarded on TARGET_ZSTD_AVAILABLE (set above), not arch, so
+      # it applies uniformly to any zstd-free target (e.g. osx-64, riscv64).
+      # osx-64 cross: zstd IS available so the probe leaves TARGET_ZSTD_AVAILABLE=1,
+      # but the stdlib/middle_end .cmi mismatch still occurs via the bare CAMLC in
+      # the crossopt stdlib rebuild. Pin regardless of zstd for this target.
+      # PR103 round 6: win-arm64 EXCLUDED from this pin.
+      # CROSS_CAMLC_PIN (recipe/building/Makefile.cross:238) routes CAMLC through
+      # runtime/ocamlrun, the freshly cross-built TARGET binary. osx-64 and the Linux
+      # cross targets can execute that binary (native, Rosetta, or this repo's qemu-user
+      # passthrough). win-arm64 cannot: there is no ARM64-on-x64 execution path on the
+      # win-64 GHA runner, so the pin becomes an unconditional
+      #   runtime/ocamlrun: cannot execute binary file  (Error 126)
+      # at every sub-make carrying it (stdlib-all L508, ocamllex L515, ocaml L517).
+      # stdlib-all's failure is masked by the SKIP_TMPHEADER_BUILD -k wrapper; ocamllex
+      # is the first unguarded consumer and is where it surfaces.
+      # Confirmed: pin fired on the win-arm64 lane (GHA job 101818277396, log line 9874).
+      # win-arm64 built green before this pin existed (pre-PR103, green tree has zero
+      # occurrences of STDLIB_CMI_PIN_INTREE), so this restores prior working scope
+      # rather than adding a new tolerate-and-continue guard.
+      # PR103X (2026-09-08): osx-64 clause REMOVED again, and this time paired
+      # with disabling STDLIB_NATIVE_INTREE=1 for osx-64 (see that block a few
+      # lines below, now commented out). Both flags are OFF for osx-64,
+      # together, deliberately.
+      #
+      # Why: with the pin ON, the in-tree x86_64 ocamlc.opt resolves libzstd
+      # via @rpath and aborts on the arm64 host with "incompatible
+      # architecture (have arm64, need x86_64)" at
+      # Makefile.otherlibs.common:155 building unix.cmi (Azure buildId
+      # 1583997).
+      #
+      # Why this is expected to work: the green sibling branch pr2-osx has
+      # NEITHER flag (zero grep hits for STDLIB_NATIVE_INTREE and
+      # STDLIB_CMI_PIN_INTREE anywhere in its recipe/) and is green on both
+      # osx-64 cross lanes; its CROSS_OVERRIDES at Makefile.cross:100-102
+      # uses a bare PATH-resolved CAMLC=ocamlc.
+      #
+      # PRESERVED WARNING (still true, do not re-disable only one of the two):
+      # STDLIB_NATIVE_INTREE and the CMI pin are COUPLED. If
+      # STDLIB_NATIVE_INTREE=1 is set while the CMI pin is OFF, `make -C
+      # stdlib allopt` runs with a bare CAMLOPT=ocamlopt, which PATH-resolves
+      # to the HOST native ocamlopt. On the osx_arm64 host that emits ARM64
+      # assembly (bl/br/adr/b.lo) which is then handed to the x86_64 target
+      # assembler, giving "invalid instruction mnemonic" and
+      # "Emit.instr_size: instruction length mismatch", failing at
+      # stdlib/camlinternalFormatBasics.cmx. Evidence: Azure buildId 1583566,
+      # log lines 2153, 2487, 2489, 2564-2932.
+      #
+      # The pin machinery in Makefile.cross is left in place but dormant, so
+      # re-enabling either flag (they must be re-enabled together) is a small
+      # change.
+      if { [[ "${TARGET_ZSTD_AVAILABLE:-1}" == "0" ]] && [[ "${CROSS_PLATFORM}" != "win-arm64" ]]; }; then
+        CROSSOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
+        echo "  target lacks zstd: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
+      else
+        echo "  [W-PIN-SKIP] STDLIB_CMI_PIN_INTREE not set for CROSS_PLATFORM=${CROSS_PLATFORM} (win-arm64: runtime/ocamlrun cannot execute on the win-64 host)"
+      fi
+
+      # PR103 round 7: separate, MORE RESTRICTIVE gate for the in-tree native
+      # stdlib.cmxa build (see the stdlib-allopt block in Makefile.cross).
+      # The observed defect - LINKOPT ocamlc.opt failing with "inconsistent
+      # assumptions over interface Stdlib__Uchar" against
+      # $BUILD_PREFIX/lib/ocaml/stdlib.cmxa - is confirmed ONLY on osx-64
+      # (Azure build 1583442, commit 73a0c1a4). The win-64 zig lane is GREEN on
+      # round 6 with STDLIB_CMI_PIN_INTREE=1 and no in-tree stdlib.cmxa
+      # (28.6 min vs 23 min, the extra time being the round-6 ocamlopt bootstrap
+      # alone). Gating the native-stdlib build on STDLIB_CMI_PIN_INTREE would add
+      # an unneeded, unvalidated step to that currently-green lane, so this uses
+      # its own osx-64-only flag per the most-restrictive-guard rule.
+      # PR103X (2026-09-08): DISABLED for osx-64, together with the
+      # STDLIB_CMI_PIN_INTREE clause above. See the rewritten comment block
+      # above this one for the full rationale. Commented out (not deleted)
+      # so re-enabling is a one-line uncomment.
+      # if [[ "${CROSS_PLATFORM}" == "osx-64" ]]; then
+      #   CROSSOPT_ARGS+=( STDLIB_NATIVE_INTREE=1 )
+      #   echo "  osx-64: building in-tree native stdlib.cmxa before ocamlc.opt/ocamlopt.opt link (STDLIB_NATIVE_INTREE=1)"
+      # fi
+
       # MKEXE override is now handled inside Makefile.cross crossopt recipe
       # (sed on Makefile.config, restored at end of crossopt target)
 
       # v05_03h DIAGNOSTIC removed in BU (probe no longer needed)
+
+      # PR103H round 4: normalize path separators on the CPP line of the WORK-DIR Makefile.config.
+      # GROUND TRUTH: upstream ocaml/ocaml 5.4.0 Makefile lines 493-494 build utils/domainstate.mli
+      # with `$(V_GEN)$(CPP) -I runtime/caml $< > $@`, and CPP is never assigned in that Makefile -
+      # it comes from Makefile.config written by ./configure. On the win-64-host -> win-arm64-target
+      # cross lane the configure-derived CPP holds a BACKSLASH build path, so /bin/sh ate the
+      # separators and the exec failed (GHA run 34138598528 job 101795227826):
+      #   /bin/sh: line 1: D:bldbldrattler-build_ocaml_win-arm64_1788795048build_env/Library/bin/x86_64-w64-mingw32-zig.exe: No such file or directory
+      #   make[1]: *** [Makefile:494: utils/domainstate.mli] Error 127
+      # NATIVE_CC was NOT the culprit - it is forward-slash at the make invocation (log:10872) and
+      # in all 12 of its echoes; a round-3 attempt to normalize NATIVE_CC was inert and is reverted.
+      # The existing CPP sed at build.sh ~11339 does NOT cover this: it patches the INSTALLED
+      # cross-compiler's Makefile.config, not the work-dir one, and its regex `^(CPP)=/.*/...`
+      # requires a leading `/` so a `D:\...` value never matches it anyway.
+      # Separators only - the configure-chosen value is preserved, nothing is guessed. Forward
+      # slashes are accepted by the Windows toolchain. Scoped to the win-arm64 TARGET so no green
+      # lane changes.
+      if [[ "${OCAML_TARGET_PLATFORM:-}" == "win-arm64" ]] && [[ -f "${SRC_DIR}/Makefile.config" ]]; then
+        echo "  [PR103H] CPP line in work-dir Makefile.config BEFORE normalization:"
+        grep -E '^CPP=' "${SRC_DIR}/Makefile.config" | sed 's/^/    /' || echo "    (no CPP= line found)"
+        sed -Ei '/^CPP=/ s#\\#/#g' "${SRC_DIR}/Makefile.config"
+        echo "  [PR103H] CPP line AFTER normalization:"
+        grep -E '^CPP=' "${SRC_DIR}/Makefile.config" | sed 's/^/    /' || echo "    (no CPP= line found)"
+      fi
 
       if [[ "${OCAML_TARGET_PLATFORM:-}" = "win-arm64" ]]; then
         # v05_03l: physical replacement of bytecode flexlink with conda stock
@@ -10989,6 +11172,39 @@ ARSHEOF
         # The wrappers ship at $BUILD_PREFIX/share/zig/wrappers/ but zig's activate.d only
         # exports ZIG_CC/ZIG_AR env vars, not PATH (so the dir isn't otherwise on PATH).
         _crossopt_rc=0
+        # ====================================================================
+        # PR103W-DIAG (2026-09-08, osx-64 cross only): diagnostics for the
+        # otherlibs/unix unix.cmi dyld abort (Azure buildId 1583587). Confirms
+        # binary arch, whether libzstd is referenced via @rpath/leaf-name, and
+        # any baked-in LC_RPATH entries -- all previously UNKNOWN. Bundled with
+        # PR103W's DYLD_FALLBACK_LIBRARY_PATH fix (common-functions.sh). Every
+        # line is prefixed [PR103W-DIAG] and non-fatal (|| true); no build
+        # state is altered.
+        # ====================================================================
+        if [[ "${target_platform}" == "osx-64" ]] && [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+          echo "[PR103W-DIAG] DYLD_FALLBACK_LIBRARY_PATH=${DYLD_FALLBACK_LIBRARY_PATH:-<unset>}" || true
+          echo "[PR103W-DIAG] TARGET_ZSTD_LIB=${TARGET_ZSTD_LIB:-<unset>}" || true
+          echo "[PR103W-DIAG] ls -la of TARGET_ZSTD_LIB:" || true
+          ls -la "${TARGET_ZSTD_LIB:-/nonexistent}" 2>&1 | sed 's/^/[PR103W-DIAG] /' || true
+          for _pr103w_bin in "${SRC_DIR}/ocamlc.opt" "${SRC_DIR}/ocamlopt.opt"; do
+            echo "[PR103W-DIAG] -- ${_pr103w_bin} --" || true
+            if [[ -f "${_pr103w_bin}" ]]; then
+              if command -v lipo >/dev/null 2>&1; then
+                echo "[PR103W-DIAG] lipo -info:" || true
+                lipo -info "${_pr103w_bin}" 2>&1 | sed 's/^/[PR103W-DIAG] /' || true
+              else
+                echo "[PR103W-DIAG] file:" || true
+                file "${_pr103w_bin}" 2>&1 | sed 's/^/[PR103W-DIAG] /' || true
+              fi
+              echo "[PR103W-DIAG] otool -L:" || true
+              otool -L "${_pr103w_bin}" 2>&1 | sed 's/^/[PR103W-DIAG] /' || true
+              echo "[PR103W-DIAG] otool -l (LC_RPATH):" || true
+              otool -l "${_pr103w_bin}" 2>&1 | grep -A2 "LC_RPATH" | sed 's/^/[PR103W-DIAG] /' || true
+            else
+              echo "[PR103W-DIAG] ${_pr103w_bin} does not exist yet" || true
+            fi
+          done
+        fi
         run_logged "crossopt" ${_crossopt_to[@]+"${_crossopt_to[@]}"} env "PATH=${BUILD_PREFIX}/share/zig/wrappers:${PATH}" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${_ocaml_make_jobs}" || _crossopt_rc=$?
         if [[ -n "${_w22_procmon_pid}" ]]; then
           kill "${_w22_procmon_pid}" 2>/dev/null || true
@@ -11479,10 +11695,10 @@ build_cross_target() {
   CROSS_PLATFORM=$(get_target_platform "${host_alias}")
 
   # Stage 3: determine zstd availability for this target platform.
-  # Minority arches (s390x, riscv64) have no zstd on conda-forge; skip -lzstd and --without-zstd.
+  # linux-s390x has no zstd on conda-forge; skip -lzstd and --without-zstd.
   TARGET_ZSTD_AVAILABLE=1
   case "${target_platform}" in
-    linux-riscv64)
+    linux-s390x)
       TARGET_ZSTD_AVAILABLE=0
       echo "  [zstd-fast-path] ${target_platform}: known to lack zstd; setting TARGET_ZSTD_AVAILABLE=0"
       ;;
@@ -11829,6 +12045,13 @@ EOF
       else
         echo "  [qemu] WARNING: expected target sysroot not found at ${_qemu_sysroot}; leaving QEMU_LD_PREFIX unset"
       fi
+    fi
+
+    # zstd-free TARGET ONLY: force the stdlib .cmi compiler to the in-tree ocamlc
+    # for crosscompiledopt too (same rationale as the crossopt leg above).
+    if [[ "${TARGET_ZSTD_AVAILABLE:-1}" == "0" ]]; then
+      CROSSCOMPILEDOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
+      echo "  target lacks zstd: pinning stdlib CAMLC to in-tree ocamlc for crosscompiledopt"
     fi
 
     run_logged "crosscompiledopt" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" -j"${_ocaml_make_jobs}"
@@ -12475,6 +12698,14 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   fi
 
   # First-build bootstrap fallback for new arches (rare path; isolated in its own file)
+  # PR103 2026-09-05: do NOT gate this on is_unix. Tried that (BUILD_SCRIPT_VERSION
+  # 2026-09-05D) and it regressed linux_ppc64le from GREEN to a fast fail, plus
+  # riscv64 and osx-64, all with "ERROR: Cross-compiler not found" (CI commit
+  # ad29de3e, log 103c-ppc64le.log:1818-1821). Reason: the recipe does NOT declare
+  # ocaml_${target_platform} as a build dependency on cross-target lanes - the build
+  # env carries only ocaml_linux-64 (log:1490) - so this "fallback" is in fact the
+  # ONLY supplier of the cross-compiler on unix cross-target lanes, not an optional
+  # windows-only detour. Leave it ungated.
   if [[ ! -f "${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma" ]] && [[ -f "${RECIPE_DIR}/building/bootstrap-fallback-cross-target.sh" ]]; then
       source "${RECIPE_DIR}/building/bootstrap-fallback-cross-target.sh"
       bootstrap_cross_target_from_inline

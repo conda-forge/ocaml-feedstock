@@ -1149,7 +1149,45 @@ install_conda_ocaml_wrappers() {
 setup_dyld_fallback() {
   if [[ "${target_platform}" == "osx"* ]]; then
     if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+      # Unconditional prepend, matching pre-PR103W behaviour exactly. Runs
+      # FIRST (before the TARGET_ZSTD_LIB block below) because each export
+      # here PREPENDS: whichever export runs LAST ends up FIRST in the
+      # resulting search order. A duplicate ${BUILD_PREFIX}/lib entry may
+      # appear after the second call in build_cross_compiler() -- that is
+      # harmless (dyld just searches the same directory twice) and is
+      # strictly safer than de-duplicating here, which would reorder entries
+      # and change dyld search order on the currently-GREEN osx lanes if
+      # DYLD_FALLBACK_LIBRARY_PATH already contains this dir at a later
+      # position. Do not "helpfully" dedupe it.
       export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+      # PR103W (2026-09-08): the in-tree x86_64 ocamlc.opt/ocamlopt.opt that
+      # crossopt runs link libzstd via @rpath, and the only x86_64-arch
+      # libzstd on osx-64 cross lanes lives in TARGET_ZSTD_LIB (build.sh
+      # ~line 5926), not BUILD_PREFIX/lib. Prepend it LAST (after
+      # BUILD_PREFIX/lib above) so it ends up FIRST in the search order and
+      # resolves before BUILD_PREFIX/lib's host-arch libzstd -- the whole
+      # point of this fix is that the x86_64 cross binary must find the
+      # TARGET-arch libzstd before dyld ever has a chance to reject the
+      # host-arch dylib on architecture mismatch. Guard is osx-cross-only and
+      # directory-existence checked: PR103U regressed six GREEN linux cross
+      # lanes by gating on "TARGET_ZSTD_LIBS non-empty" alone (true on linux
+      # cross lanes too); this guard is additionally scoped inside the osx
+      # branch so it cannot fire on linux lanes regardless of TARGET_ZSTD_LIB
+      # contents there.
+      if [[ -n "${TARGET_ZSTD_LIB:-}" && -d "${TARGET_ZSTD_LIB:-}" ]]; then
+        # PR103W follow-up (2026-09-08): setup_dyld_fallback is now called
+        # twice in build_cross_compiler() -- once at ~5702 (before
+        # TARGET_ZSTD_LIB is assigned, so this branch is skipped) and again
+        # after the zstd block (~5943, once TARGET_ZSTD_LIB is known). Only
+        # this entry needs de-duplication (colon-delimited containment check,
+        # so a substring of a longer path cannot false-match) to make the
+        # second call idempotent for it; ${BUILD_PREFIX}/lib above is left
+        # unconditional, see comment there.
+        case ":${DYLD_FALLBACK_LIBRARY_PATH:-}:" in
+          *":${TARGET_ZSTD_LIB}:"*) ;;  # already present - skip to avoid duplicate
+          *) export DYLD_FALLBACK_LIBRARY_PATH="${TARGET_ZSTD_LIB}:${DYLD_FALLBACK_LIBRARY_PATH:-}" ;;
+        esac
+      fi
     else
       export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     fi

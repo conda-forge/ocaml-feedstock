@@ -413,10 +413,14 @@ outputs:
                 - mingw-w64-ucrt-x86_64-winpthreads-git
 
       host:
-        - zstd
+        - if: cross_target_platform_ != "linux-s390x"
+          then:
+            - zstd
 
       run:
-        - zstd
+        - if: cross_target_platform_ != "linux-s390x"
+          then:
+            - zstd
         # W3YY: mirror the full build-side win-64 mingw deps at line 366-375 into run.
         # OCaml's libasmrun.lib references both pthread_* symbols (need winpthreads-git)
         # and _tls_index (need crt-git which provides libmingw32.a + crt2.o). headers-git
@@ -647,6 +651,34 @@ outputs:
                     - ${{ library }}lib/ocaml/libunix{byt,nat}.lib
                     - ${{ library }}lib/ocaml/std_exit.obj
                     - ${{ library }}lib/ocaml/stdlib.lib
+                # PR103 2026-09-05: the c_compiler != "zig" guard at :637 excluded the
+                # zig/win native lane from ALL of the Windows artifact declarations
+                # below, so package_contents strict mode reported 54 unmatched files
+                # (job 101366676783, "Strict mode: 54 unmatched files found").
+                # zig ships the same MSVC-style .lib set as vs2022, but with MINGW-named
+                # flexdll objects, plus the zig wrapper scripts, .pdb files, the
+                # x86_64 import libs and the flexlinkflags activation scripts.
+                - if: not unix and c_compiler == "zig"
+                  then:
+                    - ${{ library }}lib/ocaml/flexdll/flexdll_initer_mingw64.obj
+                    - ${{ library }}lib/ocaml/flexdll/flexdll_mingw64.obj
+                    - ${{ library }}lib/ocaml/libasm{run,rund,runi}.lib
+                    - ${{ library }}lib/ocaml/libcaml{run,rund,runi}.lib
+                    - ${{ library }}lib/ocaml/libcamlruntime_{eventsbyt,eventsnat}.lib
+                    - ${{ library }}lib/ocaml/libcamlstr{byt,nat}.lib
+                    - ${{ library }}lib/ocaml/libcomprmarsh.lib
+                    - ${{ library }}lib/ocaml/libthread{s,snat}.lib
+                    - ${{ library }}lib/ocaml/libunix{byt,nat}.lib
+                    - ${{ library }}lib/ocaml/std_exit.obj
+                    - ${{ library }}lib/ocaml/stdlib.lib
+                    - ${{ library }}lib/ocaml-x86_64-imports/*.a
+                    - ${{ library }}bin/conda-ocaml-{ar,as,cc,ld,ranlib,windres}.pdb
+                    - ${{ library }}bin/ocamlruni.exe
+                    - ${{ library }}bin/x86_64-w64-mingw32-gcc.{bat,exe}
+                    - ${{ library }}bin/zig_{ar,ranlib}_wrapper.sh
+                    - ${{ library }}bin/zig_aspp_wrapper.{bat,sh}
+                    - etc/conda/activate.d/ocaml-flexlinkflags.bat
+                    - etc/conda/deactivate.d/ocaml-flexlinkflags.bat
                 - if: unix
                   then:
                     - ${{ library }}lib/ocaml/libasmrun_shared.so
@@ -681,16 +713,59 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 
             # CROSS-COMPILER win-arm64: Windows-style paths (.exe, .lib, no man pages)
-            # Many files are empty stubs (allopt skipped); use broad globs to match.
+            # PR103J round 7: the old glob here was written for the STUB artifact set
+            # produced back when crossopt died early and allopt never ran (hence the
+            # former comment "Many files are empty stubs"). As of round 6 (commit
+            # 73a0c1a4, GHA job 101858077667) crossopt completes end to end and the
+            # lane legitimately produces 411 more files, so package_contents strict
+            # mode reported them as unmatched. Broadened to cover what the build now
+            # actually emits. Every extension and subdirectory below corresponds to an
+            # observed unmatched file in that job's log (compiler-libs/*.cmx and *.lib,
+            # stdlib/str/threads/unix *.cmx/*.cmxa/*.lib, stublibs/dll*.dll,
+            # share/doc/ocaml/*). This is coverage of real output, not suppression.
             - if: is_cross_compiler and xc_warm64
               then:
                 - etc/conda/activate.d/ocaml_cross_activate.sh
                 - etc/conda/deactivate.d/ocaml_cross_deactivate.sh
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.exe
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,lex,opt}.opt.exe
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/flexlink.exe
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/flexlink.byte.exe
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/flexlink.opt.exe
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/{ld.conf,expunge.exe,sys.ml.in}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/domain_state.tbl
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/Makefile.config
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime-launch-info
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/*.{cma,cmi,cmo,cmt,cmti,ml,mli}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,lib,ml,mli,obj}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/*.h
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/{compiler-libs,dynlink,profiling,runtime_events,stdlib,str,threads,unix}/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.dll
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
+                # The CRT import stubs (libadvapi32.a, libcrt_helpers.a, libgcc.a,
+                # libkernel32.a, libmsvcrt.a, libucrt.a, libsynchronization.a and
+                # family) are copied into the HOST's own Library/lib/ocaml/ by
+                # build_native()'s W3EE step (build.sh:5354-5378) so the shipped
+                # flexlink.exe can resolve them at user runtime - intentional and
+                # load-bearing, not a build leftover. The is_native/is_cross_target
+                # manifest already ships them via the identical glob at line ~609, and
+                # is_cross_target+xc_warm64 has the same precedent at line ~619; the
+                # is_cross_compiler role simply never got the corresponding line.
+                # Note: no target_triplet and no ocaml-cross-compilers prefix - these
+                # land in the host prefix, not the cross-compiler subtree.
+                - ${{ library }}lib/ocaml/*.a
+                # PR103 round 9: the remaining host-prefix artifacts, same class as the
+                # lib/ocaml/*.a line above. ocaml-x86_64-imports/*.a is the OTHER copy
+                # target of W2NN FIX-M (build.sh:5341-5348, distinct from the W3EE copy
+                # into bare lib/ocaml). The two ocaml-flexlinkflags.bat scripts come from
+                # W2KK FIX-K for the win zig lane. All are already shipped under
+                # is_native / is_cross_target and were simply never listed for the
+                # is_cross_compiler role. winmain_stub_native.o is a bare .o directly
+                # under Library/lib/ocaml, matched by neither the *.a glob above nor the
+                # cross-compiler subtree globs.
+                - ${{ library }}lib/ocaml/winmain_stub_native.o
+                - ${{ library }}lib/ocaml-x86_64-imports/*.a
+                - etc/conda/activate.d/ocaml-flexlinkflags.bat
+                - etc/conda/deactivate.d/ocaml-flexlinkflags.bat
 
       # ----------------------------------------------------------------------
       # Package integrity: paths, config, env vars, rpath
@@ -749,7 +824,7 @@ outputs:
       # NATIVE: Tool version checks
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and not arm64
+          - if: is_native and not xc_warm64
             then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }}
             else: echo "Skipping tool version tests"
         files:
@@ -758,7 +833,7 @@ outputs:
         requirements:
           run:
             # Use native grep on arm64 since no QEMU
-            - if: not arm64
+            - if: not xc_warm64
               then:
                 - ${{ m2 }}grep
 
@@ -775,7 +850,7 @@ outputs:
         requirements:
           run:
             # Use native grep on arm64 since no QEMU
-            - if: not arm64
+            - if: not xc_warm64
               then:
                 - ${{ m2 }}grep
 
@@ -785,11 +860,11 @@ outputs:
       # on compiler("c") provides the triplet-prefixed binary.
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and unix and not arm64
+          - if: is_native and unix and not xc_warm64
             then: cd testing && ${{ dot }}test-compiler-wrappers.${{ sh }}
           - if: is_cross_target
             then: cd testing && ${{ dot }}test-compiler-wrappers.${{ sh }} cross-target
-          - if: not (is_native and unix and not arm64) and not is_cross_target
+          - if: not (is_native and unix and not xc_warm64) and not is_cross_target
             then: echo "Skipping wrapper tests"
         files:
           recipe:
@@ -820,8 +895,15 @@ outputs:
           recipe:
             - testing/test-cross-compilers.sh
         requirements:
-          run:
+          # PR103: `file` is a HOST-SIDE utility - test-cross-compilers.sh uses it to INSPECT
+          # target binaries, never to run on the target. Under run: it solved against
+          # target_platform and failed the linux-riscv64 cross-target lane with
+          # "No candidates were found for file *" (that lane skips this test entirely -
+          # script guard is is_cross_compiler - but requirements are solved regardless).
+          # Same fix as the test-package-integrity block above.
+          build:
             - ${{ m2 }}file
+          run:
             - if: linux
               then:
                 # c_stdlib_version tracks target_platform, but this sysroot is for cross_target_platform_.
@@ -947,23 +1029,29 @@ outputs:
             then:
               - 'export QEMU_LD_PREFIX="${PREFIX}${{ sysroot }}"'
               - 'export OCAML_QEMU="${{ qemu }}"'
-          - if: not arm64
+              - 'export QEMU_EXECVE_NATIVE_PASSTHROUGH=1'
+          - if: not xc_warm64
             then: cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
-            else: echo "Skipping compilation tests (osx-arm64 cross-target, no QEMU)"
+            else: echo "Skipping compilation tests (win-arm64 cross-target - cannot execute arm64 Windows binaries on a win-64 host)"
         files:
           recipe:
             - testing/test-compilation.${{ sh }}
         requirements:
           build:
             - ${{ qemu_pin }}
-          run:
             - ${{ m2 }}file
             - ${{ m2 }}grep
+            - if: c_compiler == "zig" and target_platform != "win-arm64"
+              then:
+                - ${{ compiler("zig") }}
+                # ZIG13 pin, see :314
+                - zig_${{ target_platform }} ==0.16.0
+          run:
             - if: linux
               then:
                 - sysroot_${{ cross_target_platform_ }} ${{ c_stdlib_version }}.*
             # W10C (2026-08-30): exclude win-arm64 from the zig TEST requirement.
-            # The test SCRIPT above is already skipped on arm64 (`if: not arm64`
+            # The test SCRIPT above is already skipped on arm64 (`if: not xc_warm64`
             # at :1273 -> the else branch just echoes "Skipping compilation
             # tests"), but this requirements block was NOT gated on arm64, so
             # rattler-build still had to SOLVE zig_win-arm64 for a script that
@@ -977,11 +1065,6 @@ outputs:
             # the script does not run on this platform, so the correct fix is to
             # drop the dependency, not to swap in a compiler the test would
             # never invoke.
-            - if: c_compiler == "zig" and target_platform != "win-arm64"
-              then:
-                - ${{ compiler("zig") }}
-                # ZIG13 pin, see :314
-                - zig_${{ target_platform }} ==0.16.0
             - pefile
 
       # ----------------------------------------------------------------------
@@ -993,9 +1076,10 @@ outputs:
             then:
               - 'export QEMU_LD_PREFIX="${PREFIX}${{ sysroot }}"'
               - 'export OCAML_QEMU="${{ qemu }}"'
-          - if: not arm64
+              - 'export QEMU_EXECVE_NATIVE_PASSTHROUGH=1'
+          - if: not xc_warm64
             then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
-            else: echo "Skipping toolchain var tests (osx-arm64 cross-target, no QEMU)"
+            else: echo "Skipping toolchain var tests (win-arm64 cross-target - cannot execute arm64 Windows binaries on a win-64 host)"
         files:
           recipe:
             - testing/test-toolchain-vars.${{ sh }}

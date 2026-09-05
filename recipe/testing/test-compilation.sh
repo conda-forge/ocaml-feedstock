@@ -218,8 +218,12 @@ echo -n "  compiling C stub..."
 cc_cmd="${CONDA_OCAML_CC:-cc}"
 ${cc_cmd} -c -I "${PREFIX}/lib/ocaml" -fPIC stub_test.c -o stub_test.o 2>&1 && echo " OK" || { echo " FAIL (C compilation)"; exit 1; }
 
+# ocamlmklib is a shell-trampoline over bytecode (#!/usr/bin/sh + exec ocamlrun),
+# not a native ELF, so it must go through _run_bytecode: handing the trampoline
+# directly to qemu-execve makes qemu's ELF loader reject it with ENOEXEC
+# ("Exec format error"). Native lanes (empty OCAML_QEMU) are unaffected.
 echo -n "  creating shared library with ocamlmklib..."
-if _run_target ocamlmklib -o stub_test stub_test.o 2>mklib_err.txt; then
+if _run_bytecode "$(command -v ocamlmklib)" -o stub_test stub_test.o 2>mklib_err.txt; then
   echo " OK"
   # Verify files were created
   ls dllstub_test.so libstub_test.a >/dev/null 2>&1 && echo "  shared+static libs created: OK" || echo "  WARNING: some output files missing"
