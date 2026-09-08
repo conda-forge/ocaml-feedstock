@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 # OCaml linker wrapper - expands CONDA_OCAML_LD environment variable
 # Used for NATIVE_PACK_LINKER (ld -r -o) to create relocatable objects
-exec ${CONDA_OCAML_LD:-ld} "$@"
+. "$(dirname "$0")/conda-ocaml-common"
+ocaml_exec_simple "${CONDA_OCAML_LD:-}" ld "$@"

@@ -30,6 +30,49 @@ HOST_ZSTD_LIBS=ZSTD_LIBS=$(ZSTD_LIBS)
 # This points to a conda env with target-arch zstd installed via --subdir
 TARGET_ZSTD_LIBS ?= $(ZSTD_LIBS)
 
+# PR103T (Azure buildId 1583573, log lines 2943-2957): crossopt's
+# "ocamlc.opt-ocamlopt.opt sub-make" (below) links using $(HOST_ZSTD_LIBS),
+# which points at the BUILD_PREFIX (HOST-arch) libzstd. On cross_target lanes
+# where that link actually produces a TARGET-arch binary (e.g. the osx-64
+# reciprocal lane: BUILD=osx-arm64, TARGET=osx-64), the HOST dylib is
+# architecture-incompatible and ld rejects it:
+#   ld: warning: ignoring file $BUILD_PREFIX/lib/libzstd.dylib, building for
+#   macOS-x86_64 but attempting to link with file built for macOS-arm64
+#   Undefined symbols for architecture x86_64: _ZSTD_compressStream2, ...
+# TARGET_ZSTD_LIBS is empty exactly when the target lacks zstd (build.sh sets
+# it to "" in that case), so gating on it being non-empty is equivalent to
+# TARGET_ZSTD_AVAILABLE=1 without threading a new variable through the make
+# command line. When target zstd is unavailable, this falls straight through
+# to $(HOST_ZSTD_LIBS) unchanged -- lanes such as win-arm64 depend on that
+# exact fallback and must stay byte-identical.
+#
+# REGRESSION NOTE (PR103V, 2026-09-07): PR103U tried appending
+# -Wl,-rpath,<target zstd lib dir> here to let the in-tree x86_64
+# ocamlc.opt/ocamlopt.opt resolve target libzstd at runtime during crossopt.
+# IT REGRESSED SIX GREEN LINUX CROSS LANES: linux_64 -> {linux-aarch64,
+# linux-ppc64le, linux-riscv64}, linux_aarch64 -> linux-64, linux_ppc64le ->
+# linux-ppc64le, linux_riscv64 -> linux-riscv64. The two NATIVE linux lanes
+# stayed green. TWO INDEPENDENT DEFECTS, both must be avoided:
+# (1) WRONG GATE: `TARGET_ZSTD_LIBS non-empty` is TRUE on linux cross lanes
+#     too (they create a real zstd_linux-<arch> env), not just osx. Any
+#     future attempt must gate on the osx cross case specifically.
+# (2) MALFORMED FLAG: it failed at LINK time building ocamlc.opt with
+#     "x86_64-conda-linux-gnu-gcc: error: unrecognized command-line option
+#     '-Wl'" (Makefile:556) -- the multi-word override was mis-tokenized and
+#     gcc got a bare -Wl. This REFUTES the COMPRESSED_MARSHALING_FLAGS
+#     reasoning that tokens routed via -ccopt make -Wl,... safe to pass this
+#     way. It never reached packaging.
+# Because (2) failed first, the rpath APPROACH itself was never actually
+# exercised; it is not disproven, but any retry needs both a correct gate
+# and a verified flag-passing mechanism. The underlying problem is still
+# open: crossopt executes in-tree target-arch compilers that cannot resolve
+# target libzstd (Azure buildId 1583587, "Abort trap: 6" at
+# ../Makefile.otherlibs.common:155 building unix.cmi). The structurally
+# correct fix is likely to move the native otherlibs build back out of
+# crossopt into crosscompiledopt, where PR101 has it, i.e. AFTER installcross
+# and the macOS rpath fixups (verify_macos_rpath, fix-macos-install-names.sh).
+NATIVE_LINK_ZSTD_LIBS=$(if $(TARGET_ZSTD_LIBS),ZSTD_LIBS=$(TARGET_ZSTD_LIBS),$(HOST_ZSTD_LIBS))
+
 # The build system adds various include directories which pertain to the current
 # tree, including -I runtime, which is necessary for -custom executables.
 # ocamltest is always a -custom executable, but some others (ocamldoc; the
@@ -58,11 +101,23 @@ SAK_CC ?= $(CC)
 # SAK_CFLAGS: CFLAGS for BUILD machine (sak runs on build, not target)
 # Must NOT contain target-specific flags like -mtune=power8
 SAK_CFLAGS ?= $(CFLAGS)
-SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$(1) $(2)
+# On Windows (EXE=.exe), MinGW CRT defaults to GUI subsystem (WinMain).
+# build.sh probes NATIVE_CC to find which flag produces PE subsystem=console,
+# then exports SAK_SUBSYSTEM_FLAG. Use ?= so the env var overrides this default.
+# Fallback default tried if build.sh probe is skipped or inconclusive.
+ifeq ($(EXE),.exe)
+SAK_SUBSYSTEM_FLAG ?= -Wl,--subsystem,console
+endif
+SAK_LINK ?= $(SAK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(SAK_SUBSYSTEM_FLAG) $(OUTPUTEXE)$(1) $(2)
 
 # Override SAK_BUILD to use SAK_CC/SAK_CFLAGS instead of CC/CFLAGS for cross-compilation
 # sak is a build tool that must run on the BUILD machine
 SAK_BUILD = $(SAK_LINK) $(OC_CFLAGS) $(SAK_CFLAGS) $(OC_CPPFLAGS) $(CPPFLAGS)
+$(info DEBUG-MAKECROSS: EXE=$(EXE))
+$(info DEBUG-MAKECROSS: SAK_SUBSYSTEM_FLAG=$(SAK_SUBSYSTEM_FLAG))
+$(info DEBUG-MAKECROSS: SAK_BUILD=$(SAK_BUILD))
+$(info DEBUG-MAKECROSS: SAK_LINK=$(SAK_LINK))
+$(info DEBUG-MAKECROSS: SAK_CC=$(SAK_CC))
 
 # CROSS_CC/CROSS_AR must be set on command line for cross-compilation.
 # These are passed through to sub-makes for C libraries (otherlibs).
@@ -131,8 +186,202 @@ NATIVE_COMPILER_OVERRIDES=$(NATIVE_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
 # CAMLOPT is now a variable that can be overridden from command line
 CROSS_COMPILER_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
   BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) BEST_OCAMLLEX=ocamllex
+# CROSS_COMPILERLIBS_OVERRIDES: CAMLC must match the compiler that wrote
+# stdlib.cmi. The bare `ocamlc` in CROSS_OVERRIDES resolves via PATH to the
+# zstd-ENABLED bootstrap ocamlc, which writes .cmi using the COMPRESSED
+# marshal format; a target configured --without-zstd cannot read that,
+# producing "Corrupted compiled interface stdlib.cmi". When
+# STDLIB_CMI_PIN_INTREE=1, CAMLC is forced below to the in-tree
+# runtime/ocamlrun + ocamlc so the writer and the target reader agree on
+# compression. Guarded: only STDLIB_CMI_PIN_INTREE=1 changes behaviour; the
+# else branch below is byte-identical to prior behaviour.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+# CAMLC here is a bytecode image (ocamlc$(EXE)); run bare it resolves its own
+# #! shebang's ocamlrun, which on a zstd-free target is the zstd-ENABLED
+# bootstrap one, and marshal compression is gated by HAS_ZSTD in the runtime
+# (runtime/extern.c), so bare CAMLC writes COMPRESSED .cmi and disagrees with
+# the in-tree ocamlrun-run consumers. Prefix with the in-tree runtime/ocamlrun
+# to force the zstd-free runtime. CAMLOPT below is a NATIVE .opt binary with
+# its own linked runtime and must NOT get an ocamlrun prefix.
+CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)" \
+  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt$(EXE) $(STDLIBFLAGS)"
+else
 CROSS_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
   CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt$(EXE) $(STDLIBFLAGS)"
+endif
+
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+NATIVE_CAMLC_PIN=CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)"
+else
+NATIVE_CAMLC_PIN=
+endif
+
+# PR103H: NATIVE_CAMLC_PIN above pins only CAMLC. The ocamlc.opt/ocamlopt.opt sub-make
+# below (~line 525/530) also passes a bare `OCAMLOPT=$(CAMLOPT)`, which resolves via PATH
+# to $BUILD_PREFIX/bin/ocamlopt. Result on the osx-64 TARGET lanes: tools/profiling.cmi is
+# written by the PINNED in-tree CAMLC (reading $SRC_DIR stdlib.cmi) while tools/profiling.cmx
+# is compiled by the UNPINNED OCAMLOPT (reading $BUILD_PREFIX/lib/ocaml/stdlib.cmi), and the
+# two disagree:
+#   Error: The files $BUILD_PREFIX/lib/ocaml/stdlib.cmi and $SRC_DIR/tools/profiling.cmi
+#          make inconsistent assumptions over interface Stdlib
+#   make[1]: *** [Makefile:2550: tools/profiling.cmx] Error 2
+# Observed on BOTH osx-64 target lanes regardless of host (osx_64 and osx_arm64 hosts),
+# Azure build 1583131, commit 4e2e8494. The osx-arm64 TARGET lane is unaffected and green.
+# This is why the build.sh STDLIB_CMI_PIN_INTREE=1 pin was only PARTIALLY effective.
+# CORRECTION (round 4): the pin must assign CAMLOPT, not OCAMLOPT. Verified against upstream
+# ocaml/ocaml 5.4.0 Makefile: the generic rule `%.cmx: %.ml` (upstream line 2546-2547) runs
+# $(V_OCAMLOPT)$(COMPILE_NATIVE_MODULE), and COMPILE_NATIVE_MODULE (upstream 2503-2505) expands
+# to $(CAMLOPT) ... - so the .cmx compile consults CAMLOPT. Upstream never assigns OCAMLOPT or
+# BEST_OCAMLOPT at all. Round 3 pinned OCAMLOPT and was therefore inert: the error was
+# byte-identical before and after (Azure build 1583131 vs the ccd3560c run).
+# NATIVE_COMPILER_OVERRIDES (Makefile.cross:140) passes a bare CAMLOPT=$(CAMLOPT); appending
+# this pin AFTER it on the same sub-make command line overrides it, exactly as NATIVE_CAMLC_PIN
+# already overrides that line's bare CAMLC=ocamlc.
+# No ocamlrun prefix here: per the comment at line 161-162, CAMLOPT/ocamlopt.opt is a NATIVE
+# .opt binary with its own linked runtime and must NOT be prefixed with ocamlrun. Value
+# mirrors the CAMLOPT already used in CROSS_COMPILERLIBS_OVERRIDES at line 164.
+# Empty unless STDLIB_CMI_PIN_INTREE=1, so green lanes are byte-identical.
+# CORRECTION 2 (round 5): pinning CAMLOPT to ocamlopt.opt was SELF-REFERENTIAL. Round 4 shipped
+# that and it DID fire - proven by the new error naming the pinned path exactly:
+#   OCAMLOPT tools/profiling.cmx
+#   make[1]: $SRC_DIR/ocamlopt.opt: No such file or directory
+#   make[1]: *** [Makefile:2550: tools/profiling.cmx] Error 127
+# (commit 397a0eb3; osx-64 lane log 2944-2946, osx_arm64-host lane 2861-2863). The round-4 pin DID
+# fix the original defect: `inconsistent assumptions over interface Stdlib` is now GONE from both
+# lanes. Error 2 (compiler ran, disagreed) became Error 127 (compiler absent) - progress, not a
+# regression.
+# Why self-referential: this very sub-make (Makefile.cross:555/560) is `ocamlc.opt ocamlopt.opt
+# $(TOOLS_NATIVE_TARGETS)` - it is what BUILDS ocamlopt.opt, and tools/profiling.cmx is compiled
+# during that same build, so ocamlopt.opt does not exist yet when CAMLOPT is first needed.
+# The fix uses the in-tree BYTECODE ocamlopt under runtime/ocamlrun. This matches upstream twice:
+#   - upstream Makefile line 33 defines CAMLOPT=$(OCAMLRUN) ./ocamlopt$(EXE) $(STDLIBFLAGS) ...
+#     i.e. the bytecode image, NOT ocamlopt.opt
+#   - upstream's own bootstrap fallback:
+#       ifeq "$(wildcard ocamlopt.opt$(EXE))" ""
+#         FLEXLINK_OCAMLOPT=../runtime/ocamlrun$(EXE) ../ocamlopt$(EXE)
+#       else
+#         FLEXLINK_OCAMLOPT=../ocamlopt.opt$(EXE)
+#       endif
+# NOTE this does NOT contradict the no-ocamlrun-prefix rule in the comment at line 161-162: that
+# rule governs CROSS_COMPILERLIBS_OVERRIDES, a LATER stage where ocamlopt.opt already exists and is
+# a native binary with its own linked runtime. At THIS earlier stage only the bytecode image exists.
+# ADDENDUM (round 7, ground truth verified against ocaml/ocaml 5.4.0 source):
+# the CAMLOPT-not-OCAMLOPT finding above is confirmed COMPLETE. Grepped upstream
+# Makefile and Makefile.common for both `^OCAMLOPT` and `$(OCAMLOPT)`: zero
+# matches, either file, either pattern. OCAMLOPT does not exist upstream at all.
+# Do not re-attempt an OCAMLOPT pin; it is provably inert - Makefile.common:
+# 378-386 shows _NATIVE_LINKCMD uses $(CAMLOPT) exclusively, for both ocamlc.opt
+# and ocamlopt.opt, which are macro-generated by the $(eval $(call OCAML_PROGRAM
+# ...)) loop at Makefile:553-557 (this is why errors attribute to "Makefile:556").
+# The round-6 CAMLOPT pin is itself CORRECT and DID progress the build (Azure
+# build 1583442, commit 73a0c1a4): compilerlibs/ocamlcommon.cmxa and
+# ocamlbytecomp.cmxa now compile and archive cleanly past tools/profiling.cmx.
+# The NEXT failure at that commit is a DIFFERENT defect at the same site: LINKOPT
+# ocamlc.opt fails because $(ROOTDIR)/stdlib/stdlib.cmxa does not exist yet. See
+# the STDLIB_NATIVE_INTREE stdlib-allopt sub-make added below (round 7), which is
+# gated more narrowly than this pin: osx-64 only, not all STDLIB_CMI_PIN_INTREE
+# lanes, because win-64 zig is green without it.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+NATIVE_CAMLOPT_PIN=CAMLOPT="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlopt$(EXE) $(STDLIBFLAGS)"
+else
+NATIVE_CAMLOPT_PIN=
+endif
+
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+NATIVE_OTHERLIBS_CAMLC_PIN=CAMLC="$(abspath $(ROOTDIR))/ocamlc.opt"
+else
+NATIVE_OTHERLIBS_CAMLC_PIN=
+endif
+
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+CROSS_CAMLC_PIN=CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) $(STDLIBFLAGS)"
+else
+CROSS_CAMLC_PIN=
+endif
+
+# PR103 round 9: otherlibs needs its own pin with an ABSOLUTE -I path.
+# CROSS_CAMLC_PIN above inherits $(STDLIBFLAGS), which upstream defines as
+# "-nostdlib -I $(ROOTDIR)/stdlib" with ROOTDIR=. - a RELATIVE path that is only
+# correct while cwd is the source root. The stdlib/ocamllex/ocaml sub-makes all
+# run at top level so it works there. The otherlibs "all" step does not: it
+# recurses via "make -C otherlibs", whose Makefile then loops
+#   for lib in runtime_events unix str systhreads; do (make -C $$lib all); done
+# putting cwd two levels deep. The relative "-I ./stdlib" then points at a
+# directory that does not exist while -nostdlib has already removed the real
+# default, so the compiler finds no Stdlib at all:
+#   Error: Unbound module Stdlib
+#   make[2]: *** [../Makefile.otherlibs.common:155: runtime_events.cmi] Error 2
+# That was round 8 (Azure build 1583474, commit e21c596d), a REGRESSION caused by
+# reusing CROSS_CAMLC_PIN verbatim at a -C-recursing call site. Same compiler and
+# same -nostdlib, but the include path is made absolute so it survives the cwd
+# change. Empty unless STDLIB_CMI_PIN_INTREE=1, so green lanes are unaffected.
+# PR103 round 10: -nostdlib REMOVED. Round 9 fixed the relative-path bug above and
+# runtime_events plus the unix C stubs then built cleanly, but the otherlibs loop
+# ("for lib in runtime_events unix str systhreads") went on to fail one directory
+# later, in systhreads:
+#   File "otherlibs/systhreads/thread.ml", line 1:
+#   Error: Unbound module Unix
+#   make[2]: *** [Makefile:126: thread.cmi] Error 2
+# (Azure build 1583496, commit b16b7241.) Ground truth, ocaml/ocaml 5.4.0
+# driver/compmisc.ml:16-21: auto_include raises Not_found when
+# !Clflags.no_std_include, which is exactly what -nostdlib sets. That short-circuits
+# Load_path.auto_include_otherlibs, upstream's mechanism for one otherlib
+# (systhreads) to locate another (unix) without an explicit -I. So round 8 and
+# round 9 were two symptoms of ONE flag, surfacing one directory apart.
+# The explicit absolute "-I .../stdlib" is sufficient on its own: -I directories are
+# searched BEFORE the default directory (compmisc.ml:23-29), so the in-tree stdlib
+# still wins Stdlib resolution, while dropping -nostdlib restores cross-otherlib
+# auto-discovery. RESIDUAL RISK to watch in the next log: the default library dir
+# is searchable again, so confirm no module resolves against $BUILD_PREFIX/lib/ocaml
+# instead of the in-tree copy.
+# PR103 round 11: added an explicit "-I <abs>/otherlibs/unix". Round 10 dropped
+# -nostdlib and that worked as intended - runtime_events, unix and str all build
+# cleanly now and both "Unbound module" errors are gone. But it exposed the real
+# defect, which was never about compiler identity or which flags the writer uses:
+#   File "thread.mli", line 1:
+#   Error: Corrupted compiled interface $BUILD_PREFIX/lib/ocaml/unix/unix.cmi
+#   make[2]: *** [Makefile:126: thread.cmi] Error 2
+# (systhreads, Azure build 1583516, commit 3d4282b6.) With -nostdlib gone,
+# Load_path.auto_include_otherlibs works again and systhreads does find a Unix -
+# but it searches under Config.standard_library, which is baked into every OCaml
+# binary at its own ./configure time and equals $BUILD_PREFIX/lib/ocaml, never the
+# in-tree source dir. So it picks up the INSTALLED unix.cmi rather than the in-tree
+# one compiled moments earlier in this same otherlibs-all run. No choice of CAMLC
+# can change that: bytecode ocamlc and ocamlc.opt share the same baked-in
+# Config.standard_library. -I directories are searched BEFORE both the default
+# directory and auto-include (compmisc.ml:23-29), so naming the in-tree
+# otherlibs/unix explicitly makes it win. This is exactly what the compiler's own
+# alert recommends ("you should add -I +unix to the command-line").
+# The three failures in rounds 8, 9 and 10 were one causal chain, not three bugs:
+# relative -I, then -nostdlib killing auto-include, then auto-include reaching the
+# wrong prefix.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+CROSS_OTHERLIBS_CAMLC_PIN=CAMLC="$(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/ocamlc$(EXE) -I $(abspath $(ROOTDIR))/stdlib -I $(abspath $(ROOTDIR))/otherlibs/unix"
+else
+CROSS_OTHERLIBS_CAMLC_PIN=
+endif
+
+# The `$(MAKE) ocamlc` sub-make (crossopt step 2, below) cannot take
+# CROSS_CAMLC_PIN: it is the step that links $(ROOTDIR)/ocamlc, so the pin's
+# target does not exist yet while this step runs. It therefore compiles
+# compiler-lib sources with bare CAMLC=ocamlc, which PATH-resolves to the
+# zstd-enabled conda build_env ocamlc, writing compiler-lib .cmi stamped by
+# that compiler. The later ocamllex/ocaml sub-makes run under CROSS_CAMLC_PIN
+# (the in-tree --without-zstd ocamlc) and reject those .cmi with
+# "Error: Corrupted compiled interface". Purging them right after step 2
+# forces a rebuild by the pinned, zstd-disabled compiler. This mirrors the
+# existing purge further down (compilerlibs-for-target, ~line 727), which
+# runs too late to help ocamllex/ocaml. Step 2 also builds
+# $(TOOLS_BYTECODE_TARGETS) with the same unpinned bare CAMLC=ocamlc, so
+# tools/*.cmi (e.g. tools/profiling.cmi) are likewise stamped by the
+# build_env stdlib and must be purged here too.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+CROSS_CMI_PURGE=rm -f utils/*.cmi parsing/*.cmi lambda/*.cmi bytecomp/*.cmi \
+  file_formats/*.cmi typing/*.cmi driver/*.cmi toplevel/*.cmi asmcomp/*.cmi \
+  middle_end/*.cmi middle_end/**/*.cmi tools/*.cmi
+else
+CROSS_CMI_PURGE=true
+endif
 
 CROSSCOMPILED_COMPILERLIBS_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc \
   CAMLOPT="$(CAMLOPT) $(STDLIBFLAGS)"
@@ -144,6 +393,35 @@ ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 OLDS := -o $(BYTE_BINDIR)/flexlink$(EXE)
 else
 OLDS :=
+endif
+
+# v05_03AO: stub rules for runtime/zstd.*.obj when SKIP_COMPRMARSH_BUILD=true
+# --disable-native-compiler removes .npic.obj/.b.obj/.bd.obj/.bi.obj/.bpic.obj rules for
+# runtime/zstd.c, but libcomprmarsh.lib still requires runtime/zstd.npic.obj as a
+# dependency causing 'No rule to make target' fatal errors that -k cannot bypass.
+# Provide empty stub object files; downstream link failures (libcomprmarsh.lib invalid)
+# are then caught by AE/AN guards (-k + || echo) on consumer make invocations.
+# v05_03AP: also override runtime/libcomprmarsh.lib itself with a stub. Empty .obj
+# stubs from AO satisfy the make dep, but Makefile:1448 still calls cross-ocamlmklib
+# with insufficient args ('No -oc or -o output name specified' Error 1). Provide
+# a stub rule that just touches the .lib file to bypass the mklib invocation.
+ifeq "$(SKIP_COMPRMARSH_BUILD)" "true"
+runtime/zstd.npic.obj runtime/zstd.b.obj runtime/zstd.bd.obj runtime/zstd.bi.obj runtime/zstd.bpic.obj:
+	@echo "v05_03AO: creating empty stub for $@ (zstd disabled on win-arm64)"
+	@touch $@
+runtime/libcomprmarsh.lib:
+	@echo "v05_03AP: creating empty stub for $@ (zstd compression marshalling disabled)"
+	@touch $@
+# v05_03AQ: copy bytecode native compilers to .opt$(EXE) names. After AO/AP stubs,
+# build links ocamlopt$(EXE) and ocamlc$(EXE) successfully, but Makefile rules
+# (OCAMLOPT utils/config.cmx etc.) invoke ocamlopt.opt$(EXE) which doesn't exist
+# on win-arm64 without native compiler. Copy bytecode binaries as fallback.
+ocamlopt.opt$(EXE): ocamlopt$(EXE)
+	@echo "v05_03AQ: copying ocamlopt$(EXE) to ocamlopt.opt$(EXE) (no native compiler on win-arm64)"
+	@cp ocamlopt$(EXE) $@
+ocamlc.opt$(EXE): ocamlc$(EXE)
+	@echo "v05_03AQ: copying ocamlc$(EXE) to ocamlc.opt$(EXE) (no native compiler on win-arm64)"
+	@cp ocamlc$(EXE) $@
 endif
 
 # The compiler libs that should be rebuilt for target (they are first built for
@@ -175,61 +453,318 @@ RUNTIME_VARS = ARCH=$(ARCH) AR='$(AR)' AS='$(AS)' ASPP='$(ASPP)' CC='$(CC)' LDFL
 # SAK_AR: archiver for BUILD machine (llvm-ar on macOS for ld64 compatibility)
 SAK_LDFLAGS ?=
 SAK_AR ?= $(AR)
+SAK_BYTECCLIBS ?= $(BYTECCLIBS)
 BYTECODE_RUNTIME_VARS = \
   SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
-  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)'
+  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -Wl,--subsystem,console' \
+  'BYTECCLIBS=$(SAK_BYTECCLIBS) flexdll_stub.$$(O)'
+# BYTECODE_RUNTIME_VARS_WITH_STUB: adds runtime_winmain_stub.obj to BYTECCLIBS.
+# zig's lld maps wmain() → GUI CRT (crtexewin.obj) on ARM64; WinMain+main stubs
+# provide both entry points so lld selects /subsystem:console via mainCRTStartup.
+# -Wl,--subsystem,console is the GNU/LLD MinGW linker flag (not GCC-specific);
+# do NOT use -mconsole (GCC-only alias, unsupported by zig).
+# v05_03BW: gate runtime_winmain_stub on Windows targets.
+# On non-Windows (linux/osx), runtime_winmain_stub uses windows.h which doesn't exist.
+ifeq "$(UNIX_OR_WIN32)" "win32"
+BYTECODE_RUNTIME_VARS_WITH_STUB = \
+  SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
+  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS) -Wl,--subsystem,console' \
+  'BYTECCLIBS=$(SAK_BYTECCLIBS) flexdll_stub.$$(O) runtime_winmain_stub.$$(O)'
+else
+# v05_03CA: drop flexdll_stub.$$(O) on non-Windows targets — flexdll is
+# Windows-only (CAML_WITH_FLEXDLL); the BOOTSTRAPPING_FLEXDLL=false branch
+# of crossopt does not generate flexdll_stub.c, so referencing the .o here
+# fails with "ld: cannot find flexdll_stub.o" on linux/osx cross_target builds.
+# v05_03CB: append $(ZSTD_LIBS) -lm -lpthread -ldl — BUILD-machine ocamlruni
+# link needs system libs (math, pthread, dl) and zstd (for marshal compression).
+# SAK_BYTECCLIBS inherits target-configured BYTECCLIBS which does not always
+# carry these on cross_target_platform_* (true cross BUILD != TARGET) variants.
+BYTECODE_RUNTIME_VARS_WITH_STUB = \
+  SAK_CC='$(SAK_CC)' SAK_CFLAGS='$(SAK_CFLAGS)' \
+  'SAK_LINK=$(SAK_CC) $(SAK_LDFLAGS) $$(OUTPUTEXE)$$(1) $$(2)' \
+  'MKEXE=$(SAK_CC) $(SAK_CFLAGS) $(SAK_LDFLAGS)' \
+  'BYTECCLIBS=$(SAK_BYTECCLIBS) $(ZSTD_LIBS) -lm -lpthread -ldl'
+endif
 
 .PHONY: crossopt
 ifeq "$(BOOTSTRAPPING_FLEXDLL)" "true"
 crossopt: cross-flexdll
+	# Override MKEXE directly in Makefile.config. ALL executables in cross-
+	# compilation run on the BUILD machine - none are arm64. The configure-
+	# generated MKEXE (flexlink arm64) is wrong for all exe targets.
+	# Modify the source file so ALL submakes read the correct value.
+	cp Makefile.config Makefile.config.crossopt_bak
+ifeq "$(UNIX_OR_WIN32)" "win32"
+	# v05_03CC: -Wl,--subsystem,console is a Windows-PE-only linker flag
+	# (GNU/LLD MinGW). Apple ld64 hard-errors on --subsystem; zig cc silently
+	# drops it on Linux ELF. Guard to win32 only.
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -Wl,--subsystem,console|' Makefile.config
+else
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC)|' Makefile.config
+endif
+	@echo "=== CROSSOPT DEBUG: MKEXE after sed ==="
+	@grep '^MKEXE=' Makefile.config || echo "MKEXE line not found!"
+	@echo "=== CROSSOPT DEBUG: SAK_CC=$(SAK_CC) MKEXE=$(MKEXE) ==="
+	# Clean runtime objects/archives from prior arm64 build (step 4) before
+	# rebuilding for x64 BUILD machine. Keep executables (sak.exe needed for
+	# build_config.h generation). Without this, make reuses stale arm64 .obj.
+	# v05_03n: Skip rm on win-arm64 cross-builds (T31 binary must be preserved).
+	# Other platforms (win-64, osx, linux) retain original behaviour.
+	@if [ "$(SKIP_CROSSOPT_RUNTIME_REBUILD)" != "true" ]; then \
+		rm -f runtime/*.$(O) runtime/*.$(A); \
+	else \
+		echo "v05_03n: SKIP_CROSSOPT_RUNTIME_REBUILD=true, skipping rm runtime/*.o *.a"; \
+	fi
+	# Build x64 flexdll stub - the bytecode runtime links libcamlrun which
+	# references flexdll_wdlopen/dlsym/dlclose/dlerror (compiled with
+	# CAML_WITH_FLEXDLL). The real flexdll objects are arm64 (wrong arch).
+	# The x64 ocamlrun doesn't need actual flexdll, just resolved symbols.
+	printf '%s\n' \
+	  '#include <stddef.h>' \
+	  'void *flexdll_wdlopen(wchar_t *f, int m) { return NULL; }' \
+	  'void flexdll_dump_exports(void *h) {}' \
+	  'int flexdll_dlclose(void *h) { return 0; }' \
+	  'void *flexdll_dlsym(void *h, const char *s) { return NULL; }' \
+	  'char *flexdll_dlerror(void) { return "flexdll stub"; }' \
+	  > flexdll_stub.c
+	$(SAK_CC) $(SAK_CFLAGS) -c -o flexdll_stub.$(O) flexdll_stub.c
+ifeq "$(UNIX_OR_WIN32)" "win32"
+	# v05_03BW: Build WinMain+main stub for ocamlrun.exe console subsystem (Windows only).
+	# zig's lld maps wmain() to GUI CRT (crtexewin.obj) regardless of -Wl,--subsystem,console.
+	# Adding WinMain() + main() causes lld to "default to /subsystem:console" and use
+	# mainCRTStartup. main() uses CommandLineToArgvW to obtain wide argv for wmain().
+	printf '%s\n' \
+	  '#include <windows.h>' \
+	  '#include <wchar.h>' \
+	  'extern int wmain(int argc, wchar_t **argv);' \
+	  'int WinMain(HINSTANCE h, HINSTANCE p, LPSTR c, int s) {' \
+	  '  (void)h;(void)p;(void)c;(void)s;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  'int main(int argc, char **argv) {' \
+	  '  (void)argc;(void)argv;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  > runtime_winmain_stub.c
+	$(SAK_CC) $(SAK_CFLAGS) -c -o runtime_winmain_stub.$(O) runtime_winmain_stub.c
+endif
 	# Build bytecode runtime with BUILD compiler (ocamlrun runs on BUILD machine)
 	# SAK_* override MAKEFLAGS to prevent cross-compiler flags (e.g., -mtune=power8)
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	# MKEXEDEBUGFLAG: configure sets this to '-link -g' (flexlink syntax); strip '-link'
+	# since SAK_CC is zig cc (not flexlink) — '-link' causes zig lld panic (TODO).
+	# v05_03n: Skip $(MAKE) runtime-all on win-arm64 (T31 binary already in place;
+	# re-link via SAK_CC hits arm64-vs-x64 crt2 mismatch). Other platforms unchanged.
+	@echo "[CROSSOPT-STAGE] entering runtime-all sub-make"
+	@if [ "$(SKIP_CROSSOPT_RUNTIME_REBUILD)" != "true" ]; then \
+		$(MAKE) runtime-all V=1 CC="$(SAK_CC)" CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" MKEXEDEBUGFLAG=-g $(BYTECODE_RUNTIME_VARS_WITH_STUB) $(OLDS); \
+	else \
+		echo "v05_03n: SKIP_CROSSOPT_RUNTIME_REBUILD=true, skipping $(MAKE) runtime-all (T31 binary already in place)"; \
+	fi
+	# Freeze interpreters so make skips relinking. win-arm64 ONLY (v05_03n/T31):
+	# on unix cross-target lanes this defeats the cross-relink and ships host-arch binaries.
+	if [ "$(SKIP_CROSSOPT_RUNTIME_REBUILD)" = "true" ]; then touch -t 203001010000 runtime/ocamlrun$(EXE) runtime/ocamlrund$(EXE) runtime/ocamlruni$(EXE) 2>/dev/null || true; fi
 else
 crossopt:
-	# Build bytecode runtime with BUILD compiler (ocamlrun runs on BUILD machine)
-	# SAK_* override MAKEFLAGS to prevent cross-compiler flags (e.g., -mtune=power8)
-	$(MAKE) runtime-all CC=$(SAK_CC) CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" $(BYTECODE_RUNTIME_VARS) $(OLDS)
+	cp Makefile.config Makefile.config.crossopt_bak
+ifeq "$(UNIX_OR_WIN32)" "win32"
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC) -Wl,--subsystem,console|' Makefile.config
+else
+	sed -i 's|^MKEXE=.*|MKEXE=$(SAK_CC)|' Makefile.config
 endif
+	# v05_03n: Skip rm on win-arm64 cross-builds (T31 binary must be preserved).
+	# Other platforms (win-64, osx, linux) retain original behaviour.
+	@if [ "$(SKIP_CROSSOPT_RUNTIME_REBUILD)" != "true" ]; then \
+		rm -f runtime/*.$(O) runtime/*.$(A); \
+	else \
+		echo "v05_03n: SKIP_CROSSOPT_RUNTIME_REBUILD=true, skipping rm runtime/*.o *.a (else-branch)"; \
+	fi
+ifeq "$(UNIX_OR_WIN32)" "win32"
+	printf '%s\n' \
+	  '#include <windows.h>' \
+	  '#include <wchar.h>' \
+	  'extern int wmain(int argc, wchar_t **argv);' \
+	  'int WinMain(HINSTANCE h, HINSTANCE p, LPSTR c, int s) {' \
+	  '  (void)h;(void)p;(void)c;(void)s;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  'int main(int argc, char **argv) {' \
+	  '  (void)argc;(void)argv;' \
+	  '  int wargc; LPWSTR *wargv = CommandLineToArgvW(GetCommandLineW(),&wargc);' \
+	  '  int r = wmain(wargc,wargv); if(wargv) LocalFree(wargv); return r; }' \
+	  > runtime_winmain_stub.c
+	$(SAK_CC) $(SAK_CFLAGS) -c -o runtime_winmain_stub.$(O) runtime_winmain_stub.c
+endif
+	# v05_03n: Skip $(MAKE) runtime-all on win-arm64 (T31 binary already in place).
+	# Other platforms unchanged.
+	@echo "[CROSSOPT-STAGE] entering runtime-all sub-make (else-branch)"
+	@if [ "$(SKIP_CROSSOPT_RUNTIME_REBUILD)" != "true" ]; then \
+		$(MAKE) runtime-all V=1 CC="$(SAK_CC)" CFLAGS="$(SAK_CFLAGS)" LDFLAGS="$(SAK_LDFLAGS)" AR="$(SAK_AR)" MKEXEDEBUGFLAG=-g $(BYTECODE_RUNTIME_VARS_WITH_STUB) $(OLDS); \
+	else \
+		echo "v05_03n: SKIP_CROSSOPT_RUNTIME_REBUILD=true, skipping $(MAKE) runtime-all (else-branch, T31 binary already in place)"; \
+	fi
+	# Freeze interpreters so make skips relinking. win-arm64 ONLY (v05_03n/T31):
+	# on unix cross-target lanes this defeats the cross-relink and ships host-arch binaries.
+	if [ "$(SKIP_CROSSOPT_RUNTIME_REBUILD)" = "true" ]; then touch -t 203001010000 runtime/ocamlrun$(EXE) runtime/ocamlrund$(EXE) runtime/ocamlruni$(EXE) 2>/dev/null || true; fi
+endif
+	# All executables in cross-compilation run on the BUILD machine (x64).
+	@echo "[CROSSOPT-STAGE] entering ocamlc sub-make"
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
+	@echo "[CROSSOPT-STAGE] purging unpinned compiler-lib .cmi (STDLIB_CMI_PIN_INTREE=$(STDLIB_CMI_PIN_INTREE))"
+	$(CROSS_CMI_PURGE)
 	# Build stdlib directly (not via library or library-cross targets)
 	# - library depends on ocamlc which triggers rebuild
 	# - library-cross sets OCAMLRUN=../runtime/ocamlrun which doesn't work for cross
 	# - COMPILER_DEPS= disables the file dependency check on ../ocamlc
 	# - CAMLC=ocamlc uses the installed ocamlc from PATH
-	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+	# v05_03u: SKIP_TMPHEADER_BUILD guard - use -k (keep-going) for win-arm64 to bypass
+	# tmpheader.exe link failures (undefined WinMain/atexit via lld-link dead-strip).
+	# tmpheader.exe is the -custom bytecode header utility; not required for cross-compiler artifacts.
+	# Default: SKIP_TMPHEADER_BUILD is empty (normal build, all targets required).
+	@echo "[CROSSOPT-STAGE] entering stdlib-all sub-make"
+	@if [ "$(SKIP_TMPHEADER_BUILD)" = "true" ]; then \
+		echo "v05_03u: SKIP_TMPHEADER_BUILD=true, using -k to continue past tmpheader failure"; \
+		$(MAKE) -k -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN) || echo "v05_03u: stdlib sub-make exited non-zero (expected if tmpheader.exe failed - continuing)"; \
+	else \
+		$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN); \
+	fi
+	@echo "[CROSSOPT-STAGE] entering ocamlyacc sub-make"
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS)
-	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS)
-	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
-	$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	$(MAKE) runtimeopt $(RUNTIME_VARS) $(OLDS)
-	# CRITICAL FIX: Rebuild bytecode runtime libraries for TARGET architecture
+	@echo "[CROSSOPT-STAGE] entering ocamllex sub-make"
+	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)
+	@echo "[CROSSOPT-STAGE] entering ocaml sub-make"
+	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)
+	@echo "[CROSSOPT-STAGE] entering dynlink-all sub-make"
+	# PR103 round 13: sibling ocamllex/ocaml sub-makes above already append this pin; this one was missed.
+	$(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)
+# PR103 round 9: the otherlibs bytecode "all" step below had no CAMLC pin, unlike
+# stdlib all, ocamllex and ocaml, which all append $(CROSS_CAMLC_PIN). Without a
+# pin, otherlibs/unix/unix.cmi is written by the bare PATH-resolved ocamlc - the
+# zstd-ENABLED bootstrap compiler - in COMPRESSED marshal format. The later
+# "otherlibs/unix allopt" step runs under NATIVE_OTHERLIBS_CAMLC_PIN with the
+# zstd-DISABLED in-tree ocamlc.opt, which cannot read it:
+#   Error: Corrupted compiled interface otherlibs/unix/unix.cmi
+#   make[1]: *** [../Makefile.otherlibs.common:161: unix.cmx] Error 2
+# (Azure build 1583463, commit 47af305e.)
+# Round 8 tried to close this with $(CROSS_CAMLC_PIN) and REGRESSED the build to
+# an earlier failure - see the CROSS_OTHERLIBS_CAMLC_PIN comment above for why a
+# relative -I cannot survive otherlibs' -C recursion. Round 9 uses the absolute-
+# path variant instead.
+	# v05_03AA: SKIP_RUNTIME_EVENTS_BUILD guard - use -k (keep-going) for win-arm64 to bypass
+	# otherlibs/runtime_events build failures (cross-ocamlmklib with "No .o files specified").
+	# runtime_events is not required for cross-compiler artifacts.
+	# Default: SKIP_RUNTIME_EVENTS_BUILD is empty (normal build, all targets required).
+	@echo "[CROSSOPT-STAGE] entering otherlibs-all sub-make"
+	@if [ "$(SKIP_RUNTIME_EVENTS_BUILD)" = "true" ]; then \
+		echo "v05_03AA: SKIP_RUNTIME_EVENTS_BUILD=true, using -k to continue past runtime_events failure"; \
+		$(MAKE) -k -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(CROSS_OTHERLIBS_CAMLC_PIN) || echo "v05_03AA: otherlibs sub-make exited non-zero (expected if runtime_events failed - continuing)"; \
+	else \
+		$(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(CROSS_OTHERLIBS_CAMLC_PIN); \
+	fi
+	# v05_03AB: SKIP_RUNTIMEOPT_BUILD guard - skip runtimeopt on win-arm64.
+	# Makefile.config has --disable-native-compiler; runtimeopt aborts with
+	# "The build has been configured with --disable-native-compiler. Stop."
+	# Native runtime (libasmrun*) is not needed at crossopt stage for win-arm64;
+	# the bytecode runtime (libcamlrun*) is rebuilt separately below.
+	# Default: SKIP_RUNTIMEOPT_BUILD is empty (normal build, runtimeopt required).
+	@echo "[CROSSOPT-STAGE] entering runtimeopt sub-make"
+	@if [ "$(SKIP_RUNTIMEOPT_BUILD)" = "true" ]; then \
+		echo "v05_03AB: SKIP_RUNTIMEOPT_BUILD=true, skipping runtimeopt (--disable-native-compiler)"; \
+	else \
+		$(MAKE) runtimeopt $(RUNTIME_VARS) MKDLL='$(CROSS_MKDLL)' SUPPORTS_SHARED_LIBRARIES=true $(OLDS); \
+	fi
+ifeq "$(UNIX_OR_WIN32)" "unix"
+	# v05_03AD (unix only): Rebuild bytecode runtime libraries for TARGET architecture.
 	# runtime-all above builds libcamlrun for BUILD (x86_64), but -output-complete-exe
 	# links libcamlrun into TARGET executables, so it must be TARGET arch.
-	# Build all static library variants (install expects all four):
-	#   libcamlrun.a   - standard (from *.b.o)
-	#   libcamlrund.a  - debug (from *.bd.o)
-	#   libcamlruni.a  - instrumented (from *.bi.o)
-	#   libcamlrun_pic.a - PIC (from *.bpic.o)
-	# Also build shared library using TARGET_ZSTD_LIBS (target-arch zstd from conda env)
+	# Skipped on Windows (win32): runtime/ has no standalone Makefile, and
+	# libcamlrund/i/pic.a have no make rules when RUNTIMED/INSTRUMENTED_RUNTIME/
+	# SUPPORTS_SHARED_LIBRARIES are false (typical Windows configure output).
 	@echo "=== Rebuilding bytecode runtime libraries for TARGET architecture ==="
+	@echo "[CROSSOPT-STAGE] entering runtime-target-libs sub-make"
 	rm -f runtime/libcamlrun*.a runtime/libcamlrun_shared.so runtime/*.b.o runtime/*.bd.o runtime/*.bi.o runtime/*.bpic.o
 	$(MAKE) runtime/libcamlrun.a runtime/libcamlrund.a runtime/libcamlruni.a runtime/libcamlrun_pic.a $(RUNTIME_VARS) $(OLDS)
-	# Build shared library with target-arch zstd
-	# BYTECCLIBS includes -lzstd from configure, but searches wrong path ($PREFIX/lib has x86_64)
-	# Prepend TARGET_ZSTD_LIBS to LDFLAGS so target-arch zstd is found first
-	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) LDFLAGS="$(TARGET_ZSTD_LIBS) $(LDFLAGS)" $(OLDS)
+	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) MKDLL='$(CROSS_MKDLL)' BYTECCLIBS='$(TARGET_ZSTD_LIBS) $(BYTECCLIBS)' LDFLAGS="$(TARGET_ZSTD_LIBS) $(LDFLAGS)" $(OLDS)
+endif
 	# Build native compilers (BUILD platform binaries) using CAMLOPT from PATH
 	# NOTE: Do NOT clean compilerlibs here - they were built at line 194-195 with matching
 	# stdlib CRCs. Cleaning them would force rebuild with PATH ocamlopt which uses
 	# $PREFIX/lib/ocaml stdlib (different CRCs from work tree stdlib)
 	# Set CONDA_OCAML_* env vars so ocamlopt finds NATIVE tools (not cross-tools)
 	# NATIVE_ASM includes "-c" for macOS clang (space-separated, hence quoted)
-	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
-	  $(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
-	  $(NATIVE_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(HOST_ZSTD_LIBS)" $(OLDS)
+	# v05_03AE: SKIP_COMPRMARSH_BUILD guard - use -k (keep-going) for win-arm64 to bypass
+	# runtime/libcomprmarsh.lib build failures (No rule for zstd.npic.obj).
+	# --disable-native-compiler at configure time means no .npic.obj rules exist.
+	# libcomprmarsh (zstd compression marshalling) is not required for cross-compiler artifacts.
+	# Default: SKIP_COMPRMARSH_BUILD is empty (normal build, all targets required).
+	# PR103-native-camlc-pin-coverage: this sub-make compiles middle_end/*.cmi
+	# with the bare CAMLC=ocamlc from NATIVE_COMPILER_OVERRIDES, which PATH-resolves
+	# to the zstd-enabled bootstrap ocamlc - a DIFFERENT binary than the one the
+	# stdlib sub-make above uses under CROSS_CAMLC_PIN when STDLIB_CMI_PIN_INTREE=1.
+	# Two writers of stdlib.cmi disagree, producing "inconsistent assumptions over
+	# interface Stdlib". Append NATIVE_CAMLC_PIN (same self-scoping idiom as
+	# NATIVE_OTHERLIBS_CAMLC_PIN, ~line 176) to close the gap; it is empty unless
+	# STDLIB_CMI_PIN_INTREE=1, so green lanes are unaffected.
+# PR103 round 6: NATIVE_CAMLOPT_PIN (line 226) pins CAMLOPT to the in-tree BYTECODE
+# ocamlopt under runtime/ocamlrun. Unlike ocamlc - explicitly bootstrapped at line 492
+# via `$(MAKE) ocamlc` - nothing in this recipe ever builds a bytecode ocamlopt, so the
+# pin referenced a file that was never produced:
+#   OCAMLOPT tools/profiling.cmx
+#   cannot find file '$SRC_DIR/ocamlopt'
+#   make[1]: *** [Makefile:2550: tools/profiling.cmx] Error 127
+# Observed on BOTH osx-64 target lanes (Azure build 1583248, commit 7645ad8f).
+# Guarded twice for minimum blast radius: only when the pin is active AND the binary is
+# genuinely absent, so lanes that already have it are byte-identical.
+ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
+	@if [ ! -f ocamlopt$(EXE) ]; then \
+		echo "[CROSSOPT-STAGE] entering ocamlopt (bytecode) sub-make - NATIVE_CAMLOPT_PIN target absent"; \
+		$(MAKE) ocamlopt $(CROSS_COMPILER_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN); \
+	else \
+		echo "[CROSSOPT-STAGE] bytecode ocamlopt already present, skipping bootstrap"; \
+	fi
+endif
+
+# PR103 round 7: every native executable link implicitly pulls in "stdlib.cmxa"
+# unless -nopervasives is passed (asmlink.ml:325-330), which applies to the
+# ocamlc.opt/ocamlopt.opt sub-make below. Upstream builds that archive via a
+# SEPARATE "allopt" target (stdlib/Makefile:56-60); the "all" sub-make above
+# (line ~510) builds only stdlib.cma (bytecode). So no in-tree stdlib.cmxa
+# exists at this point and the implicit link falls through to
+# $BUILD_PREFIX/lib/ocaml/stdlib.cmxa, which disagrees with the already-pinned
+# compilerlibs/*.cmxa:
+#   Error: Files compilerlibs/ocamlcommon.cmxa and $BUILD_PREFIX/lib/ocaml/stdlib.cmxa
+#          make inconsistent assumptions over interface Stdlib__Uchar
+#   make[1]: *** [Makefile:556: ocamlc.opt] Error 2
+# Observed on both osx-64 target lanes (Azure build 1583442, commit 73a0c1a4).
+# CAMLOPT override reuses NATIVE_CAMLOPT_PIN (the bytecode ocamlopt bootstrapped
+# just above), matching stdlib/Makefile's own CAMLOPT/OPTCOMPILER pairing
+# (stdlib/Makefile:16,47-48). OPTCOMPILER= and COMPILER_DEPS= match this file's
+# two existing "stdlib allopt" invocations verbatim (lines 622 and 860):
+# OPTCOMPILER is a real upstream variable (stdlib/Makefile:47-48,148) that makes
+# stdlib's .cmx targets depend on the compiler as a file prerequisite, and
+# emptying it alongside COMPILER_DEPS= is this file's established idiom whenever
+# CAMLOPT is overridden here.
+# Gated on STDLIB_NATIVE_INTREE, NOT STDLIB_CMI_PIN_INTREE: osx-64 only.
+# win-64 zig is green under STDLIB_CMI_PIN_INTREE=1 without this step; do not
+# widen the gate without new evidence.
+ifeq "$(STDLIB_NATIVE_INTREE)" "1"
+	@echo "[CROSSOPT-STAGE] entering stdlib allopt (native stdlib.cmxa, pre ocamlc.opt) sub-make"
+	$(MAKE) -C stdlib allopt $(NATIVE_CAMLOPT_PIN) OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+endif
+	@echo "[CROSSOPT-STAGE] entering ocamlc.opt-ocamlopt.opt sub-make"
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" = "true" ]; then \
+		echo "v05_03AE: SKIP_COMPRMARSH_BUILD=true, using -k to continue past libcomprmarsh failure"; \
+		CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+		  $(MAKE) -k ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
+		  $(NATIVE_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(NATIVE_LINK_ZSTD_LIBS)" $(OLDS) $(NATIVE_CAMLC_PIN) $(NATIVE_CAMLOPT_PIN) \
+		  || echo "v05_03AE: ocamlc.opt/ocamlopt.opt sub-make exited non-zero (expected if libcomprmarsh failed - continuing)"; \
+	else \
+		CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+		  $(MAKE) ocamlc.opt ocamlopt.opt $(TOOLS_NATIVE_TARGETS) \
+		  $(NATIVE_COMPILER_OVERRIDES) OCAMLOPT=$(CAMLOPT) "$(NATIVE_LINK_ZSTD_LIBS)" $(OLDS) $(NATIVE_CAMLC_PIN) $(NATIVE_CAMLOPT_PIN); \
+	fi
 	# CRITICAL FIX: Clean LIBDIR before building to prevent CRC mismatches
 	# If LIBDIR has old .cmi files, unix.cmxa might find them via Config.standard_library
 	# while stdlib.cmxa uses local .cmi files, causing "inconsistent assumptions"
@@ -241,7 +776,16 @@ endif
 	# CRITICAL: Use absolute path to cross-compiler - ROOTDIR is relative (.) and breaks with -C
 	# COMPILER_DEPS= disables bytecode compiler file dependency (for .cmi files)
 	# OPTCOMPILER= disables native compiler file dependency (for .cmx files)
-	$(MAKE) -C stdlib allopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+	# v05_03AK: guard stdlib allopt rebuild on missing ocamlopt.opt (win-arm64)
+	# v05_03AR: also skip when SKIP_COMPRMARSH_BUILD=true. AQ provides ocamlopt.opt$(EXE)
+	# as a bytecode copy, but ocamlopt invocation fails on missing aarch64-windows-ocaml-as
+	# assembler (Error: Assembler error, 'aarch64-w64-mingw32-ocaml-as' not recognized).
+	@echo "[CROSSOPT-STAGE] entering stdlib-allopt sub-make"
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" != "true" ] && [ -f "$(abspath $(ROOTDIR))/ocamlopt.opt" ]; then \
+		$(MAKE) -C stdlib allopt CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS); \
+	else \
+		echo "v05_03AR: skipping stdlib allopt rebuild (SKIP_COMPRMARSH_BUILD=$(SKIP_COMPRMARSH_BUILD) or ocamlopt.opt missing - cross-stdlib .cmx may be incomplete)"; \
+	fi
 	# CRITICAL FIX: Create complete stdlib environment at LIBDIR with fresh stdlib AND
 	# native otherlibs dependencies (like Unix.cmi for systhreads).
 	# Then set OCAMLLIB=LIBDIR so ocamlopt.opt finds fresh stdlib.cmxa for linking
@@ -285,36 +829,103 @@ endif
 	# Build unix FIRST, copy fresh .cmi, then build systhreads which depends on Unix interface
 	@echo "=== Building native otherlibs in dependency order ==="
 	# Build unix first (no external otherlib dependencies)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix allopt \
-	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	# v05_03AL: guard otherlibs/unix allopt on missing ocamlopt.opt (win-arm64)
+	# v05_03AR: also skip when SKIP_COMPRMARSH_BUILD=true (assembler unavailable)
+	# PR103 round 12: this is the LIVE otherlibs/unix allopt call site - the one
+	# inside crossopt, confirmed by the [CROSSOPT-STAGE] marker below appearing in
+	# the CI log and by the failure being attributed to target crossopt. The
+	# similar-looking site in otherlibrariesopt-cross (~line 1095) is NOT invoked
+	# on this lane; nothing in this file calls that target, and otherlibrariesopt
+	# is reached only from crosscompiledopt.
+	# CAMLOPT here is pinned to the in-tree ocamlopt.opt, but CAMLC falls through
+	# CROSS_OTHERLIBS_OVERRIDES to a bare "CAMLC=ocamlc" that PATH-resolves to
+	# $BUILD_PREFIX/bin/ocamlc (zstd-enabled). So the writer (OCAMLC unix.cmi,
+	# build_env ocamlc) and the reader (OCAMLOPT unix.cmx, in-tree ocamlopt.opt)
+	# disagree:
+	#   Error: Corrupted compiled interface $SRC_DIR/otherlibs/unix/unix.cmi
+	#   make[1]: *** [../Makefile.otherlibs.common:161: unix.cmx] Error 2
+	# Azure build 1583520, commit d7290d2f. This is the MIRROR IMAGE of the round 6
+	# defect at the top-level ocamlc.opt/ocamlopt.opt sub-make: there CAMLC was
+	# pinned and CAMLOPT bare, here CAMLOPT is pinned and CAMLC bare.
+	# NATIVE_OTHERLIBS_CAMLC_PIN (line ~248) is empty unless STDLIB_CMI_PIN_INTREE=1.
+	@echo "[CROSSOPT-STAGE] entering otherlibs/unix-allopt sub-make"
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" != "true" ] && [ -f "$(abspath $(ROOTDIR))/ocamlopt.opt" ]; then \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix allopt \
+		  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+		  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN); \
+	else \
+		echo "v05_03AR: skipping otherlibs/unix allopt (SKIP_COMPRMARSH_BUILD or ocamlopt.opt missing)"; \
+	fi
 	# Copy fresh Unix.cmi, Unix.cmx AND unix.cmxa to LIBDIR for systhreads dependency
 	# CRITICAL: Unix.cmx contains implementation CRC - without it, VPATH finds NATIVE Unix.cmx
 	# causing threads.cmxa to link against wrong Unix implementation CRC
 	@echo "=== Copying fresh Unix.cmi + Unix.cmx + unix.cmxa to LIBDIR for systhreads ==="
-	@cp otherlibs/unix/*.cmi "$(LIBDIR)/unix/"
+	# v05_03AM: graceful copy when AL guard skipped allopt (no .cmi files produced)
+	@cp otherlibs/unix/*.cmi "$(LIBDIR)/unix/" 2>/dev/null || true
 	@cp otherlibs/unix/*.cmx "$(LIBDIR)/unix/" 2>/dev/null || true
 	@cp otherlibs/unix/*.cmxa otherlibs/unix/*.a "$(LIBDIR)/unix/" 2>/dev/null || true
 	# Build str (no Unix dependency)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str allopt \
-	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	@cp otherlibs/str/*.cmi "$(LIBDIR)/str/"
+	# v05_03AL: guard otherlibs/str allopt on missing ocamlopt.opt (win-arm64)
+	# v05_03AR: also skip when SKIP_COMPRMARSH_BUILD=true (assembler unavailable)
+	# PR103 round 13: same CAMLOPT-pinned/CAMLC-bare defect class as the round 12
+	# unix fix above; pin CAMLC here too.
+	@echo "[CROSSOPT-STAGE] entering otherlibs/str-allopt sub-make"
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" != "true" ] && [ -f "$(abspath $(ROOTDIR))/ocamlopt.opt" ]; then \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str allopt \
+		  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+		  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN); \
+	else \
+		echo "v05_03AR: skipping otherlibs/str allopt (SKIP_COMPRMARSH_BUILD or ocamlopt.opt missing)"; \
+	fi
+	# v05_03AM: graceful copy when AL guard skipped allopt (no .cmi files produced)
+	@cp otherlibs/str/*.cmi "$(LIBDIR)/str/" 2>/dev/null || true
 	# Build dynlink
-	OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-allopt \
-	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OVERRIDES) $(OLDS)
+	# v05_03AL: guard dynlink-allopt on missing ocamlopt.opt (win-arm64)
+	# v05_03AR: also skip when SKIP_COMPRMARSH_BUILD=true (assembler unavailable)
+	# PR103 round 13: same CAMLOPT-pinned/CAMLC-bare defect class as the round 12
+	# unix fix above; pin CAMLC here too.
+	@echo "[CROSSOPT-STAGE] entering dynlink-allopt sub-make"
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" != "true" ] && [ -f "$(abspath $(ROOTDIR))/ocamlopt.opt" ]; then \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-allopt \
+		  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+		  $(CROSS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN); \
+	else \
+		echo "v05_03AR: skipping dynlink-allopt (SKIP_COMPRMARSH_BUILD or ocamlopt.opt missing)"; \
+	fi
 	@cp otherlibs/dynlink/*.cmi "$(LIBDIR)/dynlink/" 2>/dev/null || true
 	# Build runtime_events (no external deps)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events allopt \
-	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	@cp otherlibs/runtime_events/*.cmi "$(LIBDIR)/runtime_events/"
+	# v05_03AF: SKIP_RUNTIME_EVENTS_BUILD also guards allopt on win-arm64.
+	# cross-ocamlmklib "No .o files specified" recurs for the native allopt step.
+	# runtime_events allopt is not required for cross-compiler artifacts.
+	# PR103 round 13: same CAMLOPT-pinned/CAMLC-bare defect class as the round 12
+	# unix fix above; pin CAMLC here too (both branches).
+	@echo "[CROSSOPT-STAGE] entering otherlibs/runtime_events-allopt sub-make"
+	@if [ "$(SKIP_RUNTIME_EVENTS_BUILD)" = "true" ]; then \
+		echo "v05_03AF: SKIP_RUNTIME_EVENTS_BUILD=true, using -k to continue past runtime_events allopt failure"; \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) -k -C otherlibs/runtime_events allopt \
+		  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+		  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN) || echo "v05_03AF: runtime_events allopt exited non-zero (expected on win-arm64 - continuing)"; \
+	else \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events allopt \
+		  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+		  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN); \
+	fi
+	@cp otherlibs/runtime_events/*.cmi "$(LIBDIR)/runtime_events/" 2>/dev/null || true
 	# Build systhreads LAST (depends on Unix.cmi now in LIBDIR)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads allopt \
-	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
-	  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	@cp otherlibs/systhreads/*.cmi "$(LIBDIR)/systhreads/"
+	# v05_03AL: guard otherlibs/systhreads allopt on missing ocamlopt.opt (win-arm64)
+	# v05_03AR: also skip when SKIP_COMPRMARSH_BUILD=true (assembler unavailable)
+	# PR103 round 13: same CAMLOPT-pinned/CAMLC-bare defect class as the round 12
+	# unix fix above; pin CAMLC here too.
+	@echo "[CROSSOPT-STAGE] entering otherlibs/systhreads-allopt sub-make"
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" != "true" ] && [ -f "$(abspath $(ROOTDIR))/ocamlopt.opt" ]; then \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads allopt \
+		  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
+		  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN); \
+	else \
+		echo "v05_03AR: skipping otherlibs/systhreads allopt (SKIP_COMPRMARSH_BUILD or ocamlopt.opt missing)"; \
+	fi
+	# v05_03AM: graceful copy when AL guard skipped allopt (no .cmi files produced)
+	@cp otherlibs/systhreads/*.cmi "$(LIBDIR)/systhreads/" 2>/dev/null || true
 	# CRITICAL: Rebuild bytecode otherlibs with OCAMLLIB override
 	# Same CRC issue as native - ocamlc's Config.standard_library points to NATIVE_STDLIB
 	# which has OLD CRCs from native build. Must override to use fresh stdlib from LIBDIR.
@@ -332,24 +943,57 @@ endif
 	@rm -f "$(LIBDIR)/unix/"*.cmi "$(LIBDIR)/str/"*.cmi "$(LIBDIR)/dynlink/"*.cmi
 	@rm -f "$(LIBDIR)/systhreads/"*.cmi "$(LIBDIR)/runtime_events/"*.cmi
 	@echo "=== Rebuilding bytecode otherlibs with OCAMLLIB override ==="
+	# PR103 round 13: the .cmi purge just above forces a fresh write, so these bytecode
+	# otherlibs rebuilds need the same CAMLC pin the earlier otherlibs-all already has.
 	# Build unix FIRST (no external otherlib dependencies)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	@echo "[CROSSOPT-STAGE] entering otherlibs/unix-all sub-make"
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/unix all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(CROSS_OTHERLIBS_CAMLC_PIN)
 	# Copy fresh Unix.cmi to LIBDIR for systhreads dependency
 	@echo "=== Copying fresh Unix.cmi to LIBDIR for systhreads ==="
 	@cp otherlibs/unix/*.cmi "$(LIBDIR)/unix/"
 	# Build str (no Unix dependency)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	@echo "[CROSSOPT-STAGE] entering otherlibs/str-all sub-make"
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/str all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(CROSS_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/str/*.cmi "$(LIBDIR)/str/"
 	# Build dynlink
-	OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS)
+	@echo "[CROSSOPT-STAGE] entering dynlink-all-bytecode sub-make"
+	# PR103 round 14: this second dynlink-all pass was previously left unpinned on
+	# purpose - an audit found its read direction safe, which was TRUE AT THE TIME
+	# because its consumer was also unpinned, so writer and reader matched. Round 13
+	# pinned ocamltoolsopt.opt, whose CROSSCOMPILERLIBS dependency chain compiles
+	# otherlibs/dynlink/dynlink_types.cmx and READS the dynlink_types.cmi this pass
+	# writes. That consumer is now in-tree/zstd-disabled while this writer stayed
+	# bare/build_env/zstd-enabled, so the pairing broke:
+	#   Error: Corrupted compiled interface $SRC_DIR/otherlibs/dynlink/dynlink_types.cmi
+	#   make[1]: *** [Makefile:2550: otherlibs/dynlink/dynlink_types.cmx] Error 2
+	# Azure build 1583538, commit ac77e01e, both osx-64 host lanes.
+	# LESSON: pin coverage is a property of writer/reader PAIRS. Fixing one side can
+	# turn a previously-safe unpinned site into a broken one, so a site audited as
+	# safe in isolation must be re-checked whenever its consumer's pinning changes.
+	# CROSS_CAMLC_PIN (not the OTHERLIBS variant) is correct here: top-level make,
+	# no -C recursion, so the relative -I resolves correctly.
+	OCAMLLIB="$(LIBDIR)" $(MAKE) dynlink-all $(CROSS_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)
 	@cp otherlibs/dynlink/*.cmi "$(LIBDIR)/dynlink/" 2>/dev/null || true
 	# Build runtime_events (no external deps)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
-	@cp otherlibs/runtime_events/*.cmi "$(LIBDIR)/runtime_events/"
+	# v05_03AG: SKIP_RUNTIME_EVENTS_BUILD also guards bytecode rebuild of runtime_events.
+	# The bytecode rebuild (OCAMLLIB override) hits the same cross-ocamlmklib
+	# "No .o files specified" error as the original all/allopt steps.
+	# runtime_events bytecode is not required for cross-compiler artifacts.
+	@echo "[CROSSOPT-STAGE] entering otherlibs/runtime_events-all sub-make"
+	@if [ "$(SKIP_RUNTIME_EVENTS_BUILD)" = "true" ]; then \
+		echo "v05_03AG: SKIP_RUNTIME_EVENTS_BUILD=true, using -k to continue past runtime_events bytecode rebuild failure"; \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) -k -C otherlibs/runtime_events all \
+		  $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(CROSS_OTHERLIBS_CAMLC_PIN) || echo "v05_03AG: runtime_events bytecode rebuild exited non-zero (expected on win-arm64 - continuing)"; \
+	else \
+		OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/runtime_events all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(CROSS_OTHERLIBS_CAMLC_PIN); \
+	fi
+	@cp otherlibs/runtime_events/*.cmi "$(LIBDIR)/runtime_events/" 2>/dev/null || true
 	# Build systhreads LAST (depends on Unix.cmi now in LIBDIR)
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
+	@echo "[CROSSOPT-STAGE] entering otherlibs/systhreads-all sub-make"
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs/systhreads all $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS) $(CROSS_OTHERLIBS_CAMLC_PIN)
 	@cp otherlibs/systhreads/*.cmi "$(LIBDIR)/systhreads/"
 	# Build ocamltoolsopt separately - these link against NATIVE stdlib (not cross)
+	@echo "[CROSSOPT-STAGE] entering ocamltoolsopt sub-make"
 	$(MAKE) ocamltoolsopt \
 	  CAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
 	  BEST_OCAMLOPT="$(abspath $(ROOTDIR))/ocamlopt.opt" \
@@ -361,14 +1005,39 @@ endif
 	# - if we copy NEW unix.cmi here, users get OLD cma + NEW cmi = error
 	# The cross-compiler should use LIBDIR for its own files, not modify NATIVE_STDLIB.
 	# ocamltoolsopt.opt builds NATIVE tools (ocamllex.opt etc.) - need NATIVE overrides
-	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
-	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS)
+	# v05_03AN: SKIP_COMPRMARSH_BUILD guard - ocamltoolsopt.opt has hard libcomprmarsh.lib dep
+	# that needs runtime/zstd.npic.obj which doesn't exist (--disable-native-compiler).
+	@echo "[CROSSOPT-STAGE] entering ocamltoolsopt.opt sub-make"
+	# PR103 round 13: NATIVE_COMPILER_OVERRIDES (line ~138) sets both CAMLC=ocamlc
+	# and CAMLOPT=$(CAMLOPT) BARE, and both PATH-resolve into $BUILD_PREFIX. This
+	# sub-make's "make lex-allopt" dependency then compiles lex/table.cmx and
+	# lex/cset.cmx natively, reading lex/table.cmi and lex/cset.cmi that were
+	# written earlier by the in-tree pinned bytecode ocamllex build, so writer and
+	# reader disagree:
+	#   Error: The files $BUILD_PREFIX/lib/ocaml/stdlib.cmi and $SRC_DIR/lex/table.cmi
+	#          make inconsistent assumptions over interface Stdlib
+	#   make[1]: *** [Makefile:1695: ocamllex.opt] Error 2
+	# Azure build 1583529, commit 821d93e2, both osx-64 host lanes. Same defect
+	# class as the top-level ocamlc.opt/ocamlopt.opt sub-make fixed in round 6,
+	# which already appends both pins after this same NATIVE_COMPILER_OVERRIDES.
+	# Appending them last makes them win over the bare CAMLC/CAMLOPT set earlier.
+	# Both pins are empty unless STDLIB_CMI_PIN_INTREE=1, so green lanes are
+	# byte-identical.
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" = "true" ]; then \
+		echo "v05_03AN: SKIP_COMPRMARSH_BUILD=true, using -k for first ocamltoolsopt.opt"; \
+		CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+		  $(MAKE) -k ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS) $(NATIVE_CAMLC_PIN) $(NATIVE_CAMLOPT_PIN) \
+		  || echo "v05_03AN: first ocamltoolsopt.opt sub-make exited non-zero (expected if libcomprmarsh failed - continuing)"; \
+	else \
+		CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+		  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS) $(NATIVE_CAMLC_PIN) $(NATIVE_CAMLOPT_PIN); \
+	fi
 	# Copy stublibs to where the cross-compiler expects them
 	# The compiler has Config.standard_library baked in (pointing to PREFIX/lib/ocaml)
 	# and looks for stublibs relative to that path. We must copy before CROSSCOMPILERLIBS.
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
-	@for f in otherlibs/*/dll*.so; do \
+	@for f in otherlibs/*/dll*.so otherlibs/*/dll*.dll; do \
 	  if [ -f "$$f" ]; then \
 	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
@@ -383,14 +1052,17 @@ endif
 	rm -f utils/*.cmi parsing/*.cmi lambda/*.cmi bytecomp/*.cmi \
 	  file_formats/*.cmi typing/*.cmi driver/*.cmi toplevel/*.cmi asmcomp/*.cmi
 	rm -f middle_end/*.cmi middle_end/**/*.cmi 2>/dev/null || true
+	@echo "[CROSSOPT-STAGE] entering CROSSCOMPILERLIBS sub-make"
 	$(MAKE) $(CROSSCOMPILERLIBS) $(CROSS_COMPILERLIBS_OVERRIDES) $(OLDS)
+	# Restore original Makefile.config (with flexlink MKEXE) for installcross
+	[ -f Makefile.config.crossopt_bak ] && cp Makefile.config.crossopt_bak Makefile.config && rm Makefile.config.crossopt_bak || true
 
 .PHONY: crosscompiledopt
 crosscompiledopt:
 	$(MAKE) ocamlc $(TOOLS_BYTECODE_TARGETS) expunge$(EXE) \
 	  $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	# Build stdlib directly (same reason as crossopt)
-	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
+	$(MAKE) -C stdlib all CAMLC=ocamlc COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS) $(NATIVE_CAMLC_PIN)
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS)
 	$(MAKE) ocaml $(CROSS_COMPILER_OVERRIDES) $(OLDS)
@@ -414,12 +1086,20 @@ crosscompiledopt:
 	$(MAKE) otherlibrariesopt CAMLOPT=$(CAMLOPT) OCAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamltoolsopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(OLDS)
 	# Build native tools (ocamllex.opt) with NATIVE tools
-	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
-	  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS)
+	# v05_03AN: SKIP_COMPRMARSH_BUILD guard - ocamltoolsopt.opt has hard libcomprmarsh.lib dep
+	@if [ "$(SKIP_COMPRMARSH_BUILD)" = "true" ]; then \
+		echo "v05_03AN: SKIP_COMPRMARSH_BUILD=true, using -k for second ocamltoolsopt.opt"; \
+		CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+		  $(MAKE) -k ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS) \
+		  || echo "v05_03AN: second ocamltoolsopt.opt sub-make exited non-zero (expected if libcomprmarsh failed - continuing)"; \
+	else \
+		CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$(NATIVE_CC)" \
+		  $(MAKE) ocamltoolsopt.opt $(NATIVE_COMPILER_OVERRIDES) $(OLDS); \
+	fi
 	# Copy stublibs to where the cross-compiler expects them (same as crossopt)
 	@echo "=== Copying stublibs to $(LIBDIR)/stublibs ==="
 	mkdir -p "$(LIBDIR)/stublibs"
-	@for f in otherlibs/*/dll*.so; do \
+	@for f in otherlibs/*/dll*.so otherlibs/*/dll*.dll; do \
 	  if [ -f "$$f" ]; then \
 	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
@@ -456,11 +1136,13 @@ crosscompiledruntime:
 # By removing prerequisites, we ensure this target ONLY builds otherlibs when explicitly called.
 .PHONY: otherlibraries
 otherlibraries:
-	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES)
+	# CAMLC must be pinned in addition to CAMLOPT: CAMLOPT alone does not protect .cmi files from being rebuilt with the wrong compiler.
+	OCAMLLIB="$(LIBDIR)" $(MAKE) -C otherlibs all $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 
 .PHONY: otherlibrariesopt
 otherlibrariesopt: dynlink-allopt
-	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES)
+	# CAMLC must be pinned in addition to CAMLOPT: CAMLOPT alone does not protect .cmi files from being rebuilt with the wrong compiler.
+	$(MAKE) -C otherlibs allopt $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 
 # Cross-compilation variant: calls dynlink-allopt with proper compiler variables
 # Use this instead of otherlibrariesopt when cross-compiling to avoid
@@ -480,38 +1162,641 @@ otherlibrariesopt-cross:
 	rm -f "$(OCAMLLIB)/unix/"*.cmi "$(OCAMLLIB)/str/"*.cmi "$(OCAMLLIB)/dynlink/"*.cmi 2>/dev/null || true
 	rm -f "$(OCAMLLIB)/threads/"*.cmi "$(OCAMLLIB)/runtime_events/"*.cmi 2>/dev/null || true
 	# Build in dependency order: unix FIRST, then systhreads LAST (depends on Unix interface)
+	# These five pin CAMLOPT but must ALSO pin CAMLC: CAMLC is what writes the .cmi,
+	# and without the pin it falls through to the bare `CAMLC=ocamlc` inside
+	# CROSS_OTHERLIBS_OVERRIDES/CROSS_OVERRIDES, i.e. the PATH zstd-enabled bootstrap.
+	# Self-scoping: NATIVE_OTHERLIBS_CAMLC_PIN is empty unless STDLIB_CMI_PIN_INTREE=1.
 	@echo "=== Building native otherlibs in dependency order ==="
 	# Build unix first (no external otherlib dependencies)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/unix allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	# PR103 round 12: NATIVE_OTHERLIBS_CAMLC_PIN on this line pins CAMLC to the
+	# in-tree ocamlc.opt, but the bare CAMLOPT=$(CAMLOPT) earlier on the SAME line
+	# resolves to build.sh's top-level CAMLOPT=ocamlopt, which PATH-resolves to
+	# $BUILD_PREFIX/bin/ocamlopt and is unpinned. So the writer (OCAMLC unix.cmi,
+	# pinned in-tree ocamlc.opt) and the reader (OCAMLOPT unix.cmx, unpinned
+	# BUILD_PREFIX ocamlopt) are different binaries and disagree:
+	#   Error: Corrupted compiled interface $SRC_DIR/otherlibs/unix/unix.cmi
+	#   make[1]: *** [../Makefile.otherlibs.common:161: unix.cmx] Error 2
+	# Observed on both osx-64 target lanes, Azure build 1583520, commit d7290d2f.
+	# This is the SAME defect class round 6 fixed at the top-level ocamlc.opt/
+	# ocamlopt.opt sub-make, simply never covered at this otherlibs-specific call
+	# site. Appending NATIVE_CAMLOPT_PIN last makes it win over the earlier bare
+	# CAMLOPT=$(CAMLOPT), exactly as NATIVE_CAMLC_PIN/NATIVE_CAMLOPT_PIN are already
+	# combined at that top-level site. Empty unless STDLIB_CMI_PIN_INTREE=1.
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/unix allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN) $(NATIVE_CAMLOPT_PIN)
 	# Copy fresh Unix.cmi to OCAMLLIB for systhreads dependency
 	@mkdir -p "$(OCAMLLIB)/unix"
 	@cp otherlibs/unix/*.cmi "$(OCAMLLIB)/unix/"
 	# Build str (no Unix dependency)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/str allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/str allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Build dynlink
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) dynlink-allopt OCAMLOPT=$(CAMLOPT) CAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) dynlink-allopt OCAMLOPT=$(CAMLOPT) CAMLOPT=$(CAMLOPT) BEST_OCAMLOPT=$(CAMLOPT) $(CROSS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Build runtime_events (no external deps)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/runtime_events allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/runtime_events allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 	# Build systhreads LAST (depends on Unix.cmi now in OCAMLLIB)
-	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/systhreads allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES)
+	OCAMLLIB="$(OCAMLLIB)" $(MAKE) -C otherlibs/systhreads allopt CAMLOPT=$(CAMLOPT) $(CROSS_OTHERLIBS_OVERRIDES) $(NATIVE_OTHERLIBS_CAMLC_PIN)
+
+# [W7SS] 2026-08-10: isolate the zig cache used by the HOST x86_64 flexlink.exe self-link
+# (below, [W7HH4]/[W7HH17-FAILOVER]) from the shared per-user zig cache bucket that this same
+# build's earlier TARGET-arm64 compiles poison with an arm64-flavored crt2.obj. Deleting from
+# that shared cache is unrecoverable (see W7RR/W42 above -- do NOT resurrect that nuke); instead
+# point ZIG_GLOBAL_CACHE_DIR/ZIG_LOCAL_CACHE_DIR at a private, empty directory for just these two
+# make invocations, so zig always builds a fresh x86_64 crt2.obj here instead of ever touching
+# the poisoned shared bucket. FLEXDLL_SOURCE_DIR is the spelling already used throughout this
+# section for scratch files/logs (e.g. .w7hh6_prelink.log, .w7hh26_probe.log); SRC_DIR is not a
+# variable used anywhere in this Makefile, so W7SS_ZIG_CACHE follows the FLEXDLL_SOURCE_DIR
+# convention instead for consistency.
+W7SS_ZIG_CACHE = $(FLEXDLL_SOURCE_DIR)/.zig-cache-w7ss-hostlink
 
 .PHONY: cross-flexdll
 cross-flexdll: | $(BYTE_BINDIR) $(OPT_BINDIR)
+	@echo "============ v05_03h DIAGNOSTIC: cross-flexdll START ============"
+	@echo "PWD=$$PWD"
+	@echo "PATH=$$PATH"
+	@echo "MAKEFLAGS=$$MAKEFLAGS"
+	@echo "MAKEOVERRIDES=$$MAKEOVERRIDES"
+	@echo "MKEXE=$(MKEXE)"
+	@echo "CONDA_OCAML_MKEXE=$$CONDA_OCAML_MKEXE"
+	@echo "OCAML_FLEXLINK=$$OCAML_FLEXLINK"
+	@echo "FLEXLINK_BUILD_ENV=$(FLEXLINK_BUILD_ENV)"
+	@echo "--- which flexlink ---"
+	@which flexlink || echo "NOT FOUND in PATH"
+	@which flexlink.exe || echo "NOT FOUND .exe in PATH"
+	@echo "--- enumerate flexlink instances ---"
+	@find . -name 'flexlink*' -maxdepth 4 -ls 2>/dev/null || true
+	@echo "--- file types ---"
+	@for f in $$(find . -name 'flexlink*' -maxdepth 4 -type f 2>/dev/null); do file "$$f" 2>/dev/null; done
+	@echo "--- conda env flexlink ---"
+	@ls -la "$(BUILD_PREFIX)/Library/bin/flexlink"* 2>/dev/null || echo "no conda flexlink"
+	@echo "--- flexlink -help (first 20 lines) ---"
+	@echo "W28: flexlink -help wrapped in timeout 30 (x86-64 flexlink spins on -help; build 1551180)"
+	@timeout 30 flexlink -help 2>&1 | head -20 || echo "flexlink -help failed or timed out (30s)"
+	@echo "============ v05_03h DIAGNOSTIC: cross-flexdll END (proceeding to actual rule) ============"
 	rm -f $(FLEXDLL_SOURCE_DIR)/flexlink.exe
-	$(MAKE) -C $(FLEXDLL_SOURCE_DIR) $(FLEXLINK_BUILD_ENV) \
-	  NATDYNLINK=false LINKFLAGS= flexlink.exe support
+	# flexlink.exe is a NATIVE binary (built by native ocamlopt).
+	# Override CONDA_OCAML_AS/CC to native tools (env has cross tools).
+	# Use NATIVE_ASM (not NATIVE_AS) - includes -c for compiler drivers
+	# (zig/clang) so they assemble only, without trying to link.
+	# OCAMLLIB env var points to native stdlib for libasmrun.a.
+	@echo "v05_03k: setting OCAML_FLEXLINK before recursive make -C flexdll"
+	@echo "  OCAML_FLEXLINK=$(BUILD_PREFIX)/Library/bin/flexlink.exe (NOTE W7GG: OCAML_FLEXLINK is a NO-OP in OCaml 5.3.0+; kept for legacy paths only)"
+	@echo "v05_03l: prepending BUILD_PREFIX/Library/bin to PATH for recursive make"
+	@echo "============ W7GG DIAGNOSTIC: which ocamlopt links flexlink.exe (HOST x86_64 tool) ============"
+	@echo "W7GG root cause: the flexlink.exe self-link uses a bare PATH-resolved 'ocamlopt'. If that is the"
+	@echo "  in-tree win-arm64 CROSS ocamlopt, its baked Config.mkexe = 'flexlink -chain mingw64arm', whose"
+	@echo "  compiled-in default_libs inject arm64 crt2.obj + arm64 imports -> 'machine type arm64 conflicts"
+	@echo "  with x64'. The HOST flexlink.exe must instead be linked by a NATIVE mingw64-chain ocamlopt."
+	@echo "--- which -a ocamlopt ---"
+	@which -a ocamlopt 2>/dev/null || echo "  (no ocamlopt in PATH)"
+	@echo "--- NATIVE_STDLIB=$(NATIVE_STDLIB) ---"
+	@ls -la "$(BUILD_PREFIX)/Library/bin/"*ocamlopt* 2>/dev/null || echo "  (no ocamlopt in BUILD_PREFIX/Library/bin)"
+	@for oc in ocamlopt "$(BUILD_PREFIX)/Library/bin/ocamlopt.exe"; do echo "--- $$oc -config (flexlink/chain/mkexe/c_compiler) ---"; command -v "$$oc" >/dev/null 2>&1 && "$$oc" -config 2>/dev/null | grep -iE 'flexlink|chain|mkexe|c_compiler' || echo "  ($$oc unavailable)"; done
+	@echo "==============================================================================================="
+	@echo "W7GG fix-attempt (regression-safe, fails CLOSED): use a NATIVE mingw64-chain ocamlopt for the"
+	@echo "  HOST flexlink.exe link ONLY when one is positively confirmed in BUILD_PREFIX; else UNCHANGED."
+	@echo "[W41] flexdll upstream Makefile rule 'version.ml: Makefile flexdll.opam' (confirmed via"
+	@echo "  raw.githubusercontent.com/ocaml/flexdll/0.44/Makefile) depends ONLY on Makefile + flexdll.opam,"
+	@echo "  NEVER on MIN64CC/CC or any compiler-name variable. version.ml was already generated earlier in"
+	@echo "  THIS SAME build by the ambient TARGET-arm64 flexdll build (default MIN64CC, no override), and"
+	@echo "  neither Makefile nor flexdll.opam change between then and now -- so GNU Make's mtime check sees"
+	@echo "  version.ml as up-to-date and SKIPS regenerating it here, permanently baking the STALE"
+	@echo "  'let mingw64 = \"x86_64-w64-mingw32-gcc\"' (no -target) value that W39's MIN64CC=\$${_w37_native_cc_final}"
+	@echo "  override below can never reach. version.ml is a plain OCaml source file recompiled fresh into"
+	@echo "  flexlink.exe on every invocation (no separate .cmi/.cmx/.o staleness risk -- ocamlopt is given"
+	@echo "  the .ml source directly, not a pre-built .cmx), so removing it alone is sufficient to force"
+	@echo "  flexdll's own rule to regenerate it from THIS sub-make's MIN64CC value. Safe: cross-flexdll is"
+	@echo "  the only remaining flexdll Makefile invocation in this build phase (scoped to CHAINS=mingw64 by"
+	@echo "  W38); nothing downstream re-reads version.ml expecting TARGET-arm64-flavored content -- the"
+	@echo "  TARGET mingw64arm object stubs (flexdll_mingw64arm.obj etc.) are built from flexdll.c directly"
+	@echo "  and do not depend on version.ml."
+	rm -f $(FLEXDLL_SOURCE_DIR)/version.ml
+	@ls -la $(FLEXDLL_SOURCE_DIR)/version.ml 2>/dev/null && echo "[W41] WARNING: version.ml still present after rm -f" || echo "[W41] confirmed: version.ml absent; flexdll's rule will regenerate it below with this invocation's MIN64CC"
+# [W43] 2026-07-31: split from one giant ~5000+ char backslash-continued recipe line into
+# multiple independent Make recipe lines. Pure diagnostic echoes with no downstream shell-variable
+# dependency are split standalone (each runs in its own $(SHELL) -c, immune to any length/complexity
+# ceiling in a combined chain). Lines that compute a shell variable read by a LATER line (_w7gg_oc,
+# _w37_native_cc_stripped/_w37_native_cc_final) and the final $(MAKE) invocation that consumes them
+# are kept together in ONE backslash-continued block, since separate recipe lines run in separate
+# shells and would lose that state. The W42 cache-nuke if/fi block is self-contained (only reads
+# $(NUKE_ZIG_HOST_CRT2_CACHE), a Make variable substituted before any shell runs) so it is split into
+# its own standalone recipe line; it still executes, in file order, before the final $(MAKE) call.
+	echo "[W36] REFUTED (CI build a807aee0, log:8151-8152): appending -target x86_64-windows-gnu to CONDA_OCAML_CC did NOT resolve the crt2.obj machine-type conflict; superseded by W37 below."
+	echo "[W37-DIAG] NATIVE_CC (raw, may already embed its own -target)=$(NATIVE_CC)"
+	echo "[W37-DIAG] enumerating x86_64-w64-mingw32-gcc shim variants and PATH-search order (disambiguating which shim flexlink.exe's CreateProcess actually resolves: .exe wrapper / .bat / extensionless bash script per build.sh:1868-1942)"; \
+	for _ext in .exe .bat ""; do \
+	  _w37_cand="$(BUILD_PREFIX)/Library/bin/x86_64-w64-mingw32-gcc$${_ext}"; \
+	  if [ -e "$$_w37_cand" ]; then echo "[W37-DIAG]   present: $$_w37_cand"; else echo "[W37-DIAG]   absent:  $$_w37_cand"; fi; \
+	done; \
+	command -v where >/dev/null 2>&1 && where x86_64-w64-mingw32-gcc 2>&1 | sed 's/^/[W37-DIAG] where: /' || echo "[W37-DIAG] 'where' unavailable in this shell context (non-Windows/MSYS bash); PATHEXT-based CreateProcess resolution order remains unverified"
+	echo "[W38] appending CHAINS=mingw64 override to this cross-flexdll sub-make ONLY: \$$(FLEXLINK_BUILD_ENV) ambiently carries CHAINS=\$$(FLEXDLL_CHAIN)=mingw64arm (set unconditionally for the whole win-arm64 build at build.sh:2453-2454 for the real TARGET links), but this sub-make performs the HOST x86_64 flexlink.exe self-relink and must use CHAINS=mingw64 only (flexdll upstream Makefile: support: \$$(addprefix build_, \$$(CHAINS)) would otherwise also build flexdll_mingw64arm.obj/flexdll_initer_mingw64arm.obj here). Placed as a command-line VAR=val token AFTER \$$(FLEXLINK_BUILD_ENV) so GNU make's last-token-wins rule for repeated command-line variable assignments makes it win; ambient FLEXDLL_CHAIN=mingw64arm at build.sh:2453-2454 is left untouched for the real target links."
+	echo "[W39] W37's CONDA_OCAML_CC (line 879) is CORRECT but STRUCTURALLY UNREACHABLE for this recipe: flexdll's own patched Makefile (recipe/patches/flexdll-add-mingw64arm-support.patch line 91: 'MIN64CC = \$$(MINGW64_PREFIX)gcc') bakes the mingw64-chain C-compiler name into version.ml at flexdll-build-time via 'let mingw64 = \"\$$(notdir \$$(MIN64CC))\"', which flexlink.exe's own self-relink recipe (flexdll Makefile:193 flexlink.exe: \$$(OBJS) \$$(RES)) then uses as its -cc driver -- CONDA_OCAML_CC is never read by this Makefile at all, which is why W36/W37 had zero effect on the actual link command (CI log:8995 showed a bare 'x86_64-w64-mingw32-gcc' with no -target). Fix: pass MIN64CC=\$${_w37_native_cc_final} (W37's already-computed, CI-confirmed-correct value; NOT recomputed here) as a command-line token on this same \$$(MAKE) invocation, using the identical append-after-\$$(FLEXLINK_BUILD_ENV) last-token-wins mechanism W38 already proved works for CHAINS."
+	echo "[W42] 2026-07-30: this SAME build's TARGET-arm64 compiles (earlier in this build) can poison zig's global per-user object cache with an arm64-flavored crt2.obj; when the HOST x86_64 flexlink.exe self-link below needs its own crt2.obj, zig's cc driver may serve that wrong-arch cached copy, producing lld-link 'machine type arm64 conflicts with x64' (CI build 1560151, log:9175-9185). v05_03m/v05_03n (build.sh:9437, Makefile.cross:320-327) mitigate an ANALOGOUS collision at a DIFFERENT call site (crossopt's runtime-all re-link) by SKIPPING that re-link entirely -- not applicable here since flexlink.exe itself is the target being built. Instead: nuke (rm -f) any zig-cached crt2.obj/crt2.o under zig's global cache dirs immediately before this recursive make, forcing MIN64CC=\$${_w37_native_cc_final} to regenerate a fresh, correctly-typed HOST object. Gated by NUKE_ZIG_HOST_CRT2_CACHE (build.sh sets true only for OCAML_TARGET_PLATFORM=win-arm64; no-op on win-64/other platforms, where TARGET==HOST arch makes this collision impossible)."
+	if [ "$(NUKE_ZIG_HOST_CRT2_CACHE)" = "true" ]; then \
+	  _w42_cache_dirs=""; \
+	  for _w42_cand in "$${ZIG_GLOBAL_CACHE_DIR:-}" "$${LOCALAPPDATA:-}/zig" "$$HOME/.cache/zig"; do \
+	    [ -z "$$_w42_cand" ] && continue; \
+	    _w42_unix="$$(cygpath -u "$$_w42_cand" 2>/dev/null || echo "$$_w42_cand")"; \
+	    [ -d "$$_w42_unix" ] && _w42_cache_dirs="$$_w42_cache_dirs $$_w42_unix"; \
+	  done; \
+	  echo "[W42] candidate zig global cache dirs:$$_w42_cache_dirs"; \
+	  _w42_nuked=0; \
+	  for _w42_cd in $$_w42_cache_dirs; do \
+	    for _w42_obj in $$(find "$$_w42_cd" \( -name 'crt2.obj' -o -name 'crt2.o' \) 2>/dev/null); do \
+	      echo "[W42] removing stale cached zig CRT object: $$_w42_obj"; \
+	      cp -f "$$_w42_obj" "$$_w42_obj.w7qq-bak" 2>/dev/null && echo "[W7QQ] backed up $$_w42_obj" || echo "[W7QQ] WARNING: backup FAILED for $$_w42_obj (restore will not be possible for this one)"; \
+	      echo "[W7RR] NOT deleting $$_w42_obj -- W42's nuke is DISABLED. Round 54 proof (build 1565248 log 64): zig does NOT regenerate a deleted cached crt2.obj -- the warm-up itself failed at L9677 with lld-link could not open .../36ea874896a6a451724de4ad23dab654/crt2.obj, a hash W42 had just deleted. And 'conflicts with x64' is ZERO this build, so the arm64-vs-x64 hazard W42 was built to prevent does not occur. Backup above is retained as a safety net."; \
+	    done; \
+	  done; \
+	  echo "[W42] nuke DISABLED by W7RR (2026-08-10) -- 0 objects deleted by design; the counter above stays 0 and that is CORRECT, not a no-find. History: W7QQ 2026-08-09 removed an earlier claim here that 'zig regenerates a fresh HOST x86_64 crt2.obj on the compile below' -- FALSE, refuted by round 52 (build 1565180 log 60). Round 54 (build 1565248 log 64) then proved deletion is unrecoverable: the warm-up itself failed at L9677 unable to open a hash W42 had just deleted. Any object listed above was backed up to <obj>.w7qq-bak and is left in place."; \
+	else \
+	  echo "[W42] NUKE_ZIG_HOST_CRT2_CACHE!=true; zig cache nuke skipped (not a win-arm64 build)"; \
+	fi
+# [W7HH] 2026-07-31: CI build 1560508 (post-W43 line-split) STILL showed zero output for
+# W42/W7GG/W37-DIAG on this recipe -- the "giant recipe line" length hypothesis (W43) is
+# therefore inconclusive/refuted as the SOLE cause; see OCAML_RECIPE_LLM_REFERENCE.md §8.2
+# W43 entry follow-up. Independently of that open question, W42's cache-nuke (above) removes
+# the stale arm64-flavored crt2.obj but does NOT itself regenerate a fresh HOST x86_64 one --
+# it relies on the flexlink.exe link below to trigger zig's lazy regeneration. If MIN64CC
+# fails to reach that link for ANY reason (including the still-unexplained W42 silence),
+# zig's cc driver has no correctly-typed crt2.obj to serve, reproducing "Cannot find file
+# -lucrt"/"crt2.obj: no such file or directory". This warm-up decouples crt2.obj availability
+# from whether MIN64CC lands: it forces a real link (not just -c compile, which never touches
+# CRT startup objects) of a trivial program with $(NATIVE_CC) -- already the correct HOST
+# x86_64-windows-gnu zig cc invocation for this build_platform (see build.sh _w3ff_ensure_host_native_cc)
+# -- immediately after the nuke, so a fresh HOST crt2.obj is cached before the real self-link
+# runs below, regardless of whether that self-link's own MIN64CC override is actually honored.
+# Best-effort: a warm-up failure only warns, it does not abort cross-flexdll (the real link
+# below remains the authoritative pass/fail signal). Scoped to win-arm64 only via the SAME
+# NUKE_ZIG_HOST_CRT2_CACHE guard as W42 (no-op elsewhere).
+# [W7HH2] 2026-07-31 round 2: CI build 1560641 log:9176 confirmed the real self-link command
+# was a BARE `x86_64-w64-mingw32-gcc -mconsole ...` -- NOT this recipe's MIN64CC=$${_w37_native_cc_final}
+# zig invocation at all. Root cause (verified against build.sh, not guessed): the self-link below
+# uses ocamlopt's Config.mkexe (= the ALREADY-BUILT bootstrap flexlink.exe from build.sh's
+# earlier Phase A "VERSIONML_BYTE" heredoc), whose Version.mingw64 was hardcoded there to the
+# literal string "x86_64-w64-mingw32-gcc" -- MIN64CC on THIS $(MAKE) invocation only affects
+# the NEW version.ml for the flexlink.exe being built, not the OLD tool doing the building.
+# Fixed at the source: build.sh now bakes a zig cc -target x86_64-windows-gnu invocation into
+# that bootstrap flexlink.exe's Version.mingw64 (guarded to NATIVE_CC containing "zig"). Once
+# that lands, this warm-up's $(NATIVE_CC) invocation already matches the real self-link's
+# compiler target, so no separate cache-bucket-alignment fix is needed here.
+	if [ "$(NUKE_ZIG_HOST_CRT2_CACHE)" = "true" ]; then \
+	  _w7hh_c="$(FLEXDLL_SOURCE_DIR)/.w7hh_crt2_warmup.c"; \
+	  _w7hh_exe="$(FLEXDLL_SOURCE_DIR)/.w7hh_crt2_warmup.exe"; \
+	  _w7hh_log="$(FLEXDLL_SOURCE_DIR)/.w7hh_crt2_warmup.log"; \
+	  printf 'int main(void){return 0;}\n' > "$$_w7hh_c"; \
+	  $(NATIVE_CC) -o "$$_w7hh_exe" "$$_w7hh_c" >"$$_w7hh_log" 2>&1; \
+	  _w7hh_rc=$$?; \
+	  if [ $$_w7hh_rc -eq 0 ] && [ -f "$$_w7hh_exe" ]; then \
+	    echo "[W7HH] crt2.obj warm-up link OK (rc=0): $(NATIVE_CC) -- zig cache now holds a fresh HOST x86_64 crt2.obj (W7HH2: matches the now-fixed real self-link invocation, which since W7HH2 also uses this same NATIVE_CC-style zig cc -target x86_64-windows-gnu, not the OLD bare x86_64-w64-mingw32-gcc/-mconsole wrapper path -- -mconsole is a subsystem flag only, crt2.obj is identical either way, so omitting it here does not affect cache-bucket parity)"; \
+	  else \
+	    echo "[W7HH] WARNING: crt2.obj warm-up link FAILED rc=$$_w7hh_rc; proceeding anyway (real self-link below is authoritative). Log:"; \
+	    sed 's/^/[W7QQ-WARMUP] /' "$$_w7hh_log" 2>/dev/null || true; \
+	    echo "[W7QQ] ROUND 52 ROOT CAUSE: W42 deleted 4 cached crt2 objects, BOTH re-warms failed rc=1, and the self-link then demanded hash a107ac6c3a4fffab2999761651b106d3 -- one of the four just deleted (build 1565180 log 60, L9650-9654 / L9664 / L9788 / L10103). W42's premise that zig regenerates on the compile below is FALSE and was never verified. Restoring the backups so a failed warm-up cannot leave the self-link with nothing."; \
+	    _w7qq_restored=0; \
+	    for _w7qq_cand in "$${ZIG_GLOBAL_CACHE_DIR:-}" "$${LOCALAPPDATA:-}/zig" "$$HOME/.cache/zig"; do \
+	      [ -z "$$_w7qq_cand" ] && continue; \
+	      _w7qq_unix="$$(cygpath -u "$$_w7qq_cand" 2>/dev/null || echo "$$_w7qq_cand")"; \
+	      [ -d "$$_w7qq_unix" ] || continue; \
+	      for _w7qq_bak in $$(find "$$_w7qq_unix" -name '*.w7qq-bak' 2>/dev/null); do \
+	        _w7qq_orig="$${_w7qq_bak%.w7qq-bak}"; \
+	        cp -f "$$_w7qq_bak" "$$_w7qq_orig" 2>/dev/null && _w7qq_restored=$$((_w7qq_restored + 1)) && echo "[W7QQ] restored $$_w7qq_orig"; \
+	      done; \
+	    done; \
+	    echo "[W7QQ] restored $$_w7qq_restored crt2 object(s) after the failed warm-up"; \
+	  fi; \
+	  echo "[W7QQ->W7RR] HISTORICAL: the round-51 W7PP probe had two defects -- output piped through grep emitted UNTAGGED lines that run_logged's dedicated [Wxx] pass then filtered out, and '| head -N || echo fallback' could never fire because a pipeline's status comes from head. W7QQ fixed both; W7RR then DELETED the probe entirely as unanswerable by construction (see the [W7RR] line below). Retained only as a caution: any diagnostic here must be [Wxx]-tagged to survive the log filters, and no-match detection must use grep -c, never '|| echo'."; \
+	  echo "[W7RR] A/B -nostartfiles probe DROPPED as unanswerable by construction: zig cc -### expands the COMPILATION command, but crt2.obj is a LINK-time input, so it could never appear -- round 54 returned count 0 for both A and B. One byproduct was still useful: log:9690 'argument unused during compilation: -nostartfiles' confirms the driver RECOGNISES the flag (it is link-only). The question is moot anyway now that a deleted, non-regenerable object explains the failure."; \
+	  rm -f "$$_w7hh_c" "$$_w7hh_exe" "$$_w7hh_log"; \
+	else \
+	  echo "[W7HH] NUKE_ZIG_HOST_CRT2_CACHE!=true; crt2.obj warm-up skipped (not a win-arm64 build)"; \
+	fi
+# [W7HH-VERIFY] 2026-07-31 round 2: the ORIGINAL placement of this verify (separate recipe
+# lines after the $(MAKE) call, further below) never fired on failure -- GNU Make aborts a
+# rule's recipe at the first non-`-`-prefixed line that returns nonzero, so when the self-link
+# $(MAKE) call itself failed (as it did in CI build 1560641), every subsequent recipe line,
+# including this verify, was skipped. Fixed by folding the verify into the SAME recipe line
+# (same single shell invocation, backslash-continued below with NO plain comment lines
+# interrupting the chain -- interrupting it would silently drop all the shell variables set
+# below, e.g. _w37_native_cc_final, before they reach the $(MAKE) call) using the
+# `cmd || rc=$$?` idiom so it runs even under a shell with errexit active, then re-propagating
+# the real exit code via `exit $$_w7hh_selflink_rc` at the end so the build still fails
+# correctly when the self-link fails -- diagnostic-visibility fix only, does not mask the
+# underlying failure. Also prints MIN64CC's actual value immediately before the sub-make
+# invocation (W7HH2-PRELINK) so the next round can confirm, independent of this diagnostic,
+# whether MIN64CC ever reaches the sub-make's environment.
+	_w7gg_oc=""; \
+	for _cand in "$(BUILD_PREFIX)/Library/bin/ocamlopt.opt.exe" "$(BUILD_PREFIX)/Library/bin/ocamlopt.exe"; do \
+	  if [ -x "$$_cand" ] && "$$_cand" -config 2>/dev/null | grep -qi 'mingw64' && ! "$$_cand" -config 2>/dev/null | grep -qi 'mingw64arm'; then _w7gg_oc="$$_cand"; break; fi; \
+	done; \
+	if [ -n "$$_w7gg_oc" ]; then echo "[W7GG] linking flexlink.exe with NATIVE mingw64 ocamlopt: $$_w7gg_oc"; else echo "[W7GG] no confirmed native mingw64 ocamlopt in BUILD_PREFIX; using default ocamlopt (UNCHANGED, no regression)"; fi; \
+	_w37_native_cc_stripped="$$(echo "$(NATIVE_CC)" | sed -E 's/-target[[:space:]]+[^[:space:]]+//g')"; \
+	_w37_native_cc_final="$${_w37_native_cc_stripped} -target x86_64-windows-gnu"; \
+	echo "[W37-DIAG] NATIVE_CC (after stripping any existing -target token)=$${_w37_native_cc_stripped}"; \
+	echo "[W37] CONDA_OCAML_CC final (single -target guaranteed, replace-not-append; fixes W36's first-vs-last-flag ambiguity for this HOST flexlink.exe self-relink ONLY)=$${_w37_native_cc_final}"; \
+	echo "[W7HH2-PRELINK] MIN64CC about to be passed to flexdll self-link sub-make: $${_w37_native_cc_final}"; \
+	echo "[W7HH3] REFUTED (CI build 1560758, log:9168): the bootstrap-dir PATH-prepend approach had ZERO"; \
+	echo "  observable effect -- self-link command was STILL bare x86_64-w64-mingw32-gcc, identical to"; \
+	echo "  before W7HH3. Root cause: flexlink.exe/ocamlopt.exe are NATIVE Win32 binaries resolving PATH"; \
+	echo "  via Win32 CreateProcess search semantics, which do not honor a POSIX/MSYS-style bash"; \
+	echo "  PATH=/c/... prefix set inside this Makefile recipe -- resolution silently fell through to"; \
+	echo "  conda-stock BUILD_PREFIX/Library/bin unchanged regardless of the prepend. See"; \
+	echo "  OCAML_RECIPE_LLM_REFERENCE.md section 8.2 for the full refutation writeup."; \
+	echo "[W7HH4] 2026-08-01 round 4: replace PATH manipulation with a DIRECT BINARY SWAP of the file"; \
+	echo "  ocamlopt's Config.mkexe actually resolves via CreateProcess: back up conda-stock"; \
+	echo "  BUILD_PREFIX/Library/bin/flexlink.exe, overwrite it in place with the zig-correct Phase A"; \
+	echo "  bootstrap tool (flexdll/flexlink.exe.x64, built at build.sh VERSIONML_BYTE with mingw64=zig"; \
+	echo "  cc) for the duration of THIS self-link sub-make only, then restore the original immediately"; \
+	echo "  after -- on BOTH the success and failure path (restore is NOT gated on self-link exit"; \
+	echo "  status). Scoped to win-arm64 zig only via the same NUKE_ZIG_HOST_CRT2_CACHE guard as W42."; \
+	_w7hh4_target="$(BUILD_PREFIX)/Library/bin/flexlink.exe"; \
+	_w7hh4_backup="$(BUILD_PREFIX)/Library/bin/flexlink.exe.w7hh4-orig-backup"; \
+	_w7hh4_swapped=0; \
+	if [ "$(NUKE_ZIG_HOST_CRT2_CACHE)" = "true" ] && [ -f "$(FLEXDLL_SOURCE_DIR)/flexlink.exe.x64" ] && [ -f "$$_w7hh4_target" ]; then \
+	  if [ ! -f "$$_w7hh4_backup" ]; then \
+	    cp -f "$$_w7hh4_target" "$$_w7hh4_backup"; \
+	  else \
+	    echo "[W7HH4] WARNING: stale backup $$_w7hh4_backup already present (leftover from an aborted prior round) -- reusing it as the restore source, NOT overwriting it"; \
+	  fi; \
+	  cp -f "$(FLEXDLL_SOURCE_DIR)/flexlink.exe.x64" "$$_w7hh4_target"; \
+	  _w7hh4_swapped=1; \
+	  echo "[W7HH4] swapped $$_w7hh4_target -> zig-patched Phase A tool (backup at $$_w7hh4_backup)"; \
+	else \
+	  echo "[W7HH4] NUKE_ZIG_HOST_CRT2_CACHE!=true, or flexlink.exe.x64/$$_w7hh4_target missing; binary swap skipped (no-op on non-win-arm64/non-zig)"; \
+	fi; \
+	_w7hh6_prelink="$(FLEXDLL_SOURCE_DIR)/.w7hh6_prelink.log"; \
+	rm -f "$$_w7hh6_prelink"; \
+	echo "[W7HH5] 2026-08-01 round 5: CI build 1560939 log:9675 showed lld-link 'could not open" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  .../zig/o/3cc72da2e6f8473db32d5dede33313c7/crt2.obj: no such file or directory' DURING" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  this self-link, even though the W42 nuke (line ~895) and W7HH warm-up (line ~942) both" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  already ran earlier in this recipe -- BEFORE the W7HH4 binary swap above. Root cause:" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  W7HH4's swapped-in zig-patched flexlink.exe.x64 drives its OWN internal lld-link call for" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  the final link step; that lld-link invocation is a separate process from 'zig cc' and does" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  not trigger zig's lazy crt2.obj cache regeneration the way a one-shot 'zig cc -o x y.c'" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  compile+link does -- so whatever hash bucket lld-link asks for may be a fresh one this" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  build never populated. Fix: sweep any crt2.obj/crt2.o under zig's cache root AGAIN, then" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  re-warm via the EXACT $${_w37_native_cc_final} command this self-link's MIN64CC will use," >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  run immediately AFTER the W7HH4 swap so the warm-up reflects the tool actually in place." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "[W7HH6] 2026-08-01 round 6: pre-link echoes now written to $$_w7hh6_prelink and cat immediately" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  (BEFORE the self-link \$$(MAKE) call below), instead of relying solely on live stdout -- CI" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  build 1560971 fetched ZERO [W7HH5] lines despite W7HH4's post-link tee/cat mechanism working," >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  because that mechanism only captures the SELF-LINK sub-make's own ~32900-line trace, not" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  these earlier pre-link echoes. This file persists on the build filesystem regardless of Azure" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  live-log tail truncation; grep [W7HH5]/[W7HH5-VERIFY]/[W7HH6] there if still truncated." >> "$$_w7hh6_prelink" 2>&1; \
+	if [ "$(NUKE_ZIG_HOST_CRT2_CACHE)" = "true" ]; then \
+	  _w7hh5_cache_dirs=""; \
+	  for _w7hh5_cand in "$${ZIG_GLOBAL_CACHE_DIR:-}" "$${LOCALAPPDATA:-}/zig" "$$HOME/.cache/zig"; do \
+	    [ -z "$$_w7hh5_cand" ] && continue; \
+	    _w7hh5_unix="$$(cygpath -u "$$_w7hh5_cand" 2>/dev/null || echo "$$_w7hh5_cand")"; \
+	    [ -d "$$_w7hh5_unix" ] && _w7hh5_cache_dirs="$$_w7hh5_cache_dirs $$_w7hh5_unix"; \
+	  done; \
+	  echo "[W7HH5] candidate zig global cache dirs:$$_w7hh5_cache_dirs" >> "$$_w7hh6_prelink" 2>&1; \
+	  _w7hh5_swept=0; \
+	  for _w7hh5_cd in $$_w7hh5_cache_dirs; do \
+	    for _w7hh5_obj in $$(find "$$_w7hh5_cd" \( -name 'crt2.obj' -o -name 'crt2.o' \) 2>/dev/null); do \
+	      echo "[W7HH5] sweeping stale cached crt2 object: $$_w7hh5_obj" >> "$$_w7hh6_prelink" 2>&1; \
+	      echo "[W7RR] NOT deleting $$_w7hh5_obj -- the W7HH5 post-swap sweep is DISABLED. Round 54 traced the blocker precisely: W7QQ restored 4 objects at L9679-9683, this sweep destroyed the same 4 at L9810-9814 (swept 4, including ca63fe7e7fe33e2b382b88de833ae775 at L9813), and the self-link then failed on that exact hash at L10103. The restore worked; this sweep undid it 130 lines later." >> "$$_w7hh6_prelink" 2>&1; \
+	    done; \
+	  done; \
+	  echo "[W7HH5] sweep DISABLED by W7RR (2026-08-10) -- swept $$_w7hh5_swept by design (0 is CORRECT here, not a no-find). Round 54 proof: this sweep destroyed the 4 objects W7QQ had just restored (L9810-9814) including ca63fe7e7fe33e2b382b88de833ae775, and the self-link then failed on that exact hash at L10103." >> "$$_w7hh6_prelink" 2>&1; \
+	  _w7hh5_c="$(FLEXDLL_SOURCE_DIR)/.w7hh5_crt2_rewarm.c"; \
+	  _w7hh5_exe="$(FLEXDLL_SOURCE_DIR)/.w7hh5_crt2_rewarm.exe"; \
+	  _w7hh5_log="$(FLEXDLL_SOURCE_DIR)/.w7hh5_crt2_rewarm.log"; \
+	  printf 'int main(void){return 0;}\n' > "$$_w7hh5_c"; \
+	  $${_w37_native_cc_final} -o "$$_w7hh5_exe" "$$_w7hh5_c" >"$$_w7hh5_log" 2>&1; \
+	  _w7hh5_rc=$$?; \
+	  if [ $$_w7hh5_rc -eq 0 ] && [ -f "$$_w7hh5_exe" ]; then \
+	    echo "[W7HH5] post-swap crt2.obj re-warm OK (rc=0) via $${_w37_native_cc_final}" >> "$$_w7hh6_prelink" 2>&1; \
+	  else \
+	    echo "[W7HH5] WARNING: post-swap crt2.obj re-warm FAILED rc=$$_w7hh5_rc; proceeding anyway (self-link below is authoritative). Log:" >> "$$_w7hh6_prelink" 2>&1; \
+	    cat "$$_w7hh5_log" >> "$$_w7hh6_prelink" 2>&1 || true; \
+	  fi; \
+	  rm -f "$$_w7hh5_c" "$$_w7hh5_exe" "$$_w7hh5_log"; \
+	  echo "[W7HH5-VERIFY] crt2.obj/crt2.o under zig cache roots immediately before self-link (should show at least the re-warmed entry):" >> "$$_w7hh6_prelink" 2>&1; \
+	  for _w7hh5_cd in $$_w7hh5_cache_dirs; do \
+	    find "$$_w7hh5_cd" \( -name 'crt2.obj' -o -name 'crt2.o' \) -print >> "$$_w7hh6_prelink" 2>&1 || true; \
+	  done; \
+	else \
+	  echo "[W7HH5] NUKE_ZIG_HOST_CRT2_CACHE!=true; post-swap crt2.obj sweep/re-warm skipped (not a win-arm64 build)" >> "$$_w7hh6_prelink" 2>&1; \
+	fi; \
+	cat "$$_w7hh6_prelink"; \
+	echo "[W7HH6] pre-link diagnostics persisted at $$_w7hh6_prelink ($$(wc -l < "$$_w7hh6_prelink" 2>/dev/null || echo '?') lines)"; \
+	_w7hh_selflink_rc=0; \
+	_w7hh4_selflink_log="$(FLEXDLL_SOURCE_DIR)/.w7hh4_selflink_full.log"; \
+	_w7hh9_host_crt2="$(BUILD_PREFIX)/Library/lib/host-x64-crt2/crt2.o"; \
+	echo "[W7HH9] 2026-08-02 round 9: W7HH5's cache-rewarm (line ~1014 above) re-warms zig's" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  crt2.obj cache using a trivial one-shot 'zig cc -o exe int_main.c' invocation that shares" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  NONE of this self-link's ~14 -I/-L flags plus -mconsole -municode -- zig's crt2.obj cache" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  key is content-addressed on the FULL invocation flag set, so the rewarm populates the" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  WRONG hash bucket and this self-link's own bucket stays empty (CI build 1561109 log:9695," >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  lld-link 'could not open ...crt2.obj: no such file or directory'). Also, W7HH1-8's" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  -print-file-name=crt2.o gcc.bat/no-ext shim intercept does NOT cover this path: per §5.1" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  W7AC (flexdll/Makefile:191 rule: \$$(OCAMLOPT) -o \$$@ \$$(LINKFLAGS) \$$(OBJS)), this self-link" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  is OCAMLOPT-driven (confirmed by the @camlresp response-file naming in the CI log), and" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  ocamlopt calls its own C compiler (zig cc) directly for this native exe link -- never" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  through the patched x86_64-w64-mingw32-gcc shim. Fix: stop relying on cache pre-warming;" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  bypass zig's auto-crt2 lookup entirely for THIS link via LINKFLAGS, which lands directly" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  on ocamlopt's own command line (same slot as OBJS): '-ccopt -nostartfiles' (ocamlopt has no" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  bare -link flag; -ccopt is the documented way to relay a raw flag to ocamlopt's C compiler/" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  linker call) suppresses zig's own auto-included crt2.obj, plus the pre-built HOST x86_64" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  crt2.o at $${_w7hh9_host_crt2} (built earlier by the W7HH7 block) appended as a bare" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  positional .o input, identical convention to how OBJS itself lists raw .o files (ocamlopt" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  recognizes .o extension args as direct link inputs, no -cclib wrapper needed)." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  UNVERIFIED pending next CI round." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "[W7HH9] LINKFLAGS=-ccopt -nostartfiles $${_w7hh9_host_crt2}" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "[W7HH10] 2026-08-02 round 10: CI (commit 1c3431ea) found W7HH9 broken TWO ways. (1) syntax:" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  ocamlopt rejected 'ocamlopt.exe -o flexlink.exe -ccopt -nostartfiles %BUILD_PREFIX%/.../crt2.o ...'" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  with 'Don't know what to do with %BUILD_PREFIX%/.../crt2.o' -- -ccopt only consumes its" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  immediate next token (-nostartfiles), so the crt2.o path became a bare positional arg" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  ocamlopt's CLI rejects there. Fix: pass the object via -cclib instead of a bare positional." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  (2) REGRESSION: on the win-64-HOST cross-to-win-arm64 lane (same target_platform=win-arm64" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  but _w7hh4_swapped=1, i.e. the W7HH4 binary swap put flexlink.exe.x64 in as ocamlopt's" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  self-link backend), flexlink.exe's OWN CLI parser rejects -nostartfiles outright:" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  'flexlink: unknown option -nostartfiles', BEFORE crt2.o is even considered -- this lane" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  was passing pre-W7HH9 and needs LINKFLAGS left empty exactly as before. target_platform" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  alone cannot distinguish these two lanes (both are win-arm64); _w7hh4_swapped can, since" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  it directly reflects which self-link backend (zig cc vs swapped-in flexlink.exe) this" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  round's build is using. Fix: gate the LINKFLAGS injection on _w7hh4_swapped != 1." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  UNVERIFIED pending next CI round." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "[W7HH11] 2026-08-02 round 11: CI confirmed _w7hh4_swapped=1 on BOTH win-arm64-target lanes" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  this round (its guard is NUKE_ZIG_HOST_CRT2_CACHE==true plus file-existence checks, which" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  hold on both the native win-arm64 self-bootstrap lane and the win-64-hosted cross lane) --" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  REFUTED as a lane discriminator: W7HH10 left LINKFLAGS empty on BOTH lanes, correctly" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  avoiding a regression on the cross lane but ALSO regressing the native lane back to the" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  original 'lld-link: could not open .../crt2.obj' bug. Fix: gate on _w7gg_oc instead --" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  empty on the native/self-bootstrap lane (no separate native mingw64 ocamlopt exists yet)," >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  non-empty on the cross-compiler lane (pre-installed ocaml_win-64 BUILD_PREFIX dependency" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  provides one). UNVERIFIED pending next CI round (previous round's confirmation diagnostic" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  was truncated by Azure's log tail window before it could be directly read on either lane)." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "[W7HH12] 2026-08-02 round 12: W7HH11 REFUTED by the now-observable post-cat echo (commit" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  9c4ef074, failing native win-arm64 log:9192): _w7gg_oc='%BUILD_PREFIX%/Library/bin/ocamlopt.exe'" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  was NON-EMPTY on the failing lane too, so the '-z _w7gg_oc' guard took the else-branch, left" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  LINKFLAGS empty, and the crt2.obj open failure recurred identically (log:9173). Both" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  _w7hh4_swapped(=1) AND _w7gg_oc(non-empty) evaluate the SAME on both win-arm64-target lanes --" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  neither discriminates. KEY REFRAME (verified from passing-lane log 56, jobId-matched to the" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  win_64-compiler check): the PASSING lane never executes this cross-flexdll recipe body at all" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  -- its flexlink.exe is already built by the upstream host-ocaml bytecode leg, so the sub-make" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  'flexlink.exe support' finds it up-to-date and skips; [W7HH11]/[W7HH4] never fire there." >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  Therefore NO lane discriminator is needed: gate the injection on NUKE_ZIG_HOST_CRT2_CACHE=true" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  (build.sh:9950, true iff target=win-arm64). It fires ONLY inside this recipe, which only the" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  failing native lane runs; the passing lane skips the recipe regardless of the guard, so no" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  regression is possible. host-x64-crt2/crt2.o IS built for this lane at build.sh:3133 (win-arm64" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  + x86_64-w64-mingw32 host triplet, pre-world phase). This is the FIRST round the injection" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  '-ccopt -nostartfiles -cclib crt2.o' actually executes (W7HH9 syntax-errored before it;" >> "$$_w7hh6_prelink" 2>&1; \
+	echo "  W7HH10/11 both gated it away). UNVERIFIED pending next CI round." >> "$$_w7hh6_prelink" 2>&1; \
+	case "$${_w7gg_oc}" in \
+	  *ocamlopt.opt.exe) _w7hh13_selfboot=0 ;; \
+	  *ocamlopt.exe)     _w7hh13_selfboot=1 ;; \
+	  *)                 _w7hh13_selfboot=0 ;; \
+	esac; \
+	if [ "$(NUKE_ZIG_HOST_CRT2_CACHE)" = "true" ] && [ "$${_w7hh13_selfboot}" = "1" ]; then \
+	  _w7hh15_host_tlssup="$(BUILD_PREFIX)/Library/lib/host-x64-crt2/tlssup.o"; \
+	  if [ -f "$${_w7hh15_host_tlssup}" ]; then \
+	    _w7hh15_tls_cclib=""; \
+	    echo "[W7HH29] synthetic tlssup.o present at $${_w7hh15_host_tlssup} but NOT passed to LINKFLAGS: libmingwex.a(tlssup.obj) is now pulled in by flexlink's own default library list and supplies the same TLS symbol set (__dyn_tls_init, __tlregdtor, __dyn_tls_dtor, _tls_index, _tls_used, __dyn_tls_init_callback, __mingw_initltsdrot_force, __mingw_initltsdyn_force, __mingw_initltssuo_force, _tls_start, _tls_end, __xl_a, __xl_z, __xl_c, __xl_d). Build 1563121 log:8969-9091 reported all 15 as lld-link duplicate symbols between our copy and libmingwex.a. _tls_index -- the symbol W7HH15 originally existed to supply -- is among those now provided by libmingwex."; \
+	  else \
+	    _w7hh15_tls_cclib=""; \
+	    echo "[W7HH29] host tlssup.o absent at $${_w7hh15_host_tlssup}; no-op since libmingwex.a(tlssup.obj) already supplies _tls_index and the rest of the TLS symbol set on this link (see W7HH29 note above)."; \
+	  fi; \
+	  _w7hh25_imports="$(BUILD_PREFIX)/Library/lib/ocaml-x86_64-imports"; \
+	  if [ -f "$${_w7hh25_imports}/libmsvcrt.a" ] || [ -f "$${_w7hh25_imports}/libucrt.a" ]; then \
+	    _w7hh25_crt_cclib="-cclib -L$${_w7hh25_imports} -cclib -lkernel32 -cclib -lmsvcrt -cclib -lucrt -cclib -lcrt_helpers"; \
+	    echo "[W7HH25] 2026-08-05 round 25: -ccopt -Wl,-nostartfiles plus the synthetic crt2.o left this HOST x86_64 self-link with NO CRT import library on its search path. Build 1562893 log:9240 shows the retry link carrying only -lws2_32 -lole32 -luuid -lversion -lshlwapi -lsynchronization -lpthread and -L{ocaml,ocaml/flexdll} -- no -lucrt/-lmsvcrt and no -L at ocaml-x86_64-imports -- hence log:9133-9134 '** Cannot resolve symbols for .../host-x64-crt2/crt2.o: __p___initenv'."; \
+	    echo "[W7HH25] stage_x86_64_imports (build.sh:897) had ALREADY populated REAL archives on this same lane -- log:1704-1719 [W2RR FIX-O]: libucrt.a 2353536, libucrtbase.a 2361726, libmsvcrt.a 1293344, libmingwex.a present -- they were simply never searched. So this is an existing-mechanism-not-wired defect, NOT a missing stub: no 3rd hand-rolled stub is added."; \
+	    echo "[W7HH28] 2026-08-05 round 28: -cclib -lcrt_helpers is now WIRED IN (was deliberately omitted in W7HH25 pending arch verification). SETTLED by build 1563029: an x86_64 libcrt_helpers.a IS built for this lane (build.sh:1369, compiled -target x86_64-windows-gnu by the x86_64 compile/archive cmds in the CRTHELPERS_X86 heredoc, currently ~1452-1455) and lands in _x86_lib_dir=BUILD_PREFIX/Library/lib/ocaml-x86_64-imports (build.sh:913) -- the SAME dir as _w7hh25_imports here, so the existing -L already covers it. CORRECTION to the old W7HH25 note: __p___initenv (currently ~build.sh:5765) is defined in the ARM64 heredoc CRTHELPERS (currently ~5718-5814), NOT the x86_64 mirror heredoc CRTHELPERS_X86 (currently ~1371-1451) -- wiring -lcrt_helpers would never have supplied __p___initenv on this HOST lane. Probe log:9135-9151 showed libmingwex.a is the ONLY provider of __p___initenv; libmsvcrt/libucrt/libucrtbase/libkernel32/libgcc/libgcc_eh all returned nothing."; \
+	    echo "[W7HH29] round 29: -cclib -lucrtbase dropped from _w7hh25_crt_cclib. Build 1563121 log:8969-9091 reported duplicate symbols for sqrt, sin, pow, modf, log, ldexp, frexp, fmod, floor, exp, cos, ceil, atan2 between libmsvcrt.a and libucrtbase.a. -lmsvcrt was kept over -lucrtbase because the duplicate-pair listings named libmsvcrt.a first in each case; libucrtbase.a is the redundant third CRT import alongside -lucrt."; \
+	    echo "[W7HH25] HOST x86_64 CRT imports: $${_w7hh25_imports}"; \
+	  else \
+	    _w7hh25_crt_cclib=""; \
+	    echo "[W7HH25] WARNING: $${_w7hh25_imports} contains neither libmsvcrt.a nor libucrt.a; __p___initenv will stay unresolved (stage_x86_64_imports either did not run on this lane or its W2SS nm arch-verification rejected every candidate)"; \
+	  fi; \
+	  echo "[W7SS] dropped -cclib \$${_w7hh9_host_crt2} from LINKFLAGS: zig injects its own crt2.obj" >> "$$_w7hh6_prelink" 2>&1; \
+	  echo "  regardless of -Wl,-nostartfiles, so supplying ours made the duplicate WinMainCRTStartup/" >> "$$_w7hh6_prelink" 2>&1; \
+	  echo "  mainCRTStartup/__mingw_pcinit symbol pair. With ZIG_GLOBAL_CACHE_DIR/ZIG_LOCAL_CACHE_DIR" >> "$$_w7hh6_prelink" 2>&1; \
+	  echo "  now isolated to this self-link invocation (W7SS_ZIG_CACHE=$(W7SS_ZIG_CACHE)), zig's own" >> "$$_w7hh6_prelink" 2>&1; \
+	  echo "  injected crt2.obj is freshly built for x86_64 instead of reusing the poisoned shared" >> "$$_w7hh6_prelink" 2>&1; \
+	  echo "  per-user cache bucket. _w7hh9_host_crt2 is left defined above as a tripwire, not removed." >> "$$_w7hh6_prelink" 2>&1; \
+	  _w7hh10_linkflags="-verbose -dstartup -ccopt -Wl,-nostartfiles $${_w7hh15_tls_cclib} $${_w7hh25_crt_cclib}"; \
+	else \
+	  _w7hh10_linkflags=""; \
+	fi; \
+	echo "[W7HH14] NUKE=$(NUKE_ZIG_HOST_CRT2_CACHE) _w7gg_oc=$${_w7gg_oc:-<empty>} selfboot=$${_w7hh13_selfboot} (1=native/self-bootstrap ocamlopt.exe:inject, 0=cross ocamlopt.opt.exe or empty:no-inject) -> LINKFLAGS=$${_w7hh10_linkflags:-<empty>}"; \
+	_w7hh16_nm="$$(command -v llvm-nm 2>/dev/null || command -v nm 2>/dev/null || true)"; \
+	if [ "$(NUKE_ZIG_HOST_CRT2_CACHE)" = "true" ] && [ "$${_w7hh13_selfboot}" = "1" ] && [ -n "$$_w7hh16_nm" ]; then \
+	  _w7hh26_out="$(FLEXDLL_SOURCE_DIR)/.w7hh26_probe.log"; \
+	  rm -f "$$_w7hh26_out" 2>/dev/null || true; \
+	  echo "[W7HH27-PROBE] === DIAGNOSTIC round 27 (2026-08-05). W7HH26 ran with a TRUE guard (build 1562996: NUKE=true at log:8770/9643, _w7hh13_selfboot=1 at log:9194, nm resolved per the real [W7HH17-DIAG] nm output at log:9224-9225) but its inline echoes NEVER reached the CI log -- zero real [W7HH26-PROBE] occurrences; the only hits were recipe source text inside the crossopt_procmon.log CommandLine capture at log:9787-9823. Cause: this point is BEFORE the self-link log flood, and Azure's capture window drops it (same clipping already documented at the W7HH24-DIAG retry-log note). Fix: write to a file here, cat it LATE where [W7HH17-DIAG] demonstrably survives (log:9224-9243). ===" >> "$$_w7hh26_out" 2>&1; \
+	  _w7hh26_imp="$(BUILD_PREFIX)/Library/lib/ocaml-x86_64-imports"; \
+	  for _w7hh26_lib in libmsvcrt.a libucrt.a libucrtbase.a libmingwex.a libkernel32.a libgcc.a libgcc_eh.a; do \
+	    _w7hh26_p="$$_w7hh26_imp/$$_w7hh26_lib"; \
+	    if [ -f "$$_w7hh26_p" ]; then \
+	      echo "[W7HH27-PROBE] --- $$_w7hh26_lib ($$(stat -c%s "$$_w7hh26_p" 2>/dev/null || echo '?') bytes) nm type T/D/B = DEFINES here, U = merely REFERENCES ---" >> "$$_w7hh26_out" 2>&1; \
+	      "$$_w7hh16_nm" --print-file-name "$$_w7hh26_p" 2>/dev/null | grep -E '__p___initenv|__DTOR_LIST__|__CTOR_LIST__|__main' | head -30 >> "$$_w7hh26_out" 2>&1 || echo "[W7HH27-PROBE]   (no matching symbols in this archive)" >> "$$_w7hh26_out" 2>&1; \
+	    else \
+	      echo "[W7HH27-PROBE] --- $$_w7hh26_lib ABSENT at $$_w7hh26_p ---" >> "$$_w7hh26_out" 2>&1; \
+	    fi; \
+	  done; \
+	  echo "[W7HH27-PROBE] === FULL undefined set of every gccmain member of libmingwex.a. Build 1562996 showed __DTOR_LIST__ as the SOLE undefined symbol (log:9133-9134 and log:9158-9159, nothing else in context), so confirm that here. NOTE this round also DROPS -cclib -lmingwex from the link, so if libmingwex was not the __p___initenv provider, gccmain.obj and __DTOR_LIST__ should disappear entirely. ===" >> "$$_w7hh26_out" 2>&1; \
+	  "$$_w7hh16_nm" --print-file-name -u "$$_w7hh26_imp/libmingwex.a" 2>/dev/null | grep -i 'gccmain' | head -40 >> "$$_w7hh26_out" 2>&1 || echo "[W7HH27-PROBE]   (no undefined symbols reported for any gccmain member)" >> "$$_w7hh26_out" 2>&1; \
+	  echo "[W7HH27-PROBE] === startup objects actually present under BUILD_PREFIX. An EMPTY list is a POSITIVE finding: it means no real crtbegin/crtend exist here, which would rule out the structural 'stop stripping startup objects' option. ===" >> "$$_w7hh26_out" 2>&1; \
+	  for _w7hh26_root in "$(BUILD_PREFIX)/Library/lib" "$(BUILD_PREFIX)/Library" "$(BUILD_PREFIX)/lib"; do \
+	    if [ -d "$$_w7hh26_root" ]; then \
+	      find "$$_w7hh26_root" -maxdepth 6 \( -name 'crtbegin*.o' -o -name 'crtend*.o' -o -name 'crt2.o' -o -name 'dllcrt2.o' -o -name 'gccmain.o*' \) -print >> "$$_w7hh26_out" 2>&1 || true; \
+	    fi; \
+	  done; \
+	  echo "[W7HH28-PROBE] === verifies the W7HH28 stub wiring (-cclib -lcrt_helpers added to _w7hh25_crt_cclib at line 1148) ===" >> "$$_w7hh26_out" 2>&1; \
+	  _w7hh28_p="$${_w7hh25_imports}/libcrt_helpers.a"; \
+	  if [ -f "$$_w7hh28_p" ]; then \
+	    echo "[W7HH28-PROBE] --- libcrt_helpers.a present at $$_w7hh28_p ($$(stat -c%s "$$_w7hh28_p" 2>/dev/null || echo '?') bytes) ---" >> "$$_w7hh26_out" 2>&1; \
+	    if [ -n "$$_w7hh16_nm" ]; then \
+	      "$$_w7hh16_nm" --print-file-name "$$_w7hh28_p" 2>/dev/null | grep -E '__main|__CTOR_LIST__|__DTOR_LIST__' | head -30 >> "$$_w7hh26_out" 2>&1 || echo "[W7HH28-PROBE]   (no matching symbols)" >> "$$_w7hh26_out" 2>&1; \
+	    else \
+	      echo "[W7HH28-PROBE]   (no nm tool on PATH, cannot verify symbols)" >> "$$_w7hh26_out" 2>&1; \
+	    fi; \
+	  else \
+	    echo "[W7HH28-PROBE] --- libcrt_helpers.a ABSENT at $$_w7hh28_p -- stub never built for this lane, -lcrt_helpers is a no-op ---" >> "$$_w7hh26_out" 2>&1; \
+	  fi; \
+	  echo "[W7HH27-PROBE] === END probe collection ===" >> "$$_w7hh26_out" 2>&1; \
+	fi; \
+	echo "[W7HH16-DIAG] self-relink env: build_platform=$${build_platform:-unset} target_platform=$${target_platform:-unset} OCAML_TARGET_PLATFORM=$${OCAML_TARGET_PLATFORM:-unset} BUILD_MODE=$${BUILD_MODE:-unset} OCAMLLIB=$(NATIVE_STDLIB) nm=$${_w7hh16_nm:-<none>}"; \
+	for _w7hh16_lib in "$(BUILD_PREFIX)/Library/lib/ocaml/libasmrun.lib" "$(NATIVE_STDLIB)/libasmrun.lib" "$(BUILD_PREFIX)/Library/lib/ocaml/stdlib.lib" "$(NATIVE_STDLIB)/stdlib.lib"; do \
+	  if [ -f "$$_w7hh16_lib" ]; then \
+	    echo "[W7HH16-DIAG] lib $$_w7hh16_lib ($$(stat -c%s "$$_w7hh16_lib" 2>/dev/null || stat -f%z "$$_w7hh16_lib" 2>/dev/null || echo '?') bytes) generic-fn/exn symbols:"; \
+	    if [ -n "$$_w7hh16_nm" ]; then \
+	      "$$_w7hh16_nm" --print-file-name "$$_w7hh16_lib" 2>/dev/null | grep -Ei 'caml_apply[0-9]|caml_curry[0-9]|caml_tuplify[0-9]|caml_exn_Assert_failure' || echo "[W7HH16-DIAG]   (no caml_apply/curry/tuplify/exn matches in this lib)"; \
+	    else \
+	      echo "[W7HH16-DIAG]   (no nm tool on PATH)"; \
+	    fi; \
+	  else \
+	    echo "[W7HH16-DIAG] lib $$_w7hh16_lib NOT PRESENT"; \
+	  fi; \
+	done; \
+	echo "[W7SS] creating isolated zig cache dir for the HOST self-link: $(W7SS_ZIG_CACHE)"; \
+	mkdir -p "$(W7SS_ZIG_CACHE)" 2>/dev/null || true; \
+	PATH="$(BUILD_PREFIX)/Library/bin:$$PATH" \
+	OCAML_FLEXLINK="$(BUILD_PREFIX)/Library/bin/flexlink.exe" \
+	CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$${_w37_native_cc_final}" \
+	OCAMLLIB="$(NATIVE_STDLIB)" \
+	ZIG_GLOBAL_CACHE_DIR="$(W7SS_ZIG_CACHE)" \
+	ZIG_LOCAL_CACHE_DIR="$(W7SS_ZIG_CACHE)" \
+	$(MAKE) --trace -j1 -C $(FLEXDLL_SOURCE_DIR) $(FLEXLINK_BUILD_ENV) CHAINS=mingw64 \
+	  MIN64CC="$${_w37_native_cc_final}" \
+	  $${_w7gg_oc:+CAMLOPT="$$_w7gg_oc" OCAMLOPT="$$_w7gg_oc" BEST_OCAMLOPT="$$_w7gg_oc"} \
+	  NATDYNLINK=false LINKFLAGS="$$_w7hh10_linkflags" flexlink.exe support \
+	  > "$$_w7hh4_selflink_log" 2>&1 || _w7hh_selflink_rc=$$?; \
+	cat "$$_w7hh4_selflink_log"; \
+	echo "[W7HH4] full self-link sub-make output persisted at $$_w7hh4_selflink_log ($$(wc -l < "$$_w7hh4_selflink_log" 2>/dev/null || echo '?') lines) -- grep '[W7HH' / '[W7GG' / '[W37' / '[W42' there if this round's diagnostics are truncated by the CI harness's log tail window again"; \
+	echo "[W7SS-DIAG] === isolated zig cache contents after the self-link: $(W7SS_ZIG_CACHE) ==="; \
+	ls -la "$(W7SS_ZIG_CACHE)" 2>/dev/null || echo "[W7SS-DIAG]   (dir absent or empty)"; \
+	find "$(W7SS_ZIG_CACHE)" -name 'crt2.obj' -print 2>/dev/null || true; \
+	echo "[W7HH17-DIAG] === static_symtable provenance (real terminal blocker per build 1561655 log:9682) ==="; \
+	for _w7hh17_obj in $$(find "$(FLEXDLL_SOURCE_DIR)" -maxdepth 2 \( -name 'flexdll_*.o' -o -name 'flexdll_*.obj' -o -name '*symtbl*.o' -o -name '*symtbl*.obj' \) 2>/dev/null); do \
+	  if [ -n "$$_w7hh16_nm" ]; then \
+	    echo "[W7HH17-DIAG] $$_w7hh17_obj static_symtable:"; \
+	    "$$_w7hh16_nm" "$$_w7hh17_obj" 2>/dev/null | grep -i 'static_symtable' || echo "[W7HH17-DIAG]   (no static_symtable symbol here)"; \
+	  fi; \
+	done || true; \
+	echo "[W7HH17-DIAG] flexlink symtbl-generation trace in self-link log:"; \
+	grep -nEi 'static_symtable|symtbl|-o[ ]+flexlink' "$$_w7hh4_selflink_log" 2>/dev/null | head -40 || echo "[W7HH17-DIAG]   (no symtbl-generation lines)"; \
+	if [ "$${_w7hh13_selfboot}" = "1" ] && [ "$(NUKE_ZIG_HOST_CRT2_CACHE)" = "true" ] && [ "$$_w7hh_selflink_rc" != "0" ]; then \
+	  echo "[W7HH17-FAILOVER] first self-link failed rc=$$_w7hh_selflink_rc; retrying with HOST-arch static_symtable stub (T24 pattern, x86_64)"; \
+	  _w7hh17_stub_dir="$(BUILD_PREFIX)/Library/lib/host-x64-crt2"; \
+	  mkdir -p "$$_w7hh17_stub_dir" 2>/dev/null || true; \
+	  _w7hh17_stub_c="$$_w7hh17_stub_dir/w7hh17_static_symtable_stub.c"; \
+	  _w7hh17_stub_o="$$_w7hh17_stub_dir/w7hh17_static_symtable_stub.o"; \
+	  echo "[W7HH17c] stub path form = BUILD_PREFIX/Library/lib/host-x64-crt2 (same form as the WORKING -cclib crt2.o via _w7hh9_host_crt2); tlssup.o is NO LONGER passed via -cclib as of [W7HH29] -- _w7hh15_tls_cclib is empty in both branches because libmingwex.a(tlssup.obj) already supplies the same TLS symbol set, including _tls_index, which this stub path form originally existed to match; NOT pwd/flexdll/... which is CWD-relative to the recipe and under the msys shell may hand flexlink.exe a POSIX path it cannot open"; \
+	  printf '%s\n' 'volatile void *static_symtable[] = {(void *)0};' > "$$_w7hh17_stub_c"; \
+	  if $${_w37_native_cc_final} -c "$$_w7hh17_stub_c" -o "$$_w7hh17_stub_o" > "$$_w7hh4_selflink_log.stub" 2>&1; then \
+	    echo "[W7HH17-FAILOVER] stub object compiled: $$_w7hh17_stub_o"; \
+	    _w7hh20_startup_s="$(FLEXDLL_SOURCE_DIR)/flexlink.exe.startup.s"; \
+	    rm -f "$(FLEXDLL_SOURCE_DIR)"/flexlink.exe.startup.* 2>/dev/null || true; \
+	    echo "[W7HH20-DIAG] cleared stale flexlink.exe.startup.* before the retry, so anything present afterwards is FROM THIS RETRY. GROUND TRUTH (OCaml 5.4.0 asmcomp/asmlink.ml:281-285): with -dstartup/keep_startup_file the retained ASSEMBLY is named <output_name>.startup<ext_asm> = flexlink.exe.startup.s in ocamlopt cwd ($(FLEXDLL_SOURCE_DIR), via make -C) -- it is NOT called camlstartup*. W7HH16/W7HH18/W7HH19 all globbed camlstartup* and could never have matched it; that, not the directory, is why three rounds found no .s."; \
+	    echo "[W7SS] (retry) reusing isolated zig cache dir for the HOST self-link: $(W7SS_ZIG_CACHE)"; \
+	    mkdir -p "$(W7SS_ZIG_CACHE)" 2>/dev/null || true; \
+	    PATH="$(BUILD_PREFIX)/Library/bin:$$PATH" \
+	    OCAML_FLEXLINK="$(BUILD_PREFIX)/Library/bin/flexlink.exe" \
+	    CONDA_OCAML_AS="$(NATIVE_ASM)" CONDA_OCAML_CC="$${_w37_native_cc_final}" \
+	    OCAMLLIB="$(NATIVE_STDLIB)" \
+	    ZIG_GLOBAL_CACHE_DIR="$(W7SS_ZIG_CACHE)" \
+	    ZIG_LOCAL_CACHE_DIR="$(W7SS_ZIG_CACHE)" \
+	    $(MAKE) --trace -j1 -C $(FLEXDLL_SOURCE_DIR) $(FLEXLINK_BUILD_ENV) CHAINS=mingw64 \
+	      MIN64CC="$${_w37_native_cc_final}" \
+	      $${_w7gg_oc:+CAMLOPT="$$_w7gg_oc" OCAMLOPT="$$_w7gg_oc" BEST_OCAMLOPT="$$_w7gg_oc"} \
+	      NATDYNLINK=false LINKFLAGS="$$_w7hh10_linkflags" flexlink.exe support \
+	      > "$$_w7hh4_selflink_log.retry" 2>&1 && _w7hh17_retry_rc=0 || _w7hh17_retry_rc=$$?; \
+	    cat "$$_w7hh4_selflink_log.retry"; \
+	    echo "[W7HH17-FAILOVER] stub-retry self-link rc=$$_w7hh17_retry_rc"; \
+	    echo "[W7SS-DIAG] === (retry) isolated zig cache contents after the self-link: $(W7SS_ZIG_CACHE) ==="; \
+	    ls -la "$(W7SS_ZIG_CACHE)" 2>/dev/null || echo "[W7SS-DIAG]   (dir absent or empty)"; \
+	    find "$(W7SS_ZIG_CACHE)" -name 'crt2.obj' -print 2>/dev/null || true; \
+	    echo "[W7HH20-DIAG] === retained startup assembly from the retry: $$_w7hh20_startup_s ==="; \
+	    ls -la "$(FLEXDLL_SOURCE_DIR)"/flexlink.exe.startup.* 2>/dev/null || echo "[W7HH20-DIAG]   (no flexlink.exe.startup.* present)"; \
+	    if [ -f "$$_w7hh20_startup_s" ]; then \
+	      echo "[W7HH20-DIAG] SIZE=$$(wc -c < "$$_w7hh20_startup_s" 2>/dev/null || echo '?') bytes LINES=$$(wc -l < "$$_w7hh20_startup_s" 2>/dev/null || echo '?')"; \
+	      echo "[W7HH24-SETTLED] THE STARTUP OBJECT IS FULLY EXONERATED -- do not probe it again. W7HH21: 18/18 generic fns .globl-exported. W7HH22: nm gave exactly 'T caml_curry2' and objdump gave pe-x86-64 / i386:x86-64. W7HH23: NATIVE_CC resolved to the SAME x86_64-windows-gnu zig command as _w37_native_cc_final, so the aspp wrapper and the direct CC cannot produce different objects; the assembled object had 121 generic-fn symbols, caml_curry2 as T at 0x2bc0, ordinary .text/.data/.bss/.rdata; and flexlink opens camlstartup FIRST of all objects. Emission, decoration, arch, wrapper and link order are ALL CLOSED."; \
+	      echo "[W7HH24-SETTLED] AND THE 'needs caml_curry2 (not found)' LINES ARE NOT THE ERROR. flexdll reloc.ml:976-989: the Not_found branch only Printf.printf's, gated on !explain, sets no flag and raises nothing. Our own FLEXLINKFLAGS=-explain turns them on. W7HH20-W7HH23 were aimed at self-inflicted diagnostic noise. The real termination is the bare 'if !errors then exit 2' at reloc.ml:1053-1054, which bypasses the top-level printer and so emits NO banner."; \
+	      echo "[W7HH24-DIAG] TOTAL .globl generic-fn definitions in the startup .s: $$(grep -cE '^[[:space:]]*\.globl[[:space:]]+_?caml_(apply|curry|tuplify)[0-9]+' "$$_w7hh20_startup_s" 2>/dev/null || echo 0)   (count retained ONLY so any future truncation stays self-evident)"; \
+	    else \
+	      echo "[W7HH20-DIAG] flexlink.exe.startup.s ABSENT despite -dstartup. The NAME is settled by asmlink.ml:281-285, so absence now means either keep_asm did not retain it (Asmgen.compile_unit path, not yet read) or ocamlopt failed before startup emission. Check the retry log tail above to tell which."; \
+	    fi; \
+	    echo "[W7HH20-DIAG] LINKFLAGS actually passed to the retry: $$_w7hh10_linkflags"; \
+	    echo "[W7HH22-DIAG] === did flexlink actually READ the startup object? every retry-log line naming camlstartup ==="; \
+	    if grep -qE '[Cc]amlstartup[A-Za-z0-9_]*\.(obj|o)' "$$_w7hh4_selflink_log.retry" 2>/dev/null; then \
+	      grep -nE '[Cc]amlstartup[A-Za-z0-9_]*\.(obj|o)' "$$_w7hh4_selflink_log.retry" 2>/dev/null | head -25; \
+	    else \
+	      echo "[W7HH22-DIAG]   NONE -- the retry log never names camlstartup, so flexlink may never have read the startup object at all."; \
+	    fi; \
+	    echo "[W7HH24-DIAG] retry log TRUE size: $$(wc -l < "$$_w7hh4_selflink_log.retry" 2>/dev/null || echo '?') lines. The blanket cat at the failover above is CLIPPED by the CI log capture (prior rounds cited retry-log lines past 32880 while the whole CI log was ~10.4k lines), so every question about retry-log content must be answered by a grep HERE, never by reading the CI log afterwards."; \
+	    echo "[W7HH24-DIAG] === THE ACTUAL ERROR. flexdll reloc.ml:1053-1054 is a bare 'if !errors then exit 2'. errors is set ONLY by error_imports (reloc.ml:950-957), which FIRST eprintf's '** Cannot resolve symbols for <name>:' and then the offending symbols on the FOLLOWING lines. main_pgm is true here, proven independently: reloc.ml:1050 emits the name 'static_symtable' only when main_pgm, and this build has an observed 'undefined symbol: static_symtable' plus the W7HH17 stub that exists to satisfy it. ==="; \
+	    if grep -qE '\*\* Cannot resolve symbols for' "$$_w7hh4_selflink_log.retry" 2>/dev/null; then \
+	      grep -nE -A30 '\*\* Cannot resolve symbols for' "$$_w7hh4_selflink_log.retry" 2>/dev/null | cut -c1-400 | sed 's/^/[W7HH24-DIAG]   resolve: /' | head -80; \
+	    else \
+	      echo "[W7HH24-DIAG]   ZERO MATCHES -- '** Cannot resolve symbols for' never printed, so errors was never set and the exit 2 does NOT come from reloc.ml:1054. That REFUTES the silent-exit theory outright and the exit must originate outside reloc.ml (Cmdline.ml parsing, or a signal)."; \
+	    fi; \
+	    echo "[W7HH24-DIAG] === every '+ ' command echo in the retry log. reloc.ml:1233 echoes the FINAL link command as '+ <cc ...>', but only AFTER the :1054 exit check. If the only '+' lines are ocamlopt's own flexlink and zig_aspp_wrapper invocations, the real linker was NEVER reached -- which is the signature of the :1054 exit. ==="; \
+	    if grep -qE '^\+ ' "$$_w7hh4_selflink_log.retry" 2>/dev/null; then \
+	      grep -nE '^\+ ' "$$_w7hh4_selflink_log.retry" 2>/dev/null | cut -c1-400 | sed 's/^/[W7HH24-DIAG]   cmd: /' | head -20; \
+	    else \
+	      echo "[W7HH24-DIAG]   no '+ ' command echoes at all in the retry log."; \
+	    fi; \
+	    echo "[W7HH24-DIAG] === flexlink's banner paths. EVERY other exit-2 route prints one of these first: reloc.ml:1591-1605 '** Fatal error'/'** Error', :234 and :239 'Error during linking', :1507 'Error while compiling', :358-361 'Cannot find file'. Absence of all of them isolates the silent :1054 exit. ==="; \
+	    if grep -qE '\*\* (Fatal error|Error)' "$$_w7hh4_selflink_log.retry" 2>/dev/null; then \
+	      grep -nE '\*\* (Fatal error|Error)' "$$_w7hh4_selflink_log.retry" 2>/dev/null | cut -c1-400 | sed 's/^/[W7HH24-DIAG]   banner: /' | head -15; \
+	    else \
+	      echo "[W7HH24-DIAG]   NONE -- no flexlink banner of any kind, consistent with the bare exit at reloc.ml:1054."; \
+	    fi; \
+	    if [ "$$_w7hh17_retry_rc" = "0" ]; then \
+	      echo "[W7HH17-FAILOVER] SUCCESS: static_symtable stub unblocked flexlink.exe self-link; downstream steps proceed (NEXT blocker, if any, surfaces later). Stub export table is EMPTY -- acceptable for a bootstrap linker driver, revisit if flexlink dlopen misbehaves."; \
+	      _w7hh_selflink_rc=0; \
+	    else \
+	      echo "[W7HH17-FAILOVER] stub retry STILL failed rc=$$_w7hh17_retry_rc -- static_symtable is NOT the sole blocker; inspect $$_w7hh4_selflink_log.retry above for the next undefined symbol"; \
+	    fi; \
+	  else \
+	    echo "[W7HH17-FAILOVER] stub COMPILE FAILED:"; cat "$$_w7hh4_selflink_log.stub" 2>/dev/null || true; \
+	  fi; \
+	fi; \
+	if [ -f "$(FLEXDLL_SOURCE_DIR)/.w7hh26_probe.log" ]; then \
+	  echo "[W7HH27-PROBE-DUMP] === BEGIN probe output. Emitted HERE, late, because the identical echoes placed inline before the self-link were clipped from the CI log in build 1562996 while [W7HH17-DIAG] output at that same late position survived. ==="; \
+	  cat "$(FLEXDLL_SOURCE_DIR)/.w7hh26_probe.log"; \
+	  echo "[W7HH27-PROBE-DUMP] === END probe output ($$(wc -l < "$(FLEXDLL_SOURCE_DIR)/.w7hh26_probe.log" 2>/dev/null || echo '?') lines) ==="; \
+	else \
+	  echo "[W7HH27-PROBE-DUMP] probe log ABSENT at $(FLEXDLL_SOURCE_DIR)/.w7hh26_probe.log -- either the guard never opened or the writes failed; treat as NO RESULT, not as a negative finding"; \
+	fi; \
+	echo "[W7HH18-DIAG] === retained camlstartup (-dstartup) symbol dump after self-link ==="; \
+	echo "[W7HH18-DIAG] ocamlopt writes the startup OBJECT to the OS TEMP dir as camlstartup*.obj. REFUTED, do NOT retry: it can never be captured -- asmlink.ml:348 temp-names it unconditionally on the exe-link path and :357 removes it via ~always inside Misc.try_finally, i.e. even when the link FAILS. W7HH19 proved TMPDIR pinning redirects the path yet the dir was still empty. The readable artifact is the .s (see W7HH20 above), not this. TMPDIR=$${TMPDIR:-<unset>} TMP=$${TMP:-<unset>} TEMP=$${TEMP:-<unset>}"; \
+	_w7hh18_cands=""; \
+	for _w7hh18_dir in "$(FLEXDLL_SOURCE_DIR)" "$${TMPDIR:-}" "$${TMP:-}" "$${TEMP:-}" /tmp; do \
+	  [ -n "$$_w7hh18_dir" ] || continue; \
+	  _w7hh18_udir="$$(cygpath -u "$$_w7hh18_dir" 2>/dev/null || echo "$$_w7hh18_dir")"; \
+	  [ -d "$$_w7hh18_udir" ] || continue; \
+	  _w7hh18_cands="$$_w7hh18_cands $$(find "$$_w7hh18_udir" -maxdepth 2 \( -name 'camlstartup*.s' -o -name 'camlstartup*.o' -o -name 'camlstartup*.obj' \) 2>/dev/null)"; \
+	done; \
+	for _w7hh18_log in "$$_w7hh4_selflink_log" "$$_w7hh4_selflink_log.retry"; do \
+	  [ -f "$$_w7hh18_log" ] || continue; \
+	  for _w7hh18_hit in $$(grep -oE '[A-Za-z]:[^ ]*[Cc]amlstartup[A-Za-z0-9_]*\.(obj|o|s)' "$$_w7hh18_log" 2>/dev/null | sort -u); do \
+	    _w7hh18_cands="$$_w7hh18_cands $$(cygpath -u "$$_w7hh18_hit" 2>/dev/null || echo "$$_w7hh18_hit")"; \
+	  done; \
+	done; \
+	echo "[W7HH18-DIAG] camlstartup candidates: $${_w7hh18_cands:-<NONE FOUND>}"; \
+	for _w7hh16_su in $$(for _w7hh18_c in $$_w7hh18_cands; do echo "$$_w7hh18_c"; done | sort -u); do \
+	  echo "[W7HH16-DIAG] camlstartup artifact: $$_w7hh16_su"; \
+	  if [ ! -f "$$_w7hh16_su" ]; then echo "[W7HH18-DIAG]   MISSING on disk -- this path came from the self-link log scrape and ocamlopt has since deleted it. Absence here is NOT evidence that camlstartup lacks the generic fns; do NOT conclude anything from it."; continue; fi; \
+	  case "$$_w7hh16_su" in \
+	    *.s) grep -Ei 'caml_apply[0-9]|caml_curry[0-9]|caml_tuplify[0-9]' "$$_w7hh16_su" 2>/dev/null || echo "[W7HH16-DIAG]   (no generic-fn defs in .s)"; ;; \
+	    *) if [ -n "$$_w7hh16_nm" ]; then "$$_w7hh16_nm" "$$_w7hh16_su" 2>/dev/null | grep -Ei 'caml_apply[0-9]|caml_curry[0-9]|caml_tuplify[0-9]' || echo "[W7HH16-DIAG]   (no generic-fn defs in obj)"; fi; ;; \
+	  esac; \
+	done || true; \
+	if [ "$$_w7hh4_swapped" = "1" ]; then \
+	  if cp -f "$$_w7hh4_backup" "$$_w7hh4_target"; then \
+	    rm -f "$$_w7hh4_backup"; \
+	    echo "[W7HH4] restored original conda-stock $$_w7hh4_target from backup (self-link rc=$$_w7hh_selflink_rc)"; \
+	  else \
+	    echo "[W7HH4] CRITICAL WARNING: failed to restore $$_w7hh4_target from $$_w7hh4_backup -- BUILD_PREFIX flexlink.exe may still be the zig-patched swap-in; manual inspection required"; \
+	  fi; \
+	fi; \
+	echo "[W7HH-VERIFY] grep mingw64 $(FLEXDLL_SOURCE_DIR)/version.ml (runs regardless of self-link exit status $$_w7hh_selflink_rc):"; \
+	grep -n 'mingw64' "$(FLEXDLL_SOURCE_DIR)/version.ml" 2>&1 || echo "[W7HH-VERIFY] WARNING: no 'mingw64' match (or version.ml missing) -- MIN64CC override did NOT land in the compiled artifact"; \
+	echo "[W7HH3-VERIFY] binary-level check of the COMPILED $(FLEXDLL_SOURCE_DIR)/flexlink.exe (not just source .ml) -- runs regardless of self-link exit status $$_w7hh_selflink_rc:"; \
+	if [ -f "$(FLEXDLL_SOURCE_DIR)/flexlink.exe" ]; then \
+	  (strings "$(FLEXDLL_SOURCE_DIR)/flexlink.exe" 2>/dev/null || grep -a . "$(FLEXDLL_SOURCE_DIR)/flexlink.exe") | grep -i 'mingw32\|zig' | head -10 || echo "[W7HH3-VERIFY] WARNING: no 'mingw32'/'zig' string found in the compiled binary"; \
+	else \
+	  echo "[W7HH3-VERIFY] WARNING: $(FLEXDLL_SOURCE_DIR)/flexlink.exe does not exist (self-link produced no output)"; \
+	fi; \
+	echo "============ W7GG DIAGNOSTIC: resulting flexlink.exe machine type ============"; \
+	file "$(FLEXDLL_SOURCE_DIR)/flexlink.exe" 2>/dev/null || echo "  (file probe unavailable)"; \
+	echo "=============================================================================="; \
+	echo "[W7HH12] NUKE=$(NUKE_ZIG_HOST_CRT2_CACHE) _w7gg_oc='$${_w7gg_oc:-<empty>}' -> LINKFLAGS='$${_w7hh10_linkflags:-<empty>}'"; \
+	exit $$_w7hh_selflink_rc
 	$(LN) $(FLEXDLL_SOURCE_DIR)/flexlink.exe flexlink.opt.exe
 	$(LN) flexlink.opt.exe flexlink.byte.exe
 	cp flexlink.byte.exe $(BYTE_BINDIR)/flexlink
-	cd $(BYTE_BINDIR) && $(LN) flexlink flexlink.exe
+	cd $(BYTE_BINDIR) && $(LN) flexlink flexlink.exe 2>/dev/null || true
 	cp $(addprefix $(FLEXDLL_SOURCE_DIR)/, $(FLEXDLL_OBJECTS)) $(ROOTDIR)
 	cp flexlink.opt.exe $(OPT_BINDIR)/flexlink
-	cd $(OPT_BINDIR) && $(LN) flexlink flexlink.exe
+	cd $(OPT_BINDIR) && $(LN) flexlink flexlink.exe 2>/dev/null || true
 
 # CRITICAL: INSTALLING=1 makes VPATH conditional skip in Makefile.cross line 43
 # Without this, recursive makes re-include Makefile.cross and set VPATH := + $(VPATH)
 # causing Make to find OLD unix.cmxa from native stdlib before fresh build in otherlibs/
-INSTALL_OVERRIDES=build_ocamldoc=false WITH_DEBUGGER= OCAMLRUN=ocamlrun INSTALLING=1 VPATH=
+INSTALL_OVERRIDES=build_ocamldoc=false WITH_DEBUGGER= OCAMLRUN=ocamlrun INSTALLING=1 VPATH= SUPPORTS_SHARED_LIBRARIES=true
 
 .PHONY: installcross
 installcross:

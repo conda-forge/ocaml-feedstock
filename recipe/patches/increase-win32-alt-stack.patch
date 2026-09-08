@@ -1,0 +1,11 @@
+--- a/runtime/win32.c
++++ b/runtime/win32.c
+@@ -513,7 +513,7 @@ static void caml_reset_stack (void *faulting_address)
+  * quickly.
+  */
+
+-static uintnat win32_alt_stack[0x100];
++static uintnat win32_alt_stack[0x4000]; /* PR97 W5M-F: was 0x100 (2KB), too small for Win32 API calls in caml_reset_stack causing VEH alt-stack recursion */
+
+ static void caml_reset_stack (void *faulting_address)
+ {

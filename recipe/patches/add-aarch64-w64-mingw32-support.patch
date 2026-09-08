@@ -1,0 +1,44 @@
+--- a/configure
++++ b/configure
+@@ -3781,7 +3781,7 @@
+      ;; #(
+   *-*-cygwin*) :
+     as_fn_error $? "unknown Cygwin variant" "$LINENO" 5 ;; #(
+-  i686-w64-mingw32*|x86_64-w64-mingw32*) :
++  i686-w64-mingw32*|x86_64-w64-mingw32*|aarch64-w64-mingw32*) :
+      ;; #(
+   *-*-mingw*) :
+     as_fn_error $? "unknown mingw-w64 variant" "$LINENO" 5 ;; #(
+@@ -3799,7 +3799,7 @@
+      ;; #(
+   *-*-cygwin*) :
+     as_fn_error $? "unknown Cygwin variant" "$LINENO" 5 ;; #(
+-  i686-w64-mingw32*|x86_64-w64-mingw32*) :
++  i686-w64-mingw32*|x86_64-w64-mingw32*|aarch64-w64-mingw32*) :
+      ;; #(
+   *-*-mingw*) :
+     as_fn_error $? "unknown mingw-w64 variant" "$LINENO" 5 ;; #(
+@@ -15285,6 +15285,13 @@
+     common_cflags="-O2 -fno-strict-aliasing -fwrapv -mms-bitfields"
+     internal_cppflags='-D__USE_MINGW_ANSI_STDIO=0 -DUNICODE -D_UNICODE'
+     internal_cppflags="$internal_cppflags -DWINDOWS_UNICODE=$windows_unicode" ;; #(
++  mingw-*-*-clang-*) :
++    internal_cflags="-Wno-unused $cc_warnings \
++-fno-common"
++    # TODO: see whether the code can be fixed to avoid -Wno-unused
++    common_cflags="-O2 -fno-strict-aliasing -fwrapv -mms-bitfields"
++    internal_cppflags='-D__USE_MINGW_ANSI_STDIO=0 -DUNICODE -D_UNICODE'
++    internal_cppflags="$internal_cppflags -DWINDOWS_UNICODE=$windows_unicode" ;; #(
+   mingw-*) :
+     as_fn_error $? "Unsupported C compiler for a MinGW-w64 build" "$LINENO" 5 ;; #(
+   msvc-0*|msvc-1[0-8]*|msvc-19[012]*|msvc-193[0-7]) :
+@@ -15403,6 +15403,9 @@
+   x86_64-w64-mingw32*) :
+     flexdll_chain='mingw64'
+     flexlink_flags='-stack 33554432' ;; #(
++  aarch64-w64-mingw32*) :
++    flexdll_chain='mingw64arm'
++    flexlink_flags='-stack 33554432' ;; #(
+   i686-pc-windows) :
+     flexdll_chain='msvc'
+     flexlink_flags='-merge-manifest -stack 16777216' ;; #(

@@ -1,19 +1,19 @@
 c_compiler:
 - gcc
 c_compiler_version:
-- '14'
+- '15'
 c_stdlib:
 - sysroot
 c_stdlib_version:
 - '2.17'
 channel_sources:
-- conda-forge
+- conda-forge/label/ocaml_experimental,conda-forge/label/zig_experimental,conda-forge
 channel_targets:
-- conda-forge main
+- conda-forge ocaml_experimental
 cross_target_platform_:
 - linux-64
 docker_image:
-- quay.io/condaforge/linux-anvil-x86_64:alma9
+- quay.io/condaforge/linux-anvil-x86_64:alma10
 target_platform:
 - linux-64
 zstd:

@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 # OCaml ranlib wrapper - expands CONDA_OCAML_RANLIB environment variable
-exec ${CONDA_OCAML_RANLIB:-ranlib} "$@"
+. "$(dirname "$0")/conda-ocaml-common"
+ocaml_exec_simple "${CONDA_OCAML_RANLIB:-}" ranlib "$@"

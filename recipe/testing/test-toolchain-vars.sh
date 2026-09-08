@@ -3,6 +3,21 @@
 # This test verifies that ocamlopt respects custom CC/AS/AR settings
 set -euo pipefail
 
+# Run a TARGET binary. Under cross-emulation OCAML_QEMU is the emulator
+# (e.g. qemu-execve-ppc64le) and we resolve the binary to an absolute path,
+# because the emulator does not do PATH lookup. When OCAML_QEMU is empty
+# (all native lanes) this is exactly equivalent to running the command directly.
+_run_target() {
+  local _cmd="$1"; shift
+  if [ -n "${OCAML_QEMU:-}" ]; then
+    local _p
+    _p="$(command -v "${_cmd}")" || { echo "ERROR: ${_cmd} not found in PATH" >&2; return 1; }
+    "${OCAML_QEMU}" "${_p}" "$@"
+  else
+    "${_cmd}" "$@"
+  fi
+}
+
 echo "=== Test: CONDA_OCAML_* Toolchain Variables ==="
 
 # Test 1: Verify activation script sets defaults
@@ -28,8 +43,8 @@ echo "PASS: All CONDA_OCAML_* variables are set"
 echo ""
 echo "Test 2: ocamlopt -config uses conda-ocaml-* wrapper scripts"
 
-CONFIG_CC=$(ocamlopt -config-var c_compiler)
-CONFIG_ASM=$(ocamlopt -config-var asm)
+CONFIG_CC=$(_run_target ocamlopt -config-var c_compiler)
+CONFIG_ASM=$(_run_target ocamlopt -config-var asm)
 
 echo "  c_compiler = $CONFIG_CC"
 echo "  asm = $CONFIG_ASM"
@@ -46,13 +61,42 @@ fi
 # Test 2b: Verify wrapper scripts exist and are executable
 echo ""
 echo "Test 2b: Verify wrapper scripts are installed"
-for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
-    if [[ -x "${CONDA_PREFIX}/bin/${wrapper}" ]]; then
-        echo "  $wrapper: OK"
+
+# Derive the active naming scheme (bare "conda" or triplet-prefixed) from
+# CONDA_OCAML_CC, which activation already resolved for this environment.
+# Test 1 above already guarantees CONDA_OCAML_CC is set at this point.
+WRAPPER_TAG=""
+if [[ "${CONDA_OCAML_CC:-}" == *-ocaml-cc ]]; then
+    WRAPPER_TAG="${CONDA_OCAML_CC%-ocaml-cc}"
+fi
+
+WRAPPER_FAIL=0
+WRAPPER_SKIP=0
+for tool in cc as ar ranlib mkexe mkdll; do
+    wrapper="conda-ocaml-${tool}"
+    resolved=""
+    if command -v "${wrapper}" >/dev/null 2>&1; then
+        resolved="$(command -v "${wrapper}")"
+    elif [[ -n "${WRAPPER_TAG}" ]] && command -v "${WRAPPER_TAG}-ocaml-${tool}" >/dev/null 2>&1; then
+        wrapper="${WRAPPER_TAG}-ocaml-${tool}"
+        resolved="$(command -v "${wrapper}")"
+    fi
+
+    if [[ -n "${resolved}" ]]; then
+        echo "  ${wrapper}: OK (${resolved})"
+    elif [[ -z "${WRAPPER_TAG}" ]]; then
+        echo "  ${wrapper}: SKIPPED (cannot determine expected wrapper naming for this mode)"
+        WRAPPER_SKIP=$((WRAPPER_SKIP + 1))
     else
-        echo "  $wrapper: MISSING"
+        echo "  ${wrapper}: MISSING"
+        WRAPPER_FAIL=$((WRAPPER_FAIL + 1))
     fi
 done
+
+if [[ ${WRAPPER_FAIL} -gt 0 ]]; then
+    echo "FAIL: ${WRAPPER_FAIL} toolchain wrapper(s) could not be resolved via PATH (bare or triplet-prefixed)"
+    exit 1
+fi
 
 # Test 3: Custom CC is respected in compilation
 echo ""
@@ -84,7 +128,7 @@ fi
 > "$TESTDIR/cc.log"
 cd "$TESTDIR"
 
-if ocamlopt -o hello hello.ml 2>&1; then
+if _run_target ocamlopt -o hello hello.ml 2>&1; then
     echo "  Compilation succeeded"
 
     # Check if wrapper was called
@@ -96,7 +140,7 @@ if ocamlopt -o hello hello.ml 2>&1; then
 
     # Run the compiled program
     echo "  Running compiled program:"
-    ./hello
+    _run_target ./hello
 else
     echo "FAIL: Compilation failed with custom CC"
     exit 1
@@ -114,13 +158,17 @@ fi
 echo "  CONDA_OCAML_CC = ${CONDA_OCAML_CC:-<not set>}"
 
 cd "$TESTDIR"
-if ocamlopt -o hello2 hello.ml 2>&1; then
+if _run_target ocamlopt -o hello2 hello.ml 2>&1; then
     echo "PASS: Compilation works with default CC"
-    ./hello2
+    _run_target ./hello2
 else
     echo "FAIL: Compilation failed with default CC"
     exit 1
 fi
 
 echo ""
-echo "=== All CONDA_OCAML_* toolchain tests passed ==="
+if [[ ${WRAPPER_SKIP} -eq 0 ]]; then
+    echo "=== All CONDA_OCAML_* toolchain tests passed ==="
+else
+    echo "=== CONDA_OCAML_* toolchain tests completed (${WRAPPER_SKIP} wrapper(s) SKIPPED - could not determine naming scheme) ==="
+fi

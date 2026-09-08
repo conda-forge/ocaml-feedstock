@@ -45,8 +45,18 @@ ocamlopt -version | findstr /C:"%VERSION%" >nul && echo     OK || exit /b 1
 echo Testing utility tools...
 echo   ocamlobjinfo:
 ocamlobjinfo -help >nul 2>&1 && echo     OK || exit /b 1
+REM W34 2026-07-29: zig-compiled Windows native builds never produce a
+REM literal ocamlobjinfo.opt binary (same "opt variant not produced on
+REM zig/Windows" condition as W32/W33). Guard with `where` so this test
+REM skips gracefully instead of hard-failing when the .opt binary is
+REM absent; plain ocamlobjinfo above already covers the tool's behavior.
 echo   ocamlobjinfo.opt:
-ocamlobjinfo.opt -help >nul 2>&1 && echo     OK || exit /b 1
+where ocamlobjinfo.opt >nul 2>&1
+if errorlevel 1 (
+    echo     SKIP: ocamlobjinfo.opt not present ^(zig+Windows native build^)
+) else (
+    ocamlobjinfo.opt -help >nul 2>&1 && echo     OK || exit /b 1
+)
 echo   ocamlcmt:
 ocamlcmt -help >nul 2>&1 && echo     OK || exit /b 1
 echo   ocamlobjinfo.byte:

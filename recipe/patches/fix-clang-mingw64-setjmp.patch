@@ -1,0 +1,15 @@
+--- a/runtime/caml/fail.h
++++ b/runtime/caml/fail.h
+@@ -46,8 +46,10 @@
+ struct longjmp_buffer {
+   sigjmp_buf buf;
+ };
+-#elif defined(__MINGW64__) && defined(__GNUC__) && __GNUC__ >= 4
+-/* MPR#7638: issues with setjmp/longjmp in Mingw64, use GCC builtins instead */
++#elif defined(__MINGW64__) && defined(__GNUC__) && __GNUC__ >= 4 \
++         && !defined(__clang__)
++/* MPR#7638: issues with setjmp/longjmp in Mingw64, use GCC builtins instead.
++   Note: clang defines __GNUC__ but uses incompatible __builtin_setjmp on Windows. */
+ struct longjmp_buffer {
+   intptr_t buf[5];
+ };

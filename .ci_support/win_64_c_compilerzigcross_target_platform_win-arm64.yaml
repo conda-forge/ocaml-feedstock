@@ -1,5 +1,5 @@
 c_compiler:
-- gcc
+- zig
 c_stdlib:
 - vs
 channel_sources:
@@ -7,7 +7,7 @@ channel_sources:
 channel_targets:
 - conda-forge ocaml_experimental
 cross_target_platform_:
-- win-64
+- win-arm64
 m2w64_c_compiler:
 - gcc
 m2w64_c_compiler_version:

@@ -1,0 +1,3 @@
+# DELETED W5M-P: patch caused dllimport+thread_local conflict on Windows
+# Windows ABI forbids combining __declspec(dllimport) with __declspec(thread).
+# See W5M-O history. W5M-N (add-realloc-stack-reentrancy-guard.patch) kept.

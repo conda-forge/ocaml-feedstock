@@ -4,6 +4,48 @@
 
 set -euo pipefail
 
+# Run a TARGET binary. Under cross-emulation OCAML_QEMU is the emulator
+# (e.g. qemu-execve-ppc64le) and we resolve the binary to an absolute path,
+# because the emulator does not do PATH lookup. When OCAML_QEMU is empty
+# (all native lanes) this is exactly equivalent to running the command directly.
+_run_target() {
+  local _cmd="$1"; shift
+  if [ -n "${OCAML_QEMU:-}" ]; then
+    local _p
+    _p="$(command -v "${_cmd}")" || { echo "ERROR: ${_cmd} not found in PATH" >&2; return 1; }
+    "${OCAML_QEMU}" "${_p}" "$@"
+  else
+    "${_cmd}" "$@"
+  fi
+}
+
+# Run a bytecode executable (produced by plain `ocamlc -o ...`, i.e. NOT
+# -custom or -output-complete-exe). Such a file is a script whose shebang
+# points at the target ocamlrun; under emulation the shebang chain does not
+# work on hosts without binfmt_misc registered for the target arch, so we
+# invoke ocamlrun explicitly instead. When OCAML_QEMU is empty this is
+# exactly equivalent to running the executable directly (bare shebang
+# execution, unchanged).
+_run_bytecode() {
+  local _exe="$1"; shift
+  if [ -n "${OCAML_QEMU:-}" ]; then
+    _run_target ocamlrun "${_exe}" "$@"
+  else
+    "${_exe}" "$@"
+  fi
+}
+
+# Resolve OCAML_QEMU to an absolute path once. Some call sites deliberately
+# restrict PATH (e.g. `env -u OCAMLLIB PATH=/usr/bin:/bin ...`) to prove a
+# standalone binary runs without ocamlrun in scope; `command -v` cannot
+# resolve the emulator inside that restricted PATH, so we resolve it here
+# instead. When OCAML_QEMU is empty (all native lanes) OCAML_QEMU_ABS stays
+# empty and downstream commands are unaffected.
+OCAML_QEMU_ABS=""
+if [ -n "${OCAML_QEMU:-}" ]; then
+  OCAML_QEMU_ABS="$(command -v "${OCAML_QEMU}")" || OCAML_QEMU_ABS=""
+fi
+
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
   echo "Usage: $0 <version>"
@@ -17,10 +59,10 @@ printf 'print_endline "Hello World"\n' > hi.ml
 
 # 1. Bytecode compilation + execution
 echo "=== Testing bytecode compilation ==="
-ocamlc -o hi hi.ml
+_run_target ocamlc -o hi hi.ml
 
 # Verify direct bytecode execution (shebang must work)
-if ! ./hi | grep -q "Hello World"; then
+if ! _run_bytecode ./hi | grep -q "Hello World"; then
   echo "  [FAIL] bytecode direct execution failed (shebang broken?)"
   echo "  Checking runtime-launch-info BINDIR..."
   if [[ -f "${PREFIX}/lib/ocaml/runtime-launch-info" ]]; then
@@ -38,47 +80,48 @@ fi
 echo "  bytecode direct execution: OK"
 
 # Test bytecode portability (run from different directory)
-mkdir -p tmp && cp hi tmp && (cd tmp; ./hi) | grep -q "Hello World" && echo "  bytecode portability: OK"
+mkdir -p tmp && cp hi tmp && (cd tmp; _run_bytecode ./hi) | grep -q "Hello World" && echo "  bytecode portability: OK"
 rm -f ./hi
 
 # Test bytecode compiler via ocamlrun
 echo -n "  ocamlc.byte via ocamlrun: "
-ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -version | grep -q "${VERSION}" && echo "OK"
+_run_target ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -version | grep -q "${VERSION}" && echo "OK"
 
 # 2. Native compilation + execution
 echo "=== Testing native compilation ==="
-ocamlopt -o hi hi.ml
-./hi | grep -q "Hello World" && echo "  native execution: OK"
+_run_target ocamlopt -o hi hi.ml
+_run_target ./hi | grep -q "Hello World" && echo "  native execution: OK"
 rm -f ./hi
 
 # 3. REPL test (ocaml toplevel)
 echo "=== Testing REPL ==="
-echo 'print_endline "REPL works";;' | ocaml 2>&1 | grep -q "REPL works" && echo "  REPL: OK" || echo "  REPL: (exit expected)"
+_OCAML_BIN="$(command -v ocaml 2>/dev/null)" || _OCAML_BIN="ocaml"
+echo 'print_endline "REPL works";;' | _run_bytecode "${_OCAML_BIN}" 2>&1 | grep -q "REPL works" && echo "  REPL: OK" || echo "  REPL: (exit expected)"
 
 # 4. ocamldep actually parsing files
 echo "=== Testing ocamldep ==="
-ocamldep hi.ml > /dev/null && echo "  ocamldep parsing: OK"
+_run_target ocamldep hi.ml > /dev/null && echo "  ocamldep parsing: OK"
 
 # 5. Multi-file compilation (exercises module system)
 echo "=== Testing multi-file compilation ==="
 printf 'let greet () = print_endline "From Lib"\n' > lib.ml
 printf 'let () = Lib.greet ()\n' > main.ml
-ocamlc -c lib.ml
-ocamlc -c main.ml
-ocamlc -o multi lib.cmo main.cmo
-./multi | grep -q "From Lib" && echo "  multi-file bytecode: OK"
+_run_target ocamlc -c lib.ml
+_run_target ocamlc -c main.ml
+_run_target ocamlc -o multi lib.cmo main.cmo
+_run_bytecode ./multi | grep -q "From Lib" && echo "  multi-file bytecode: OK"
 
-ocamlopt -c lib.ml
-ocamlopt -c main.ml
-ocamlopt -o multi lib.cmx main.cmx
-./multi | grep -q "From Lib" && echo "  multi-file native: OK"
+_run_target ocamlopt -c lib.ml
+_run_target ocamlopt -c main.ml
+_run_target ocamlopt -o multi lib.cmx main.cmx
+_run_target ./multi | grep -q "From Lib" && echo "  multi-file native: OK"
 
 # 6. Bytecode compiler via ocamlrun (full compile)
 echo "=== Testing bytecode compiler via ocamlrun ==="
 echo "DBG: ${OCAML_PREFIX}"
 printf 'print_endline "Hi CF"\n' > hi.ml
-ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
-./hi | grep -q "Hi CF" && echo "  full bytecode compile via ocamlrun: OK"
+_run_target ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
+_run_bytecode ./hi | grep -q "Hi CF" && echo "  full bytecode compile via ocamlrun: OK"
 
 # 7. Complete executable test (used by Dune bootstrap)
 # This exercises: ocamlc -output-complete-exe -I +unix unix.cma ...
@@ -111,7 +154,7 @@ EOF
   # Compile with -output-complete-exe (embeds bytecode interpreter)
   # This is the exact pattern dune/opam use for bootstrapping
   echo "  compiling with -output-complete-exe..."
-  ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
+  _run_target ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
 
   # Verify it's a real executable (not bytecode that needs ocamlrun)
   echo -n "  verifying executable type: "
@@ -119,11 +162,11 @@ EOF
 
   # Run it
   echo -n "  executing: "
-  ./complete_test.exe | grep -q "complete-exe works" && echo "OK"
+  _run_target ./complete_test.exe | grep -q "complete-exe works" && echo "OK"
 
   # Verify it works without ocamlrun in PATH (truly standalone)
   echo -n "  standalone execution (no ocamlrun): "
-  env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe 2>/dev/null | grep -q "complete-exe works" && echo "OK" || echo "SKIP (may need system libs)"
+  env -u OCAMLLIB PATH=/usr/bin:/bin ${OCAML_QEMU_ABS:-} ./complete_test.exe 2>/dev/null | grep -q "complete-exe works" && echo "OK" || echo "SKIP (may need system libs)"
 
   rm -f complete_exe_test.ml complete_test.exe
 fi
@@ -141,10 +184,10 @@ let () =
 EOF
 
 echo -n "  compiling with -custom..."
-if ocamlc -custom -g -o custom_test -I +unix unix.cma custom_test.ml 2>custom_link_err.txt; then
+if _run_target ocamlc -custom -g -o custom_test -I +unix unix.cma custom_test.ml 2>custom_link_err.txt; then
   echo " OK"
   echo -n "  executing: "
-  ./custom_test | grep -q "custom-link works" && echo "OK" || { echo "FAIL"; exit 1; }
+  _run_target ./custom_test | grep -q "custom-link works" && echo "OK" || { echo "FAIL"; exit 1; }
 else
   echo " FAIL"
   echo "  Linker error during -custom bytecode linking:"
@@ -175,8 +218,12 @@ echo -n "  compiling C stub..."
 cc_cmd="${CONDA_OCAML_CC:-cc}"
 ${cc_cmd} -c -I "${PREFIX}/lib/ocaml" -fPIC stub_test.c -o stub_test.o 2>&1 && echo " OK" || { echo " FAIL (C compilation)"; exit 1; }
 
+# ocamlmklib is a shell-trampoline over bytecode (#!/usr/bin/sh + exec ocamlrun),
+# not a native ELF, so it must go through _run_bytecode: handing the trampoline
+# directly to qemu-execve makes qemu's ELF loader reject it with ENOEXEC
+# ("Exec format error"). Native lanes (empty OCAML_QEMU) are unaffected.
 echo -n "  creating shared library with ocamlmklib..."
-if ocamlmklib -o stub_test stub_test.o 2>mklib_err.txt; then
+if _run_bytecode "$(command -v ocamlmklib)" -o stub_test stub_test.o 2>mklib_err.txt; then
   echo " OK"
   # Verify files were created
   ls dllstub_test.so libstub_test.a >/dev/null 2>&1 && echo "  shared+static libs created: OK" || echo "  WARNING: some output files missing"
