@@ -1,14 +1,8 @@
 context:
-  build_number: 6
+  build_number: 7
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
-  # ===========================================================================
-  # Debug/Development Settings
-  # ===========================================================================
-  # Set to "1" to enable progressive build cache in ${RECIPE_DIR}/.build_cache/
-  # This caches successful native compiler builds to speed up cross-compiler debugging
-  use_cache: "0"
   dot: ${{ "./" if unix else "" }}
   library: ${{ "Library/" if not unix else "" }}
   m2: ${{ "m2-" if not unix else "" }}
@@ -122,11 +116,11 @@ outputs:
     build:
       string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       script:
+        file: build.sh
         env:
           SKIP_MAKE_TESTS: "1"
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
-          OCAML_USE_CACHE: "${{ use_cache }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
       dynamic_linking:
         missing_dso_allowlist:
