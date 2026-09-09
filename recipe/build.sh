@@ -1573,7 +1573,26 @@ EOF
   _tgt_id=$(get_target_id "${OCAML_TARGET_TRIPLET}")
   export "CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/}"
   export "CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
+  # Same trap, two variables over: the shipped <triplet>-ocaml-mkexe / -mkdll
+  # wrappers (generated at line 817) exec
+  #   ${CONDA_OCAML_<ID>_MKEXE:-<full command line baked at that build's time>}
+  # and the baked default from build 6 still carries that build's -isysroot,
+  # pointing into a rattler-build work dir that no longer exists. The linker
+  # then reports "no such sysroot directory" and fails to find -lpthread,
+  # which on macOS lives only as a stub inside the SDK.
+  # NOT basenamed with ##*/ - these are full command lines, and ##*/ would
+  # strip everything up to the last slash, including the -isysroot path.
+  # Only set on this leg: _setup_crossopt_env() deliberately leaves MKEXE
+  # unset so the crossopt leg keeps using the native linker (see its comment).
+  if [[ -n "${CROSS_MKEXE:-}" ]]; then
+    export "CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE}"
+  fi
+  if [[ -n "${CROSS_MKDLL:-}" ]]; then
+    export "CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL}"
+  fi
   echo "  [tool-override] CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/} CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE:-<unset>}"
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL:-<unset>}"
 
   # ============================================================================
   # Build crosscompiledopt
