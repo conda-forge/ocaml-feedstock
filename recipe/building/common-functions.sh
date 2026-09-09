@@ -163,7 +163,16 @@ setup_macos_sysroot() {
   local SDK_DIR="/opt/conda-sdks"
 
   # Check existing
-  for sdk in "${SDK_DIR}"/MacOSX11.[0-9]+.sdk; do
+  # Shell glob, NOT a regex. Bash pathname expansion has no + quantifier, so
+  # MacOSX11.[0-9]+.sdk demanded a LITERAL '+' in the filename and never matched
+  # the real MacOSX11.0.sdk that conda-forge-ci-setup unpacks into /opt/conda-sdks.
+  # The loop therefore always fell through to the download branch below, which
+  # writes into ${SRC_DIR} - a per-build work directory. That path is then baked
+  # into CFLAGS/LDFLAGS/MKEXE/MKDLL and goes stale as soon as those flags are
+  # restored from the build cache: a cached -isysroot naming work dir 1775426767
+  # was observed inside a build whose own work dir was 1788978080, giving
+  # "no such sysroot directory" and then "ld: library not found for -lpthread".
+  for sdk in "${SDK_DIR}"/MacOSX11.*.sdk; do
     [[ -d "${sdk}" ]] && ARM64_SYSROOT="${sdk}" && break
   done
 
