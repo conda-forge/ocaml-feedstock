@@ -178,6 +178,19 @@ _setup_crossopt_env() {
   export CONDA_OCAML_AR="${CROSS_AR}"
   export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
   export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+  # The cross ocamlopt archives via the SHIPPED wrapper <triplet>-ocaml-ar, whose
+  # name is baked into its Config module. That wrapper comes from the PREVIOUS
+  # published build of this package and its line 4 is
+  #   exec ${CONDA_OCAML_<ID>_AR:-<tool name baked at that build's time>}
+  # When conda-forge's LLVM pinning moves, the baked default (e.g. llvm-ar-19)
+  # stops existing and the archive step dies with "exec: llvm-ar-19: not found".
+  # The wrapper is designed to be overridable; nothing was setting the override.
+  # NOTE: the generic CONDA_OCAML_AR above does NOT reach that wrapper - it reads
+  # the TARGET-SPECIFIC CONDA_OCAML_<TARGET_ID>_AR (see scripts/cross-activate.sh).
+  if [[ -n "${TARGET_ID:-}" ]]; then
+    export "CONDA_OCAML_${TARGET_ID}_AR=${CROSS_AR##*/}"
+    export "CONDA_OCAML_${TARGET_ID}_RANLIB=${CROSS_RANLIB##*/}"
+  fi
   PATH="${OCAML_PREFIX}/bin:${PATH}"
   hash -r
 }
@@ -1527,6 +1540,16 @@ EOF
     SAK_CC="${NATIVE_CC}"
     SAK_CFLAGS="${NATIVE_CFLAGS}"
   )
+
+  # Same stale-wrapper override as _setup_crossopt_env(), for the cross-target
+  # leg. TARGET_ID is only set in build_cross_compiler(), so derive it here.
+  # Without this, crosscompiledopt fails at Makefile:608 compilerlibs/ocamlcommon.cmxa
+  # with "<triplet>-ocaml-ar: line 4: exec: llvm-ar-19: not found".
+  local _tgt_id
+  _tgt_id=$(get_target_id "${OCAML_TARGET_TRIPLET}")
+  export "CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/}"
+  export "CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/} CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
 
   # ============================================================================
   # Build crosscompiledopt
