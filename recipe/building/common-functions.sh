@@ -85,10 +85,10 @@ find_tool() {
                   2>/dev/null | head -1)
   else
     tool_path=$(find \
-                  "${_BUILD_PREFIX_}"/Library/bin \
-                  "${_PREFIX_}"/Library/bin \
-                  "${_BUILD_PREFIX_}"/bin \
-                  "${_PREFIX_}"/bin \
+                  "${BUILD_PREFIX}"/Library/bin \
+                  "${PREFIX}"/Library/bin \
+                  "${BUILD_PREFIX}"/bin \
+                  "${PREFIX}"/bin \
                   \( -name "${tool_name}" -o -name "${tool_name}.exe" \) \
                   \( -type f -o -type l \) \
                   -perm /111 2>/dev/null | head -1)
