@@ -957,6 +957,3 @@ check_unix_crc() {
     exit 1
   fi
 }
-
-# Build cache functions (extracted for clarity)
-source "${RECIPE_DIR}/building/build-cache.sh"

@@ -149,23 +149,6 @@ else
 fi
 
 # ==============================================================================
-# Build Cache Status
-# ==============================================================================
-# Enable caching with OCAML_USE_CACHE=1 in environment or recipe
-# Cache location: ${RECIPE_DIR}/.build_cache/
-if cache_enabled; then
-  echo "============================================================"
-  echo "Build Cache: ENABLED"
-  echo "============================================================"
-  cache_status
-  echo "============================================================"
-  echo ""
-else
-  echo "  Build cache: disabled (set OCAML_USE_CACHE=1 to enable)"
-  echo ""
-fi
-
-# ==============================================================================
 # SHARED HELPERS
 # ==============================================================================
 
@@ -1716,21 +1699,12 @@ STRIPDEBUG
 if [[ "${BUILD_MODE}" == "native" ]]; then
   OCAML_NATIVE_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler
 
-  # Try to restore from cache
-  if cache_native_exists; then
-    echo ""
-    echo "=== Restoring native OCaml from cache ==="
-    cache_native_restore "${OCAML_NATIVE_INSTALL_PREFIX}"
-  else
-    echo ""
-    echo "=== Building native OCaml ==="
-    (
-      OCAML_INSTALL_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
-      build_native
-    )
-    # Save to cache after successful build
-    cache_native_save "${OCAML_NATIVE_INSTALL_PREFIX}"
-  fi
+  echo ""
+  echo "=== Building native OCaml ==="
+  (
+    OCAML_INSTALL_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    build_native
+  )
 
   # Transfer to PREFIX
   OCAML_INSTALL_PREFIX="${PREFIX}"
