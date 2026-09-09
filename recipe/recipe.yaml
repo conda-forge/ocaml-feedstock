@@ -122,6 +122,7 @@ outputs:
     build:
       string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       script:
+        file: build.sh
         env:
           SKIP_MAKE_TESTS: "1"
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
