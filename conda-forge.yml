@@ -6,6 +6,10 @@ github:
 conda_build:
   error_overlinking: true
 conda_forge_output_validation: true
+# Only the main branch publishes to anaconda.org. Secondary branches such as
+# experimental are used to stage and iterate on recipe changes, and a merge
+# into one of them is a non-PR build, which would otherwise upload.
+upload_on_branch: main
 build_platform:
   linux_aarch64: linux_64
   linux_ppc64le: linux_64  

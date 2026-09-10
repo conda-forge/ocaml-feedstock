@@ -149,23 +149,6 @@ else
 fi
 
 # ==============================================================================
-# Build Cache Status
-# ==============================================================================
-# Enable caching with OCAML_USE_CACHE=1 in environment or recipe
-# Cache location: ${RECIPE_DIR}/.build_cache/
-if cache_enabled; then
-  echo "============================================================"
-  echo "Build Cache: ENABLED"
-  echo "============================================================"
-  cache_status
-  echo "============================================================"
-  echo ""
-else
-  echo "  Build cache: disabled (set OCAML_USE_CACHE=1 to enable)"
-  echo ""
-fi
-
-# ==============================================================================
 # SHARED HELPERS
 # ==============================================================================
 
@@ -178,6 +161,19 @@ _setup_crossopt_env() {
   export CONDA_OCAML_AR="${CROSS_AR}"
   export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
   export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+  # The cross ocamlopt archives via the SHIPPED wrapper <triplet>-ocaml-ar, whose
+  # name is baked into its Config module. That wrapper comes from the PREVIOUS
+  # published build of this package and its line 4 is
+  #   exec ${CONDA_OCAML_<ID>_AR:-<tool name baked at that build's time>}
+  # When conda-forge's LLVM pinning moves, the baked default (e.g. llvm-ar-19)
+  # stops existing and the archive step dies with "exec: llvm-ar-19: not found".
+  # The wrapper is designed to be overridable; nothing was setting the override.
+  # NOTE: the generic CONDA_OCAML_AR above does NOT reach that wrapper - it reads
+  # the TARGET-SPECIFIC CONDA_OCAML_<TARGET_ID>_AR (see scripts/cross-activate.sh).
+  if [[ -n "${TARGET_ID:-}" ]]; then
+    export "CONDA_OCAML_${TARGET_ID}_AR=${CROSS_AR##*/}"
+    export "CONDA_OCAML_${TARGET_ID}_RANLIB=${CROSS_RANLIB##*/}"
+  fi
   PATH="${OCAML_PREFIX}/bin:${PATH}"
   hash -r
 }
@@ -299,9 +295,9 @@ build_native() {
     export PYTHONUTF8=1
     # Needed to find zstd
     if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
-      export NATIVE_LDFLAGS="/LIBPATH:${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
+      export NATIVE_LDFLAGS="/LIBPATH:${PREFIX}/Library/lib ${NATIVE_LDFLAGS:-}"
     else
-      export NATIVE_LDFLAGS="-L${_PREFIX_}/Library/lib ${NATIVE_LDFLAGS:-}"
+      export NATIVE_LDFLAGS="-L${PREFIX}/Library/lib ${NATIVE_LDFLAGS:-}"
     fi
   fi
 
@@ -350,6 +346,30 @@ build_native() {
   # Add toolchain to configure args
   # NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as environment variables, not configure args.
   # Passing them as args causes make to misparse flags like -O2 as filenames.
+  # non-unix: pass BARE TOOL NAMES to configure, not absolute paths.
+  # find_tool() returns an absolute path, and on Windows BUILD_PREFIX carries
+  # backslashes. When make hands that string to /bin/sh the backslashes are eaten
+  # as escapes, producing e.g.
+  #   D:bldbldrattler-build_ocaml_win-64_...build_env/Library/bin/x86_64-w64-mingw32-ar.exe
+  # -> "No such file or directory", make[1] Makefile:1412 libcamlrun_non_shared.a
+  #    Error 127, make Makefile:852 world.opt Error 2.
+  # Basenames resolve via PATH instead, so no path conversion (cygpath) is needed.
+  # generate_native_env_file() already basenames these, but only inside the heredoc
+  # it writes to _native_compiler_env.sh - the LIVE shell vars keep the full path.
+  # GUARDED to non-unix only: unix lanes pass absolute paths today and work.
+  if ! is_unix; then
+    NATIVE_AR="${NATIVE_AR##*/}"
+    NATIVE_AS="${NATIVE_AS##*/}"
+    NATIVE_LD="${NATIVE_LD##*/}"
+    NATIVE_RANLIB="${NATIVE_RANLIB##*/}"
+    # CC/STRIP mangle the same way (e.g. Makefile:494 utils/domainstate.mli
+    # Error 127, with .../x86_64-w64-mingw32-gcc.exe not found) - same
+    # mechanism as AR above, so they get the same basename treatment.
+    NATIVE_CC="${NATIVE_CC##*/}"
+    NATIVE_STRIP="${NATIVE_STRIP##*/}"
+    export NATIVE_AR NATIVE_AS NATIVE_LD NATIVE_RANLIB NATIVE_CC NATIVE_STRIP
+    echo "  non-unix: using bare tool names AR=${NATIVE_AR} AS=${NATIVE_AS} LD=${NATIVE_LD} RANLIB=${NATIVE_RANLIB} CC=${NATIVE_CC} STRIP=${NATIVE_STRIP}"
+  fi
   export CC="${NATIVE_CC}"
   export STRIP="${NATIVE_STRIP}"
 
@@ -1528,6 +1548,35 @@ EOF
     SAK_CFLAGS="${NATIVE_CFLAGS}"
   )
 
+  # Same stale-wrapper override as _setup_crossopt_env(), for the cross-target
+  # leg. TARGET_ID is only set in build_cross_compiler(), so derive it here.
+  # Without this, crosscompiledopt fails at Makefile:608 compilerlibs/ocamlcommon.cmxa
+  # with "<triplet>-ocaml-ar: line 4: exec: llvm-ar-19: not found".
+  local _tgt_id
+  _tgt_id=$(get_target_id "${OCAML_TARGET_TRIPLET}")
+  export "CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/}"
+  export "CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
+  # Same trap, two variables over: the shipped <triplet>-ocaml-mkexe / -mkdll
+  # wrappers (generated at line 817) exec
+  #   ${CONDA_OCAML_<ID>_MKEXE:-<full command line baked at that build's time>}
+  # and the baked default from build 6 still carries that build's -isysroot,
+  # pointing into a rattler-build work dir that no longer exists. The linker
+  # then reports "no such sysroot directory" and fails to find -lpthread,
+  # which on macOS lives only as a stub inside the SDK.
+  # NOT basenamed with ##*/ - these are full command lines, and ##*/ would
+  # strip everything up to the last slash, including the -isysroot path.
+  # Only set on this leg: _setup_crossopt_env() deliberately leaves MKEXE
+  # unset so the crossopt leg keeps using the native linker (see its comment).
+  if [[ -n "${CROSS_MKEXE:-}" ]]; then
+    export "CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE}"
+  fi
+  if [[ -n "${CROSS_MKDLL:-}" ]]; then
+    export "CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL}"
+  fi
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/} CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE:-<unset>}"
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL:-<unset>}"
+
   # ============================================================================
   # Build crosscompiledopt
   # ============================================================================
@@ -1650,21 +1699,12 @@ STRIPDEBUG
 if [[ "${BUILD_MODE}" == "native" ]]; then
   OCAML_NATIVE_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler
 
-  # Try to restore from cache
-  if cache_native_exists; then
-    echo ""
-    echo "=== Restoring native OCaml from cache ==="
-    cache_native_restore "${OCAML_NATIVE_INSTALL_PREFIX}"
-  else
-    echo ""
-    echo "=== Building native OCaml ==="
-    (
-      OCAML_INSTALL_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
-      build_native
-    )
-    # Save to cache after successful build
-    cache_native_save "${OCAML_NATIVE_INSTALL_PREFIX}"
-  fi
+  echo ""
+  echo "=== Building native OCaml ==="
+  (
+    OCAML_INSTALL_PREFIX="${OCAML_NATIVE_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    build_native
+  )
 
   # Transfer to PREFIX
   OCAML_INSTALL_PREFIX="${PREFIX}"
