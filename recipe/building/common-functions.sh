@@ -625,9 +625,10 @@ clean_makefile_config() {
 
   # Paths under the prefix are relocatable: conda rewrites the prefix at install
   # time, and the prefix itself contains marker substrings during the build.
-  # Protect them, strip the rest, restore below.
+  # Mask every occurrence of the prefix string (-L, -Wl,-rpath, plain paths) so
+  # no marker rule below sees it; restored after the whole-line deletion.
   if [[ -n "${prefix:-}" ]]; then
-    sed -i "s|-L${prefix}|${keep}|g" "${config_file}"
+    sed -i "s|${prefix}|${keep}|g" "${config_file}"
   fi
 
   # Remove -L and -Wl,-L paths containing build directories
@@ -657,8 +658,12 @@ clean_makefile_config() {
     sed -i "\\|^/[^[:space:]]*${marker}|d" "${config_file}"
   done
 
-  # Delete orphaned lines that are only the prefix
+  # Delete orphaned lines that are only the prefix, in either form: the bare
+  # prefix emitted by the rewrites above, or the masked prefix from rule 1.
   sed -i '/^'"${prefix//\//\\/}"'$/d' "${config_file}"
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "/^${keep}$/d" "${config_file}"
+  fi
   sed -i '\|^/home/[^/]*/feedstock|d' "${config_file}"
 
   # Final grep-based cleanup for any remaining build markers
@@ -674,7 +679,7 @@ clean_makefile_config() {
   fi
 
   if [[ -n "${prefix:-}" ]]; then
-    sed -i "s|${keep}|-L${prefix}|g" "${config_file}"
+    sed -i "s|${keep}|${prefix}|g" "${config_file}"
   fi
 
   # OCaml 5.4+: Strip $(LDFLAGS) from MKEXE/MKDLL/MKMAINDLL.
