@@ -49,6 +49,19 @@ get_target_id() {
   esac
 }
 
+# Get the qemu-execve command for a conda platform
+# Usage: get_qemu_cmd "linux-aarch64" -> "qemu-execve-aarch64"
+get_qemu_cmd() {
+  local arch="${1/linux-64/x86_64}"
+  echo "qemu-execve-${arch#linux-}"
+}
+
+# Get the QEMU_LD_PREFIX sysroot for a target triplet
+# Usage: get_qemu_prefix "aarch64-conda-linux-gnu" -> "${PREFIX}/aarch64-conda-linux-gnu/sysroot"
+get_qemu_prefix() {
+  echo "${PREFIX}/$1/sysroot"
+}
+
 # ==============================================================================
 # Comprehensive Cross-Compiler Validation
 # ==============================================================================
@@ -237,11 +250,14 @@ TESTEOF
     # Execution test with QEMU if available
     if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      if QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
+      if QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
         echo "    [OK] Execution successful (QEMU)"
       else
         echo "    ~ Execution SKIPPED (QEMU execution failed - expected on some platforms)"
       fi
+    elif [[ "${target}" != *-apple-darwin* ]]; then
+      # Non-fatal: linux target without a usable emulator
+      echo "    ~ Execution SKIPPED (${qemu_cmd:-qemu-execve-*} not found)"
     fi
 
     rm -f "${TEST_BIN}" "${TEST_BIN}.o" "${TEST_BIN}.cmx" "${TEST_BIN}.cmi"
@@ -584,7 +600,7 @@ MAINEOF
     # Verify with QEMU if available
     if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      QEMU_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${MULTIFILE_BIN}" 2>&1 || true)
+      QEMU_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${MULTIFILE_BIN}" 2>&1 || true)
       if echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_CORRECT"; then
         echo "    [OK] Computation correct under QEMU"
       elif echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_WRONG"; then
@@ -630,7 +646,7 @@ SYSCALLEOF
     echo "    [OK] Unix syscall compilation successful"
 
     if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
-      SYSCALL_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${SYSCALL_BIN}" 2>&1 || true)
+      SYSCALL_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${SYSCALL_BIN}" 2>&1 || true)
       if echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_OK"; then
         echo "    [OK] Unix syscalls work correctly under QEMU"
       elif echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_SUSPICIOUS"; then
@@ -797,13 +813,13 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
   # Determine QEMU settings based on target
   case "${TARGET_TRIPLE}" in
     aarch64-conda-linux-gnu)
-      QEMU_CMD="qemu-execve-aarch64"
-      QEMU_PREFIX="${PREFIX}/aarch64-conda-linux-gnu/sysroot"
+      QEMU_CMD=$(get_qemu_cmd "linux-aarch64")
+      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux ARM64 (aarch64)"
       ;;
     powerpc64le-conda-linux-gnu)
-      QEMU_CMD="qemu-execve-ppc64le"
-      QEMU_PREFIX="${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"
+      QEMU_CMD=$(get_qemu_cmd "linux-ppc64le")
+      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux PPC64LE"
       ;;
     arm64-apple-darwin*)
@@ -818,6 +834,12 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
       ARCH_NAME="${TARGET_TRIPLE}"
       ;;
   esac
+
+  # Environment values win over derived ones; macOS targets never use QEMU
+  if [[ "${TARGET_TRIPLE}" != *-apple-darwin* ]]; then
+    QEMU_CMD="${QEMU_EXECVE:-${QEMU_CMD}}"
+    QEMU_PREFIX="${QEMU_LD_PREFIX:-${QEMU_PREFIX}}"
+  fi
 
   # Test the specified target
   if test_cross_compiler "${TARGET_TRIPLE}" "${ARCH_NAME}" "${QEMU_CMD}" "${QEMU_PREFIX}"; then
@@ -841,8 +863,8 @@ else
     if test_cross_compiler \
       "aarch64-conda-linux-gnu" \
       "Linux ARM64 (aarch64)" \
-      "qemu-execve-aarch64" \
-      "${PREFIX}/aarch64-conda-linux-gnu/sysroot"; then
+      "$(get_qemu_cmd linux-aarch64)" \
+      "$(get_qemu_prefix aarch64-conda-linux-gnu)"; then
       :
     else
       TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
@@ -859,8 +881,8 @@ else
     if test_cross_compiler \
       "powerpc64le-conda-linux-gnu" \
       "Linux PPC64LE" \
-      "qemu-execve-ppc64le" \
-      "${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"; then
+      "$(get_qemu_cmd linux-ppc64le)" \
+      "$(get_qemu_prefix powerpc64le-conda-linux-gnu)"; then
       :
     else
       TOTAL_ERRORS=$((TOTAL_ERRORS + 1))

@@ -39,6 +39,12 @@ context:
   is_native: ${{ cross_target_platform_ == build_platform }}
   is_cross_compiler: ${{ (cross_target_platform_ != target_platform) and (build_platform == cross_build_platform) }}
   is_cross_target: ${{ (cross_target_platform_ == target_platform) and (build_platform != target_platform) }}
+  # ===========================================================================
+  # QEMU emulation for cross-target execution tests (linux targets only)
+  # ===========================================================================
+  qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
+  is_qemuable: ${{ is_cross_compiler and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le"]) and (cross_target_platform_ != build_platform) }}
+  qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=10"]') if is_qemuable else '' }}
 
 recipe:
   name: ocaml-packages
@@ -518,6 +524,12 @@ outputs:
       # CROSS-COMPILER: Functional tests
       # ----------------------------------------------------------------------
       - script:
+          # Emulator for running target binaries on the build platform
+          - if: is_qemuable
+            then: |
+              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
+              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
           - if: is_cross_compiler
             then: |
               cd testing
@@ -527,6 +539,9 @@ outputs:
           recipe:
             - testing/test-cross-compilers.sh
         requirements:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
           run:
             - ${{ m2 }}file
 
