@@ -241,6 +241,23 @@ else
   echo "Checking Makefile.config..."
   check_no_staging_paths "${MAKEFILE_CONFIG}" "Makefile.config"
 
+  # Absolute -L paths in Makefile.config must stay under PREFIX; a stray one
+  # means the -L${PREFIX} strip guard was skipped, leaking build-sandbox paths.
+  if [[ -f "${MAKEFILE_CONFIG}" ]]; then
+    L_ERR=0
+    for ltok in $(grep -oE -- '-L/[^ ]+' "${MAKEFILE_CONFIG}" 2>/dev/null || true); do
+      lpath="${ltok#-L}"
+      if [[ "${lpath}" != "${PREFIX}"* ]]; then
+        echo "ERROR: Makefile.config -L path outside PREFIX: ${ltok}"
+        L_ERR=1
+      fi
+    done
+    if [[ "${L_ERR}" -eq 1 ]]; then
+      exit 1
+    fi
+    echo "  Makefile.config: -L paths clean"
+  fi
+
   # --- -config-var checks (skip for cross-target) ---
   if [[ "${CAN_EXECUTE}" == "true" ]]; then
     OCAML_CMD="ocamlc.opt"

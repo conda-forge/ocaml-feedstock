@@ -513,8 +513,9 @@ setup_toolchain() {
   esac
 
   # Export all
+  # STRIP defaults to ':' so an empty strip stays a harmless no-op when passed as a make variable
   export "${name}_AR=${_AR}" "${name}_AS=${_AS}" "${name}_CC=${_CC}" "${name}_RANLIB=${_RANLIB}"
-  export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP}" "${name}_LD=${_LD}"
+  export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP:-:}" "${name}_LD=${_LD}"
   export "${name}_ASM=${_ASM}" "${name}_MKDLL=${_MKDLL}" "${name}_MKEXE=${_MKEXE}"
 }
 
@@ -612,6 +613,7 @@ WRAPPER
 clean_makefile_config() {
   local config_file="$1"
   local prefix="$2"
+  local keep='@@OCAML_RELOC_L@@'
 
   [[ -f "${config_file}" ]] || return 0
 
@@ -620,6 +622,14 @@ clean_makefile_config() {
     "rattler-build" "conda-bld" "build_artifacts" "placehold"
     "host_env" "build_env" "_build_env" "feedstock"
   )
+
+  # Paths under the prefix are relocatable: conda rewrites the prefix at install
+  # time, and the prefix itself contains marker substrings during the build.
+  # Mask every occurrence of the prefix string (-L, -Wl,-rpath, plain paths) so
+  # no marker rule below sees it; restored after the whole-line deletion.
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "s|${prefix}|${keep}|g" "${config_file}"
+  fi
 
   # Remove -L and -Wl,-L paths containing build directories
   sed -i 's|-L/[^ ]*/lib ||g' "${config_file}"
@@ -648,8 +658,12 @@ clean_makefile_config() {
     sed -i "\\|^/[^[:space:]]*${marker}|d" "${config_file}"
   done
 
-  # Delete orphaned lines that are only the prefix
+  # Delete orphaned lines that are only the prefix, in either form: the bare
+  # prefix emitted by the rewrites above, or the masked prefix from rule 1.
   sed -i '/^'"${prefix//\//\\/}"'$/d' "${config_file}"
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "/^${keep}$/d" "${config_file}"
+  fi
   sed -i '\|^/home/[^/]*/feedstock|d' "${config_file}"
 
   # Final grep-based cleanup for any remaining build markers
@@ -662,6 +676,10 @@ clean_makefile_config() {
     else
       rm -f "${temp_file}"
     fi
+  fi
+
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "s|${keep}|${prefix}|g" "${config_file}"
   fi
 
   # OCaml 5.4+: Strip $(LDFLAGS) from MKEXE/MKDLL/MKMAINDLL.
