@@ -31,7 +31,7 @@ jobs:
       osx_arm64_cross_target_platform_osx-arm64:
         CONFIG: osx_arm64_cross_target_platform_osx-arm64
         UPLOAD_PACKAGES: 'True'
-        VMIMAGE: macOS-15
+        VMIMAGE: macOS-15-arm64
         build_workspace_dir: ~/miniforge3/conda-bld
         free_disk_space: skip
         pagefile_size: 0
