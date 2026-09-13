@@ -2,7 +2,7 @@
 # OCaml executable linker wrapper - expands CONDA_OCAML_MKEXE environment variable
 # CONDA_OCAML_MKEXE may include flags (e.g., "cc -Wl,-E")
 # Automatically adds -L<prefix>/lib for runtime library search (relocatable).
-. "$(dirname "$0")/conda-ocaml-common"
+. "$(dirname "$0")/conda-ocaml-common.sourced"
 
 FALLBACK_MKEXE="$(ocaml_darwin_fallback "${CONDA_OCAML_MKEXE:-}" "cc -Wl,-rpath,@executable_path/../lib" cc)"
 ocaml_exec_selfguarded conda-ocaml-mkexe "${FALLBACK_MKEXE}" "$@"

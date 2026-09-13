@@ -36,9 +36,9 @@ context:
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
-  is_native: ${{ cross_target_platform_ == build_platform }}
-  is_cross_compiler: ${{ (cross_target_platform_ != target_platform) and (build_platform == cross_build_platform) }}
-  is_cross_target: ${{ (cross_target_platform_ == target_platform) and (build_platform != target_platform) }}
+  is_native: ${{ cross_target_platform_ == target_platform and build_platform == target_platform }}
+  is_cross_compiler: ${{ cross_target_platform_ != target_platform and cross_build_platform == target_platform }}
+  is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   # ===========================================================================
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
@@ -106,10 +106,10 @@ outputs:
   #
   # Three mutually exclusive build cases (exactly one applies per build):
   #
-  # 1. NATIVE (is_native): cross_target_platform_ == build_platform
+  # 1. NATIVE (is_native): cross_target_platform_ == target_platform == build_platform
   #    Native compiler built on its own platform (e.g., linux-64 on linux-64)
   #
-  # 2. CROSS-COMPILER (is_cross_compiler): cross_target_platform_ != target_platform
+  # 2. CROSS-COMPILER (is_cross_compiler): cross_target_platform_ != target_platform AND cross_build_platform == target_platform
   #    Cross-compiler built on designated platform (e.g., aarch64 cross on linux-64)
   #    Produces binaries that run on build platform, generate code for cross_target_platform_
   #
@@ -308,7 +308,10 @@ outputs:
             # NATIVE: Full native toolset
             - if: is_native
               then:
-                - conda-ocaml-{ar,as,cc,common,ld,mkdll,mkexe,ranlib}
+                - conda-ocaml-{ar,as,cc,ld,mkdll,mkexe,ranlib}
+                - if: unix
+                  then:
+                    - conda-ocaml-common.sourced
                 - ocaml
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
@@ -330,7 +333,10 @@ outputs:
             # CROSS-TARGET: Native toolset (no ocamldebug/ocamldoc)
             - if: is_cross_target
               then:
-                - conda-ocaml-{ar,as,cc,common,ld,mkdll,mkexe,ranlib}
+                - conda-ocaml-{ar,as,cc,ld,mkdll,mkexe,ranlib}
+                - if: unix
+                  then:
+                    - conda-ocaml-common.sourced
                 - ocaml
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
                 - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt

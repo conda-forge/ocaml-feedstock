@@ -1,11 +1,11 @@
-# conda-ocaml-common
+# conda-ocaml-common.sourced
 # Shared library sourced by the conda-ocaml-* wrapper scripts in this
 # directory. This file is NOT a standalone tool: it has no shebang line, is
 # not meant to be executed directly, and is installed at mode 644 (see
 # install_conda_ocaml_wrappers in recipe/building/common-functions.sh).
 #
 # Each wrapper sources this file relative to itself:
-#   . "$(dirname "$0")/conda-ocaml-common"
+#   . "$(dirname "$0")/conda-ocaml-common.sourced"
 # and then calls one of the functions below, passing its OWN filename / env
 # var / default tool / flags as LITERAL arguments. None of these functions
 # derive the caller's identity from $0 - doing so would make the cc/mkexe
