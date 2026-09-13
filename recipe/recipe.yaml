@@ -437,11 +437,8 @@ outputs:
             - if: unix
               then:
                 - binutils_impl_${{ target_platform }}
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}file
-                - ${{ m2 }}grep
+            - ${{ m2 }}file
+            - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
       # CROSS-TARGET: Cross-compiled binary architecture verification
@@ -463,7 +460,7 @@ outputs:
       # NATIVE: Tool version checks
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and not arm64
+          - if: is_native
             then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }}
             else: echo "Skipping tool version tests"
         files:
@@ -471,10 +468,7 @@ outputs:
             - testing/test-tool-versions.${{ sh }}
         requirements:
           run:
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}grep
+            - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
       # NATIVE: Native-only tools test (ocamldoc, ocamldebug)
@@ -488,10 +482,7 @@ outputs:
             - testing/test-native-only-tools.${{ sh }}
         requirements:
           run:
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}grep
+            - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
       # Compiler wrapper validation (conda-ocaml-cc, conda-ocaml-mkexe)
@@ -499,11 +490,11 @@ outputs:
       # on compiler("c") provides the triplet-prefixed binary.
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and unix and not arm64
+          - if: is_native and unix
             then: cd testing && ./test-compiler-wrappers.sh
           - if: is_cross_target
             then: cd testing && ./test-compiler-wrappers.sh cross-target
-          - if: not (is_native and unix and not arm64) and not is_cross_target
+          - if: not (is_native and unix) and not is_cross_target
             then: echo "Skipping wrapper tests"
         files:
           recipe:
@@ -574,18 +565,13 @@ outputs:
       # Basic toolchain verification
       # ----------------------------------------------------------------------
       - script:
-          - if: not arm64
-            then: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
-            else: echo "Skip on arm64"
+          - ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
 
       # ----------------------------------------------------------------------
       # Compilation tests (requires C toolchain)
-      # Linux cross-targets can run via QEMU, only osx-arm64 cross skipped
       # ----------------------------------------------------------------------
       - script:
-          - if: not arm64
-            then: cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
-            else: echo "Skipping compilation tests (osx-arm64 cross-target, no QEMU)"
+          - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
         files:
           recipe:
             - testing/test-compilation.${{ sh }}
@@ -596,12 +582,9 @@ outputs:
 
       # ----------------------------------------------------------------------
       # CONDA_OCAML_* toolchain variable tests
-      # Linux cross-targets can run via QEMU, only osx-arm64 cross skipped
       # ----------------------------------------------------------------------
       - script:
-          - if: not arm64
-            then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
-            else: echo "Skipping toolchain var tests (osx-arm64 cross-target, no QEMU)"
+          - cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
         files:
           recipe:
             - testing/test-toolchain-vars.${{ sh }}
