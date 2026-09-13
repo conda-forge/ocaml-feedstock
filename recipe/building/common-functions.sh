@@ -818,12 +818,13 @@ patch_makefile_config_post_configure() {
 install_conda_ocaml_wrappers() {
   local dest_bin_dir="$1"
 
-  # conda-ocaml-common is a SOURCED shared library, not an executable tool:
-  # installed at 644 (not 755) into the same dir the wrappers land in, so
-  # each wrapper's `. "$(dirname "$0")/conda-ocaml-common"` resolves at
-  # runtime (wrappers are exec'd from PATH by ocamlopt/dune/flexlink in the
-  # installed prefix, not sourced by the build).
-  install -m 644 "${RECIPE_DIR}/scripts/conda-ocaml-common" "${dest_bin_dir}/conda-ocaml-common"
+  # conda-ocaml-common.sourced is a SOURCED shared library, not an executable
+  # tool: installed at 644 (not 755) into the same dir the wrappers land in,
+  # so each wrapper's `. "$(dirname "$0")/conda-ocaml-common.sourced"`
+  # resolves at runtime (wrappers are exec'd from PATH by
+  # ocamlopt/dune/flexlink in the installed prefix, not sourced by the
+  # build).
+  install -m 644 "${RECIPE_DIR}/scripts/conda-ocaml-common.sourced" "${dest_bin_dir}/conda-ocaml-common.sourced"
 
   for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${dest_bin_dir}/${wrapper}"

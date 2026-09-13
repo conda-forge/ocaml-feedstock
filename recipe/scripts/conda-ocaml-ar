@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 # OCaml archiver wrapper - expands CONDA_OCAML_AR environment variable
-. "$(dirname "$0")/conda-ocaml-common"
+. "$(dirname "$0")/conda-ocaml-common.sourced"
 ocaml_exec_simple "${CONDA_OCAML_AR:-}" ar "$@"
