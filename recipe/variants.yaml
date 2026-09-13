@@ -11,3 +11,7 @@ cross_target_platform_:
   - osx-64
   - osx-arm64
   - win-64
+
+# Uploads from this branch go to the experimental label, not main.
+channel_targets:
+  - conda-forge experimental
