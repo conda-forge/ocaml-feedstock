@@ -476,8 +476,9 @@ build_native() {
   echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config_file" | head -1 || echo '(not found)')"
 
   # NOTE: Do NOT remove -L paths here - they're needed for the build.
-  # The -L path removal for bytecomp_c_libraries happens AFTER world.opt build
-  # but BEFORE install, to avoid non-relocatable paths in installed binaries.
+  # The -L removal for the *_c_libraries values happens further down, still
+  # BEFORE world.opt: world.opt compiles those values into the Config module,
+  # so any edit made after it has no effect on `ocamlopt -config-var`.
 
   if is_unix; then
     # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
@@ -550,6 +551,30 @@ build_native() {
     # Configure generates "... $(addprefix...) -link " but when OC_LDFLAGS is empty,
     # this trailing "-link" causes "flexlink ... -link -o output" which passes -o to linker!
     sed -i 's/^\(MK[A-Z]*=.*\)[[:space:]]*-link[[:space:]]*$/\1/' "$config_file"
+  fi
+
+  # Strip build-time -L paths from config.generated.ml (macOS)
+  #
+  # utils/config.generated.ml holds the *_c_libraries values that configure
+  # produced. world.opt compiles these INTO the Config module, so
+  # `ocamlc/ocamlopt -config-var bytecomp_c_libraries` reads THIS file, not
+  # Makefile.config. Cleaning Makefile.config cannot affect it.
+  #
+  # This MUST run BEFORE world.opt. Editing config.generated.ml afterwards has no
+  # effect. The strip also removes the legitimate relocatable -L${PREFIX}/lib; on
+  # macOS conda-ocaml-mkexe re-supplies it at runtime, which is why this is
+  # guarded to osx only.
+  if [[ "${target_platform}" == "osx"* ]]; then
+    local _cfg_ml="utils/config.generated.ml"
+    echo "  - Stripping build-time -L paths from ${_cfg_ml}..."
+    local _cvar
+    for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+      if grep -q "^let ${_cvar} = " "${_cfg_ml}" 2>/dev/null; then
+        sed -i -E "/^let ${_cvar} = /s#-L[^ |]+ *##g" "${_cfg_ml}"
+      fi
+    done
+    grep -E '^let (bytecomp|native|compression)_c_libraries = ' "${_cfg_ml}" \
+      | sed 's/^/    /' || echo "    (no matching vars)"
   fi
 
   # ============================================================================
