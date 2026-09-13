@@ -10,9 +10,6 @@ conda_forge_output_validation: true
 # experimental are used to stage and iterate on recipe changes, and a merge
 # into one of them is a non-PR build, which would otherwise upload.
 upload_on_branch: main
-# Redirect any upload that does happen to the experimental label, not main.
-channel_targets:
-  - conda-forge experimental
 build_platform:
   linux_aarch64: linux_64
   linux_ppc64le: linux_64
