@@ -977,14 +977,24 @@ check_unix_crc() {
   local label="$4"
 
   # Extract Unix implementation CRC from unix.cmxa
+  local unix_out
+  if ! unix_out=$("${ocamlobjinfo_path}" "${unix_cmxa}"); then
+    echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${unix_cmxa}"
+    exit 1
+  fi
   local unix_crc
-  unix_crc=$("${ocamlobjinfo_path}" "${unix_cmxa}" 2>&1 \
+  unix_crc=$(echo "${unix_out}" \
     | grep -A1 "^Name: Unix$" | grep "CRC of implementation" | awk '{print $NF}')
 
   # Extract what threads.cmxa expects from Unix (implementation CRC)
   # Must scope to "Implementations imported" section to avoid matching interface CRCs
+  local threads_out
+  if ! threads_out=$("${ocamlobjinfo_path}" "${threads_cmxa}"); then
+    echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${threads_cmxa}"
+    exit 1
+  fi
   local threads_crc
-  threads_crc=$("${ocamlobjinfo_path}" "${threads_cmxa}" 2>&1 \
+  threads_crc=$(echo "${threads_out}" \
     | sed -n '/^Implementations imported:/,/^[A-Z]/p' \
     | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
 
