@@ -1288,7 +1288,7 @@ EOF
 
   echo ""
   echo "============================================================"
-  echo "All cross-compilers built successfully"
+  echo "Cross-compiler for ${target} built successfully"
   echo "============================================================"
 }
 
