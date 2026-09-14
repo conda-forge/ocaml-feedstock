@@ -678,6 +678,12 @@ build_cross_compiler() {
   # OCAML_INSTALL_PREFIX = where cross-compilers will be installed (destination)
   : "${OCAML_PREFIX:=${PREFIX}}"
   : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
+  # Where the cross-compiler will FINALLY live, baked into config.ml's
+  # standard_library_default and into the cross Makefile.config. For the
+  # ocaml_<target> cross-compiler output this is ${PREFIX} (the staged tree is
+  # transferred there after this function returns), so a caller that instead
+  # consumes the tree in place can point it at the staging prefix.
+  : "${OCAML_CROSS_FINAL_PREFIX:=${PREFIX}}"
 
   # macOS: Use DYLD_FALLBACK_LIBRARY_PATH so native compiler can find libzstd at runtime
   # IMPORTANT: Use FALLBACK, not DYLD_LIBRARY_PATH - FALLBACK doesn't override system libs
@@ -901,7 +907,7 @@ TOOLWRAPPER
     # OCAML_CROSS_LIBDIR may point to work/_xcross_compiler/... during build
     # We need to use ${PREFIX} (the conda prefix) which will be correct after install
     # Conda/rattler-build will relocate these paths during packaging
-    FINAL_STDLIB_PATH="${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+    FINAL_STDLIB_PATH="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
     sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${FINAL_STDLIB_PATH}|}#" "$config_file"
 
     # CRITICAL: Patch architecture - this is baked into the binary!
@@ -1155,8 +1161,8 @@ EOF
       # Standard library path - use actual ${PREFIX} which conda will relocate
       # The OCAML_CROSS_LIBDIR variable contains build-time work directory path
       # We need to use the FINAL installed path: ${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml
-      FINAL_CROSS_LIBDIR="${PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
-      FINAL_CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
+      FINAL_CROSS_LIBDIR="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
+      FINAL_CROSS_PREFIX="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}"
       sed -i "s|^prefix=.*|prefix=${FINAL_CROSS_PREFIX}|" "${makefile_config}"
       sed -i "s|^LIBDIR=.*|LIBDIR=${FINAL_CROSS_LIBDIR}|" "${makefile_config}"
       sed -i "s|^STUBLIBDIR=.*|STUBLIBDIR=${FINAL_CROSS_LIBDIR}/stublibs|" "${makefile_config}"
