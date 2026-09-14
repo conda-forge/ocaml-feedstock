@@ -305,18 +305,44 @@ outputs:
       - package_contents:
           strict: true
           bin:
-            # NATIVE: Full native toolset
-            - if: is_native
+            # NATIVE and CROSS-TARGET: native toolset for the target platform
+            - if: is_native or is_cross_target
               then:
-                - conda-ocaml-{ar,as,cc,ld,mkdll,mkexe,ranlib}
+                - conda-ocaml-ar
+                - conda-ocaml-as
+                - conda-ocaml-cc
+                - conda-ocaml-ld
+                - conda-ocaml-ranlib
                 - if: unix
                   then:
                     - conda-ocaml-common.sourced
+                    - conda-ocaml-mkdll
+                    - conda-ocaml-mkexe
                 - ocaml
-                - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
-                - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
-                - ocaml{c,dep,lex,objinfo,opt}.byte
-                - ocaml{cmt,cp,debug,doc,doc.opt,mktop,optp,prof,run,rund}
+                - ocamlc
+                - ocamldep
+                - ocamllex
+                - ocamlobjinfo
+                - ocamlopt
+                - ocamlmklib
+                - ocamlyacc
+                - ocamlc.opt
+                - ocamldep.opt
+                - ocamllex.opt
+                - ocamlobjinfo.opt
+                - ocamlopt.opt
+                - ocamlc.byte
+                - ocamldep.byte
+                - ocamllex.byte
+                - ocamlobjinfo.byte
+                - ocamlopt.byte
+                - ocamlcmt
+                - ocamlcp
+                - ocamlmktop
+                - ocamloptp
+                - ocamlprof
+                - ocamlrun
+                - ocamlrund
                 - if: unix or c_compiler == "vs2022"
                   then:
                     - ocamlruni
@@ -330,28 +356,37 @@ outputs:
                     - flexlink.opt
                     - conda-ocaml-windres
 
-            # CROSS-TARGET: Native toolset (no ocamldebug/ocamldoc)
-            - if: is_cross_target
+            # NATIVE only: ocamldoc and ocamldebug are not built when cross-compiling
+            - if: is_native
               then:
-                - conda-ocaml-{ar,as,cc,ld,mkdll,mkexe,ranlib}
-                - if: unix
-                  then:
-                    - conda-ocaml-common.sourced
-                - ocaml
-                - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
-                - ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
-                - ocaml{c,dep,lex,objinfo,opt}.byte
-                - ocaml{cmt,cp,mktop,optp,prof,run,rund}
-                - if: unix
-                  then:
-                    - ocamlruni
+                - ocamldebug
+                - ocamldoc
+                - ocamldoc.opt
 
             # CROSS-COMPILER: Prefixed cross tools
             - if: is_cross_compiler
               then:
-                - ${{ target_triplet }}-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
-                - ${{ target_triplet }}-ocaml{c,dep,lex,objinfo,opt,mklib,yacc}.opt
-                - ${{ target_triplet }}-ocaml-{ar,as,cc,ld,mkdll,mkexe,ranlib}
+                - ${{ target_triplet }}-ocamlc
+                - ${{ target_triplet }}-ocamldep
+                - ${{ target_triplet }}-ocamllex
+                - ${{ target_triplet }}-ocamlobjinfo
+                - ${{ target_triplet }}-ocamlopt
+                - ${{ target_triplet }}-ocamlmklib
+                - ${{ target_triplet }}-ocamlyacc
+                - ${{ target_triplet }}-ocamlc.opt
+                - ${{ target_triplet }}-ocamldep.opt
+                - ${{ target_triplet }}-ocamllex.opt
+                - ${{ target_triplet }}-ocamlobjinfo.opt
+                - ${{ target_triplet }}-ocamlopt.opt
+                - ${{ target_triplet }}-ocamlmklib.opt
+                - ${{ target_triplet }}-ocamlyacc.opt
+                - ${{ target_triplet }}-ocaml-ar
+                - ${{ target_triplet }}-ocaml-as
+                - ${{ target_triplet }}-ocaml-cc
+                - ${{ target_triplet }}-ocaml-ld
+                - ${{ target_triplet }}-ocaml-mkdll
+                - ${{ target_triplet }}-ocaml-mkexe
+                - ${{ target_triplet }}-ocaml-ranlib
 
           files:
             - etc/conda/test-files/*
@@ -369,10 +404,22 @@ outputs:
                 - ${{ library }}lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
                 - ${{ library }}lib/ocaml/caml/domain_state.tbl
                 - ${{ library }}lib/ocaml/caml/*.h
-                - ${{ library }}lib/ocaml/{compiler-libs,dynlink,profiling,runtime_events,stdlib,str,threads,unix}/*
+                - ${{ library }}lib/ocaml/compiler-libs/*
+                - ${{ library }}lib/ocaml/dynlink/*
+                - ${{ library }}lib/ocaml/profiling/*
+                - ${{ library }}lib/ocaml/runtime_events/*
+                - ${{ library }}lib/ocaml/stdlib/*
+                - ${{ library }}lib/ocaml/str/*
+                - ${{ library }}lib/ocaml/threads/*
+                - ${{ library }}lib/ocaml/unix/*
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
-                - ${{ library }}share/man/man{1,3}/*
+                - if: unix
+                  then:
+                    - ${{ library }}share/man/man1/*
+                - if: is_native
+                  then:
+                    - ${{ library }}share/man/man3/*
                 - if: unix or c_compiler == "gcc"
                   then:
                     - ${{ library }}lib/ocaml/libasmrun.a
@@ -416,7 +463,14 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/domain_state.tbl
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/*.h
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/{compiler-libs,dynlink,profiling,runtime_events,stdlib,str,threads,unix}/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/compiler-libs/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/dynlink/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/profiling/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime_events/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stdlib/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/str/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
