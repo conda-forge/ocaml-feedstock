@@ -1789,24 +1789,58 @@ fi
 # Build using cross-compiler from BUILD_PREFIX (cross-compiled native)
 # ==============================================================================
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
-  # Cross-compiler is available in BUILD_PREFIX (from ocaml_$target_platform dependency)
   CROSS_TARGET="${OCAML_TARGET_TRIPLET}"
-  CROSS_COMPILER_DIR="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
 
-  echo ""
-  echo "=== Cross-target build: Using cross-compiler from BUILD_PREFIX ==="
-  echo "  Cross-compiler: ${CROSS_COMPILER_DIR}"
+  if [[ "${OCAML_BOOTSTRAP_IN_LANE:-0}" == "1" ]]; then
+    # This target has no published ocaml_<target> cross-compiler to depend on
+    # (see recipe.yaml, bootstrap_in_lane), so build one here. The tree is
+    # consumed in place and never transferred to ${PREFIX}, which is why
+    # OCAML_CROSS_FINAL_PREFIX points at the staging prefix.
+    OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
+    CROSS_COMPILER_SOURCE="${OCAML_XCROSS_INSTALL_PREFIX}"
+    CROSS_COMPILER_DIR="${OCAML_XCROSS_INSTALL_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
 
-  if [[ ! -f "${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma" ]]; then
-    echo "ERROR: Cross-compiler not found at ${CROSS_COMPILER_DIR}"
-    echo "The ocaml_${target_platform} package must be installed as a build dependency"
-    exit 1
+    echo ""
+    echo "=== Cross-target build: building cross-compiler in-lane ==="
+    echo "  Cross-compiler: ${CROSS_COMPILER_DIR}"
+
+    (
+      # setup_toolchain/setup_cflags_ldflags provide the NATIVE_CC, SAK_* and
+      # NATIVE_CFLAGS/LDFLAGS that build_cross_compiler needs. Kept inside this
+      # subshell so the NATIVE_* exports cannot leak into build_cross_target.
+      setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
+      setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
+      export OCAML_PREFIX="${BUILD_PREFIX}"
+      export OCAML_CROSS_FINAL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}"
+      export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
+      OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
+      build_cross_compiler
+    )
+
+    if [[ ! -f "${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma" ]]; then
+      echo "ERROR: in-lane cross-compiler build produced no ${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma"
+      exit 1
+    fi
+  else
+    # Cross-compiler is available in BUILD_PREFIX (from ocaml_$target_platform dependency)
+    CROSS_COMPILER_SOURCE="${BUILD_PREFIX}"
+    CROSS_COMPILER_DIR="${BUILD_PREFIX}/lib/ocaml-cross-compilers/${CROSS_TARGET}"
+
+    echo ""
+    echo "=== Cross-target build: Using cross-compiler from BUILD_PREFIX ==="
+    echo "  Cross-compiler: ${CROSS_COMPILER_DIR}"
+
+    if [[ ! -f "${CROSS_COMPILER_DIR}/lib/ocaml/stdlib.cma" ]]; then
+      echo "ERROR: Cross-compiler not found at ${CROSS_COMPILER_DIR}"
+      echo "The ocaml_${target_platform} package must be installed as a build dependency"
+      exit 1
+    fi
   fi
 
   OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
   (
     export OCAML_PREFIX="${BUILD_PREFIX}"
-    export CROSS_COMPILER_PREFIX="${BUILD_PREFIX}"
+    export CROSS_COMPILER_PREFIX="${CROSS_COMPILER_SOURCE}"
     OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     build_cross_target
   )
