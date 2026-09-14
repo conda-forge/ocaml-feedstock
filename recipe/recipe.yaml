@@ -40,6 +40,16 @@ context:
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and cross_build_platform == target_platform }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   # ===========================================================================
+  # Targets whose cross-compiler is built in this lane instead of coming from a
+  # published ocaml_<target> package. One condition drives both the
+  # is_cross_target build requirement and the build.sh cross-target branch, so
+  # the two cannot disagree.
+  # MAINTAINED LIST: prune a target once its cross-compiler is published on
+  # conda-forge. Nothing self-corrects, so a stale entry means that lane keeps
+  # building its own cross-compiler forever with no signal that it is doing so.
+  # ===========================================================================
+  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-riscv64", "linux-s390x", "win-arm64"] }}
+  # ===========================================================================
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
   qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
@@ -127,6 +137,7 @@ outputs:
           SKIP_MAKE_TESTS: "1"
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
+          OCAML_BOOTSTRAP_IN_LANE: "${{ 1 if bootstrap_in_lane else 0 }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
       dynamic_linking:
         missing_dso_allowlist:
@@ -231,10 +242,14 @@ outputs:
             - if: build_number == 0
               then:
                 - ocaml_${{ build_platform }} >=5.4
-                - ocaml_${{ target_platform }} >=5.4
+                - if: not bootstrap_in_lane
+                  then:
+                    - ocaml_${{ target_platform }} >=5.4
               else:
                 - ocaml_${{ build_platform }} ${{ version }}.*
-                - ocaml_${{ target_platform }} ${{ version }}.*
+                - if: not bootstrap_in_lane
+                  then:
+                    - ocaml_${{ target_platform }} ${{ version }}.*
 
         # --- non-unix-specific ---
         - if: not unix
