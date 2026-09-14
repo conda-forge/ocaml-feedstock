@@ -53,7 +53,12 @@ rm -f ./hi
 
 # 3. REPL test (ocaml toplevel)
 echo "=== Testing REPL ==="
-echo 'print_endline "REPL works";;' | ocaml 2>&1 | grep -q "REPL works" && echo "  REPL: OK" || echo "  REPL: (exit expected)"
+if echo 'print_endline "REPL works";;' | ocaml 2>&1 | grep -q "REPL works"; then
+  echo "  REPL: OK"
+else
+  echo "  [FAIL] REPL did not print expected output"
+  exit 1
+fi
 
 # 4. ocamldep actually parsing files
 echo "=== Testing ocamldep ==="
@@ -115,7 +120,12 @@ EOF
 
   # Verify it's a real executable (not bytecode that needs ocamlrun)
   echo -n "  verifying executable type: "
-  file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)" && echo "OK (native executable)" || echo "WARNING: unexpected file type"
+  if file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)"; then
+    echo "OK (native executable)"
+  else
+    echo "FAIL: unexpected file type"
+    exit 1
+  fi
 
   # Run it
   echo -n "  executing: "

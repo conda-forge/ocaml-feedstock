@@ -28,8 +28,8 @@ check_no_staging_paths() {
   local staging_pattern="rattler-build_|conda-bld|build_artifacts|/home/.*/feedstock"
 
   if [[ ! -f "${file}" ]]; then
-    echo "  WARNING: ${label} not found at ${file}"
-    return 0
+    echo "ERROR: ${label} not found at ${file} (expected unconditionally)"
+    exit 1
   fi
 
   if grep -E "${staging_pattern}" "${file}" | grep -qv "${PREFIX}"; then

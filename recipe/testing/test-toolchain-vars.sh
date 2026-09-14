@@ -5,6 +5,8 @@ set -euo pipefail
 
 echo "=== Test: CONDA_OCAML_* Toolchain Variables ==="
 
+ERRORS=0
+
 # Test 1: Verify activation script sets defaults
 echo ""
 echo "Test 1: Activation script sets default CONDA_OCAML_* values"
@@ -37,10 +39,9 @@ echo "  asm = $CONFIG_ASM"
 # Config should reference conda-ocaml-* wrapper scripts (for Unix.create_process compatibility)
 if [[ "$CONFIG_CC" == "conda-ocaml-cc" ]]; then
     echo "PASS: c_compiler uses conda-ocaml-cc wrapper"
-elif [[ "$CONFIG_CC" == *'$'* ]] || [[ "$CONFIG_CC" == *'CONDA_OCAML'* ]]; then
-    echo "INFO: c_compiler uses direct env var reference (older build): $CONFIG_CC"
 else
-    echo "INFO: c_compiler is hardcoded: $CONFIG_CC"
+    echo "FAIL: c_compiler expected 'conda-ocaml-cc', got: $CONFIG_CC"
+    ERRORS=$((ERRORS + 1))
 fi
 
 # Test 2b: Verify wrapper scripts exist and are executable
@@ -51,6 +52,7 @@ for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib c
         echo "  $wrapper: OK"
     else
         echo "  $wrapper: MISSING"
+        ERRORS=$((ERRORS + 1))
     fi
 done
 
@@ -120,6 +122,11 @@ if ocamlopt -o hello2 hello.ml 2>&1; then
 else
     echo "FAIL: Compilation failed with default CC"
     exit 1
+fi
+
+if [[ $ERRORS -gt 0 ]]; then
+  echo "=== FAILED: ${ERRORS} toolchain wrapper check(s) failed ==="
+  exit 1
 fi
 
 echo ""
