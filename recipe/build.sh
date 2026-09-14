@@ -28,7 +28,7 @@ IFS=$'\n\t'
 #   OCAML_TARGET_PLATFORM:  Target platform this package produces code for
 #   OCAML_TARGET_TRIPLET: Cross-compiler triplet for this target
 #
-# Build functions are defined inline below (consolidated from building/_build_*_function.sh):
+# Build functions are defined inline below:
 #   build_native()           - Native OCaml compiler build
 #   build_cross_compiler()   - Cross-compiler build (native binaries for target code)
 #   build_cross_target()     - Cross-compiled native build using cross-compiler from BUILD_PREFIX
@@ -212,7 +212,6 @@ EOF
 
 # ==============================================================================
 # build_native() - Build native OCaml compiler
-# (formerly building/build-native.sh)
 # ==============================================================================
 
 build_native() {
@@ -308,7 +307,6 @@ build_native() {
   # Configure Arguments
   # ============================================================================
 
-  #  --enable-native-toplevel
   CONFIG_ARGS+=(
     -prefix "${OCAML_INSTALL_PREFIX}"
     --mandir="${OCAML_INSTALL_PREFIX}"/share/man
@@ -401,17 +399,6 @@ build_native() {
   if is_unix; then
     echo "  Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
     install_conda_ocaml_wrappers "${BUILD_PREFIX}/bin"
-    # Debug: verify wrappers installed and environment set
-    echo "  Wrapper scripts installed:"
-    ls -la "${BUILD_PREFIX}/bin/conda-ocaml-"* 2>/dev/null || echo "    (none found!)"
-    echo "  CONDA_OCAML_* environment:"
-    echo "    CONDA_OCAML_AS=${CONDA_OCAML_AS:-<unset>}"
-    echo "    CONDA_OCAML_CC=${CONDA_OCAML_CC:-<unset>}"
-    echo "    CONDA_OCAML_AR=${CONDA_OCAML_AR:-<unset>}"
-    echo "    CONDA_OCAML_RANLIB=${CONDA_OCAML_RANLIB:-<unset>}"
-    echo "    CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-<unset>}"
-    echo "    CONDA_OCAML_MKDLL=${CONDA_OCAML_MKDLL:-<unset>}"
-    echo "  PATH includes BUILD_PREFIX/bin: $(echo "$PATH" | grep -q "${BUILD_PREFIX}/bin" && echo "yes" || echo "NO!")"
   else
     # Non-unix: Build wrapper .exe files BEFORE configuring
     # These need to exist when config.generated.ml references them
@@ -471,9 +458,6 @@ build_native() {
   echo "  [2/4] Patching config for ocaml-* wrapper scripts"
 
   local config_file="utils/config.generated.ml"
-
-  # Debug: Check native_compiler exists before patching
-  echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config_file" | head -1 || echo '(not found)')"
 
   # NOTE: Do NOT remove -L paths here - they're needed for the build.
   # The -L removal for the *_c_libraries values happens further down, still
@@ -655,7 +639,6 @@ build_native() {
 
 # ==============================================================================
 # build_cross_compiler() - Build cross-compiler (native binaries for target code)
-# (formerly building/build-cross-compiler.sh)
 # ==============================================================================
 
 build_cross_compiler() {
@@ -693,17 +676,11 @@ build_cross_compiler() {
   # Note: fix-macos-install-names.sh unsets DYLD_* before running system tools to avoid iconv issues
   setup_dyld_fallback
 
-  # Define cross targets based on build platform or explicit env vars
-  declare -a CROSS_TARGETS
-
-  # Check if OCAML_TARGET_TRIPLET is explicitly set (gcc pattern: build one target per output)
-  if [[ -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
-    echo "  Using explicit OCAML_TARGET_TRIPLET: ${OCAML_TARGET_TRIPLET}"
-    CROSS_TARGETS=("${OCAML_TARGET_TRIPLET}")
-  fi
+  # Single cross-compilation target (gcc pattern: build one target per output)
+  echo "  Using explicit OCAML_TARGET_TRIPLET: ${OCAML_TARGET_TRIPLET}"
 
   # ============================================================================
-  # Build loop
+  # Build configuration and cross-compiler build for the target
   # ============================================================================
 
   echo ""
@@ -720,7 +697,7 @@ build_cross_compiler() {
   hash -r
   echo "  PATH updated to include: ${OCAML_PREFIX}/bin"
 
-  for target in "${CROSS_TARGETS[@]}"; do
+  target="${OCAML_TARGET_TRIPLET}"
     echo ""
     echo "  ------------------------------------------------------------"
     echo "  Building cross-compiler for ${target}"
@@ -1308,17 +1285,15 @@ EOF
     ${RECIPE_DIR}/testing/test-cross-compiler-consistency.sh "${OCAML_INSTALL_PREFIX}/bin/${target}-ocamlopt"
 
     echo "  Done: ${target} (comprehensive tests run in post-install)"
-  done
 
   echo ""
   echo "============================================================"
-  echo "All cross-compilers built successfully"
+  echo "Cross-compiler for ${target} built successfully"
   echo "============================================================"
 }
 
 # ==============================================================================
 # build_cross_target() - Build cross-compiled native compiler using BUILD_PREFIX cross-compiler
-# (formerly building/build-cross-target.sh)
 # ==============================================================================
 
 build_cross_target() {
