@@ -53,10 +53,17 @@ rm -f ./hi
 
 # 3. REPL test (ocaml toplevel)
 echo "=== Testing REPL ==="
-if echo 'print_endline "REPL works";;' | ocaml 2>&1 | grep -q "REPL works"; then
+repl_rc=0
+repl_out="$(echo 'print_endline "REPL works";;' | ocaml 2>&1)" || repl_rc=$?
+if [ "$repl_rc" -eq 0 ] && printf '%s' "$repl_out" | grep -q "REPL works"; then
   echo "  REPL: OK"
 else
   echo "  [FAIL] REPL did not print expected output"
+  echo "  ocaml exit status: $repl_rc"
+  echo "  ocaml binary path: $(command -v ocaml || true)"
+  echo "  ----- REPL output start -----"
+  printf '%s\n' "$repl_out"
+  echo "  ----- REPL output end -----"
   exit 1
 fi
 
