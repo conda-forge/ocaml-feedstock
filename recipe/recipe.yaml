@@ -49,10 +49,13 @@ context:
   # is_cross_target build requirement and the build.sh cross-target branch, so
   # the two cannot disagree.
   # MAINTAINED LIST: prune a target once its cross-compiler is published on
-  # conda-forge. Nothing self-corrects, so a stale entry means that lane keeps
-  # building its own cross-compiler forever with no signal that it is doing so.
+  # conda-forge FOR THIS LANE'S BUILD PLATFORM. Nothing self-corrects, so a
+  # stale entry means that lane keeps building its own cross-compiler forever
+  # with no signal that it is doing so. linux-ppc64le qualifies on the build
+  # platform clause rather than the existence one: ocaml_linux-ppc64le is
+  # published, but only for linux-64, and this lane now builds on linux-aarch64.
   # ===========================================================================
-  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-riscv64", "linux-s390x", "win-arm64"] }}
+  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x", "win-arm64"] }}
   # ===========================================================================
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
