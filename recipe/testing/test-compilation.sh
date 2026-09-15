@@ -120,23 +120,7 @@ assert_contains "full bytecode compile via ocamlrun" "Hi CF" ./hi
 # This exercises: ocamlc -output-complete-exe -I +unix unix.cma ...
 echo "=== Testing -output-complete-exe (Dune bootstrap pattern) ==="
 
-# Detect if running under QEMU (cross-compiled package on different host arch)
-# ocamlc.opt crashes under QEMU user-mode emulation with -output-complete-exe
-_OCAMLC_ARCH=""
-_HOST_ARCH="$(uname -m)"
-if file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "ARM aarch64"; then
-  _OCAMLC_ARCH="aarch64"
-elif file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "64-bit.*x86-64"; then
-  _OCAMLC_ARCH="x86_64"
-elif file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "64-bit.*PowerPC"; then
-  _OCAMLC_ARCH="ppc64le"
-fi
-
-if [[ -n "${_OCAMLC_ARCH}" && "${_OCAMLC_ARCH}" != "${_HOST_ARCH}" ]]; then
-  echo "  SKIP: Running ${_OCAMLC_ARCH} binary on ${_HOST_ARCH} host (QEMU emulation unstable for -output-complete-exe)"
-else
-  # Create a program that uses Unix module (like Dune's bootstrap)
-  cat > complete_exe_test.ml << 'EOF'
+cat > complete_exe_test.ml << 'EOF'
 (* Test program exercising Unix module - similar to Dune bootstrap *)
 let () =
   let cwd = Unix.getcwd () in
@@ -144,28 +128,27 @@ let () =
   print_endline "complete-exe works"
 EOF
 
-  # Compile with -output-complete-exe (embeds bytecode interpreter)
-  # This is the exact pattern dune/opam use for bootstrapping
-  echo "  compiling with -output-complete-exe..."
-  ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
+# Compile with -output-complete-exe (embeds bytecode interpreter)
+# This is the exact pattern dune/opam use for bootstrapping
+echo "  compiling with -output-complete-exe..."
+ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
 
-  # Verify it's a real executable (not bytecode that needs ocamlrun)
-  echo -n "  verifying executable type: "
-  if file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)"; then
-    echo "OK (native executable)"
-  else
-    echo "FAIL: unexpected file type"
-    exit 1
-  fi
-
-  # Run it
-  assert_contains "executing" "complete-exe works" ./complete_test.exe
-
-  # Verify it works without ocamlrun in PATH (truly standalone)
-  assert_contains "standalone execution (no ocamlrun)" "complete-exe works" env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe
-
-  rm -f complete_exe_test.ml complete_test.exe
+# Verify it's a real executable (not bytecode that needs ocamlrun)
+echo -n "  verifying executable type: "
+if file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)"; then
+  echo "OK (native executable)"
+else
+  echo "FAIL: unexpected file type"
+  exit 1
 fi
+
+# Run it
+assert_contains "executing" "complete-exe works" ./complete_test.exe
+
+# Verify it works without ocamlrun in PATH (truly standalone)
+assert_contains "standalone execution (no ocamlrun)" "complete-exe works" env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe
+
+rm -f complete_exe_test.ml complete_test.exe
 
 # 8. Custom bytecode linking (ocamlfind/ocamlbuild pattern)
 # This exercises: ocamlc -custom -o prog unix.cma ...
