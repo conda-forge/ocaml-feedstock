@@ -55,15 +55,6 @@ description = "Debug ocaml-feedstock with variant linux_64_cross_target_platform
 [feature.build.tasks."inspect-linux_64_cross_target_platform_linux-aarch64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_64_cross_target_platform_linux-aarch64.yaml"
 description = "List contents of ocaml-feedstock packages built for variant linux_64_cross_target_platform_linux-aarch64"
-[feature.build.tasks."build-linux_64_cross_target_platform_linux-ppc64le"]
-cmd = "rattler-build build --recipe recipe -m .ci_support/linux_64_cross_target_platform_linux-ppc64le.yaml --target-platform linux-64"
-description = "Build ocaml-feedstock with variant linux_64_cross_target_platform_linux-ppc64le directly (without setup scripts)"
-[feature.build.tasks."debug-linux_64_cross_target_platform_linux-ppc64le"]
-cmd = "rattler-build debug setup --recipe recipe -m .ci_support/linux_64_cross_target_platform_linux-ppc64le.yaml --target-platform linux-64"
-description = "Debug ocaml-feedstock with variant linux_64_cross_target_platform_linux-ppc64le directly (without setup scripts)"
-[feature.build.tasks."inspect-linux_64_cross_target_platform_linux-ppc64le"]
-cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_64_cross_target_platform_linux-ppc64le.yaml"
-description = "List contents of ocaml-feedstock packages built for variant linux_64_cross_target_platform_linux-ppc64le"
 [feature.build.tasks."build-linux_aarch64_cross_target_platform_linux-aarch64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/linux_aarch64_cross_target_platform_linux-aarch64.yaml --target-platform linux-aarch64"
 description = "Build ocaml-feedstock with variant linux_aarch64_cross_target_platform_linux-aarch64 directly (without setup scripts)"
@@ -73,6 +64,15 @@ description = "Debug ocaml-feedstock with variant linux_aarch64_cross_target_pla
 [feature.build.tasks."inspect-linux_aarch64_cross_target_platform_linux-aarch64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_aarch64_cross_target_platform_linux-aarch64.yaml"
 description = "List contents of ocaml-feedstock packages built for variant linux_aarch64_cross_target_platform_linux-aarch64"
+[feature.build.tasks."build-linux_aarch64_cross_target_platform_linux-ppc64le"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/linux_aarch64_cross_target_platform_linux-ppc64le.yaml --target-platform linux-aarch64"
+description = "Build ocaml-feedstock with variant linux_aarch64_cross_target_platform_linux-ppc64le directly (without setup scripts)"
+[feature.build.tasks."debug-linux_aarch64_cross_target_platform_linux-ppc64le"]
+cmd = "rattler-build debug setup --recipe recipe -m .ci_support/linux_aarch64_cross_target_platform_linux-ppc64le.yaml --target-platform linux-aarch64"
+description = "Debug ocaml-feedstock with variant linux_aarch64_cross_target_platform_linux-ppc64le directly (without setup scripts)"
+[feature.build.tasks."inspect-linux_aarch64_cross_target_platform_linux-ppc64le"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/linux_aarch64_cross_target_platform_linux-ppc64le.yaml"
+description = "List contents of ocaml-feedstock packages built for variant linux_aarch64_cross_target_platform_linux-ppc64le"
 [feature.build.tasks."build-linux_ppc64le_cross_target_platform_linux-ppc64le"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/linux_ppc64le_cross_target_platform_linux-ppc64le.yaml --target-platform linux-ppc64le"
 description = "Build ocaml-feedstock with variant linux_ppc64le_cross_target_platform_linux-ppc64le directly (without setup scripts)"

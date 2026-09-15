@@ -7,7 +7,7 @@ github:
   branch_name: main
   tooling_branch_name: main
 build_platform:
-  linux_ppc64le: linux_64
+  linux_ppc64le: linux_aarch64
 provider:
   linux_aarch64: default
   osx_arm64: default
