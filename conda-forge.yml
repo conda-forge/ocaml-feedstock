@@ -1,22 +1,15 @@
+conda_build:
+  error_overlinking: true
 conda_build_tool: rattler-build
+conda_forge_output_validation: true
 conda_install_tool: pixi
 github:
   branch_name: main
   tooling_branch_name: main
-conda_build:
-  error_overlinking: true
-conda_forge_output_validation: true
-# Only the main branch publishes to anaconda.org. Secondary branches such as
-# experimental are used to stage and iterate on recipe changes, and a merge
-# into one of them is a non-PR build, which would otherwise upload.
-upload_on_branch: main
 build_platform:
   linux_ppc64le: linux_64
 provider:
   linux_aarch64: default
-  linux_ppc64le: default
   osx_arm64: default
 test: all
-linter:
-  skip:
-    - lint_stdlib
+upload_on_branch: main  # Prevents experimental to upload (allows stacked PR merges)
