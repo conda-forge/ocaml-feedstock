@@ -4,6 +4,29 @@
 
 set -euo pipefail
 
+# Run a command, capture its output, and require that output to contain a
+# pattern. Capturing first stops grep -q from SIGPIPE-ing a live producer
+# under pipefail, which is what made the REPL check fail while the string
+# it wanted was in fact printed.
+assert_contains() {
+  local label="$1" pattern="$2"
+  shift 2
+  local rc=0 out
+  out="$("$@" 2>&1)" || rc=$?
+  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "$pattern"; then
+    echo "  ${label}: OK"
+    return 0
+  fi
+  echo "  [FAIL] ${label}"
+  echo "  command: $*"
+  echo "  exit status: $rc"
+  echo "  expected output to contain: ${pattern}"
+  echo "  ----- output start -----"
+  printf '%s\n' "$out"
+  echo "  ----- output end -----"
+  exit 1
+}
+
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
   echo "Usage: $0 <version>"
@@ -38,17 +61,18 @@ fi
 echo "  bytecode direct execution: OK"
 
 # Test bytecode portability (run from different directory)
-mkdir -p tmp && cp hi tmp && (cd tmp; ./hi) | grep -q "Hello World" && echo "  bytecode portability: OK"
+mkdir -p tmp
+cp hi tmp
+assert_contains "bytecode portability" "Hello World" bash -c 'cd tmp && ./hi'
 rm -f ./hi
 
 # Test bytecode compiler via ocamlrun
-echo -n "  ocamlc.byte via ocamlrun: "
-ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -version | grep -q "${VERSION}" && echo "OK"
+assert_contains "ocamlc.byte via ocamlrun" "${VERSION}" ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -version
 
 # 2. Native compilation + execution
 echo "=== Testing native compilation ==="
 ocamlopt -o hi hi.ml
-./hi | grep -q "Hello World" && echo "  native execution: OK"
+assert_contains "native execution" "Hello World" ./hi
 rm -f ./hi
 
 # 3. REPL test (ocaml toplevel)
@@ -69,7 +93,8 @@ fi
 
 # 4. ocamldep actually parsing files
 echo "=== Testing ocamldep ==="
-ocamldep hi.ml > /dev/null && echo "  ocamldep parsing: OK"
+ocamldep hi.ml > /dev/null
+echo "  ocamldep parsing: OK"
 
 # 5. Multi-file compilation (exercises module system)
 echo "=== Testing multi-file compilation ==="
@@ -78,41 +103,24 @@ printf 'let () = Lib.greet ()\n' > main.ml
 ocamlc -c lib.ml
 ocamlc -c main.ml
 ocamlc -o multi lib.cmo main.cmo
-./multi | grep -q "From Lib" && echo "  multi-file bytecode: OK"
+assert_contains "multi-file bytecode" "From Lib" ./multi
 
 ocamlopt -c lib.ml
 ocamlopt -c main.ml
 ocamlopt -o multi lib.cmx main.cmx
-./multi | grep -q "From Lib" && echo "  multi-file native: OK"
+assert_contains "multi-file native" "From Lib" ./multi
 
 # 6. Bytecode compiler via ocamlrun (full compile)
 echo "=== Testing bytecode compiler via ocamlrun ==="
-echo "DBG: ${OCAML_PREFIX}"
 printf 'print_endline "Hi CF"\n' > hi.ml
 ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
-./hi | grep -q "Hi CF" && echo "  full bytecode compile via ocamlrun: OK"
+assert_contains "full bytecode compile via ocamlrun" "Hi CF" ./hi
 
 # 7. Complete executable test (used by Dune bootstrap)
 # This exercises: ocamlc -output-complete-exe -I +unix unix.cma ...
 echo "=== Testing -output-complete-exe (Dune bootstrap pattern) ==="
 
-# Detect if running under QEMU (cross-compiled package on different host arch)
-# ocamlc.opt crashes under QEMU user-mode emulation with -output-complete-exe
-_OCAMLC_ARCH=""
-_HOST_ARCH="$(uname -m)"
-if file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "ARM aarch64"; then
-  _OCAMLC_ARCH="aarch64"
-elif file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "64-bit.*x86-64"; then
-  _OCAMLC_ARCH="x86_64"
-elif file "$(which ocamlc.opt 2>/dev/null || echo "${OCAML_PREFIX}/bin/ocamlc.opt")" 2>/dev/null | grep -q "64-bit.*PowerPC"; then
-  _OCAMLC_ARCH="ppc64le"
-fi
-
-if [[ -n "${_OCAMLC_ARCH}" && "${_OCAMLC_ARCH}" != "${_HOST_ARCH}" ]]; then
-  echo "  SKIP: Running ${_OCAMLC_ARCH} binary on ${_HOST_ARCH} host (QEMU emulation unstable for -output-complete-exe)"
-else
-  # Create a program that uses Unix module (like Dune's bootstrap)
-  cat > complete_exe_test.ml << 'EOF'
+cat > complete_exe_test.ml << 'EOF'
 (* Test program exercising Unix module - similar to Dune bootstrap *)
 let () =
   let cwd = Unix.getcwd () in
@@ -120,30 +128,27 @@ let () =
   print_endline "complete-exe works"
 EOF
 
-  # Compile with -output-complete-exe (embeds bytecode interpreter)
-  # This is the exact pattern dune/opam use for bootstrapping
-  echo "  compiling with -output-complete-exe..."
-  ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
+# Compile with -output-complete-exe (embeds bytecode interpreter)
+# This is the exact pattern dune/opam use for bootstrapping
+echo "  compiling with -output-complete-exe..."
+ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
 
-  # Verify it's a real executable (not bytecode that needs ocamlrun)
-  echo -n "  verifying executable type: "
-  if file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)"; then
-    echo "OK (native executable)"
-  else
-    echo "FAIL: unexpected file type"
-    exit 1
-  fi
-
-  # Run it
-  echo -n "  executing: "
-  ./complete_test.exe | grep -q "complete-exe works" && echo "OK"
-
-  # Verify it works without ocamlrun in PATH (truly standalone)
-  echo -n "  standalone execution (no ocamlrun): "
-  env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe 2>/dev/null | grep -q "complete-exe works" && echo "OK" || echo "SKIP (may need system libs)"
-
-  rm -f complete_exe_test.ml complete_test.exe
+# Verify it's a real executable (not bytecode that needs ocamlrun)
+echo -n "  verifying executable type: "
+if file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)"; then
+  echo "OK (native executable)"
+else
+  echo "FAIL: unexpected file type"
+  exit 1
 fi
+
+# Run it
+assert_contains "executing" "complete-exe works" ./complete_test.exe
+
+# Verify it works without ocamlrun in PATH (truly standalone)
+assert_contains "standalone execution (no ocamlrun)" "complete-exe works" env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe
+
+rm -f complete_exe_test.ml complete_test.exe
 
 # 8. Custom bytecode linking (ocamlfind/ocamlbuild pattern)
 # This exercises: ocamlc -custom -o prog unix.cma ...
@@ -196,7 +201,12 @@ echo -n "  creating shared library with ocamlmklib..."
 if ocamlmklib -o stub_test stub_test.o 2>mklib_err.txt; then
   echo " OK"
   # Verify files were created
-  ls dllstub_test.so libstub_test.a >/dev/null 2>&1 && echo "  shared+static libs created: OK" || echo "  WARNING: some output files missing"
+  if ! ls dllstub_test.so libstub_test.a >/dev/null 2>&1; then
+    echo "  [FAIL] ocamlmklib did not produce both dllstub_test.so and libstub_test.a"
+    ls -l
+    exit 1
+  fi
+  echo "  shared+static libs created: OK"
 else
   echo " FAIL"
   echo "  ocamlmklib error:"
