@@ -67,6 +67,13 @@ cat > "$TESTDIR/hello.ml" << 'EOF'
 let () = print_endline "Hello from OCaml"
 EOF
 
+# ocamlopt only reaches Config.c_compiler when there is C to compile; a
+# stub-free .ml is handled by asm and mkexe alone. This gives the custom
+# CC something to do so the check below can assert.
+cat > "$TESTDIR/stub.c" << 'EOF'
+int conda_ocaml_cc_probe(void) { return 0; }
+EOF
+
 # Create a wrapper script that logs its invocation
 REAL_CC="${CONDA_OCAML_CC}"
 cat > "$TESTDIR/cc-wrapper" << EOF
@@ -86,14 +93,23 @@ fi
 > "$TESTDIR/cc.log"
 cd "$TESTDIR"
 
-if ocamlopt -o hello hello.ml 2>&1; then
+if ocamlopt -o hello stub.c hello.ml 2>&1; then
     echo "  Compilation succeeded"
 
     # Check if wrapper was called
     if [[ -f "$TESTDIR/cc.log" ]] && grep -q "CC_WRAPPER_CALLED" "$TESTDIR/cc.log"; then
         echo "PASS: Custom CONDA_OCAML_CC wrapper was invoked"
     else
-        echo "INFO: Wrapper log not found (may be normal for some builds)"
+        echo "FAIL: custom CONDA_OCAML_CC was not invoked while compiling stub.c"
+        echo "  CONDA_OCAML_CC = ${CONDA_OCAML_CC:-<not set>}"
+        echo "  c_compiler     = $CONFIG_CC"
+        if [[ -f "$TESTDIR/cc.log" ]]; then
+            echo "  cc.log contents:"
+            cat "$TESTDIR/cc.log"
+        else
+            echo "  cc.log absent"
+        fi
+        ERRORS=$((ERRORS + 1))
     fi
 
     # Run the compiled program
