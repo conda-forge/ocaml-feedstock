@@ -23,6 +23,7 @@ run_target() {
         echo "[FAIL] could not parse interpreter from shebang of ${script}" >&2
         return 1
       fi
+      echo "[qemu] shebang ${script} -> ${interp}" >&2
       "${QEMU_EXECVE}" "$interp" "$script" "$@"
       return
     fi

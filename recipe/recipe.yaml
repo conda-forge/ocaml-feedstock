@@ -656,7 +656,13 @@ outputs:
       # Basic toolchain verification
       # ----------------------------------------------------------------------
       - script:
-          - ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
+          - if: is_qemuable
+            then: |
+              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
+              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
+              "${QEMU_EXECVE}" "$(command -v ocamlopt${{ xt }})" -version && echo "ocaml-compiler toolchain ready"
+            else: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
 
       # ----------------------------------------------------------------------
       # Compilation tests (requires C toolchain)
