@@ -658,11 +658,19 @@ outputs:
       - script:
           - if: is_qemuable
             then: |
-              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
+              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }})}"
+              if [ -z "${QEMU_EXECVE}" ]; then
+                echo "[FAIL] qemu-execve-${{ qemu_arch }} not found on PATH" >&2
+                exit 1
+              fi
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
               export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
               "${QEMU_EXECVE}" "$(command -v ocamlopt${{ xt }})" -version && echo "ocaml-compiler toolchain ready"
             else: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
+        requirements:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
 
       # ----------------------------------------------------------------------
       # Compilation tests (requires C toolchain)
