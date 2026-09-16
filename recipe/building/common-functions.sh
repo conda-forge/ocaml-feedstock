@@ -43,7 +43,7 @@ run_logged() {
   else
     local rc=$?
     echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
-    tail -100 "${logfile}" | sed "s/^/${indent} /"
+    tail -400 "${logfile}" | sed "s/^/${indent} /"
     return ${rc}
   fi
 }
