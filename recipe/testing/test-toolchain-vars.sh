@@ -3,6 +3,34 @@
 # This test verifies that ocamlopt respects custom CC/AS/AR settings
 set -euo pipefail
 
+# Target binaries are foreign-arch on cross builds; run them under qemu when
+# the emulator is available, natively otherwise. qemu-user loads ELF images
+# only, so a #! file (OCaml bytecode) needs its interpreter resolved here the
+# way binfmt_script would, and the interpreter handed to qemu instead.
+run_target() {
+  if [[ -n "${QEMU_EXECVE:-}" ]]; then
+    if [[ -n "${QEMU_LD_PREFIX:-}" && ! -d "${QEMU_LD_PREFIX}" ]]; then
+      echo "[WARN] QEMU_LD_PREFIX does not exist: ${QEMU_LD_PREFIX}" >&2
+      echo "[WARN] qemu will fall back to /lib and may fail confusingly" >&2
+    fi
+    if [[ -f "${1:-}" && "$(head -c 2 "${1:-}" 2>/dev/null)" == '#!' ]]; then
+      local script="$1"
+      shift
+      local interp
+      interp=$(head -n 1 "$script" | sed -e 's/^#![[:space:]]*//' -e 's/[[:space:]].*//')
+      if [[ -z "$interp" ]]; then
+        echo "[FAIL] could not parse interpreter from shebang of ${script}" >&2
+        return 1
+      fi
+      "${QEMU_EXECVE}" "$interp" "$script" "$@"
+      return
+    fi
+    "${QEMU_EXECVE}" "$@"
+  else
+    "$@"
+  fi
+}
+
 echo "=== Test: CONDA_OCAML_* Toolchain Variables ==="
 
 ERRORS=0
@@ -114,7 +142,7 @@ if ocamlopt -o hello stub.c hello.ml 2>&1; then
 
     # Run the compiled program
     echo "  Running compiled program:"
-    ./hello
+    run_target ./hello
 else
     echo "FAIL: Compilation failed with custom CC"
     exit 1
@@ -134,7 +162,7 @@ echo "  CONDA_OCAML_CC = ${CONDA_OCAML_CC:-<not set>}"
 cd "$TESTDIR"
 if ocamlopt -o hello2 hello.ml 2>&1; then
     echo "PASS: Compilation works with default CC"
-    ./hello2
+    run_target ./hello2
 else
     echo "FAIL: Compilation failed with default CC"
     exit 1

@@ -4,6 +4,34 @@
 
 set -euo pipefail
 
+# Target binaries are foreign-arch on cross builds; run them under qemu when
+# the emulator is available, natively otherwise. qemu-user loads ELF images
+# only, so a #! file (OCaml bytecode) needs its interpreter resolved here the
+# way binfmt_script would, and the interpreter handed to qemu instead.
+run_target() {
+  if [[ -n "${QEMU_EXECVE:-}" ]]; then
+    if [[ -n "${QEMU_LD_PREFIX:-}" && ! -d "${QEMU_LD_PREFIX}" ]]; then
+      echo "[WARN] QEMU_LD_PREFIX does not exist: ${QEMU_LD_PREFIX}" >&2
+      echo "[WARN] qemu will fall back to /lib and may fail confusingly" >&2
+    fi
+    if [[ -f "${1:-}" && "$(head -c 2 "${1:-}" 2>/dev/null)" == '#!' ]]; then
+      local script="$1"
+      shift
+      local interp
+      interp=$(head -n 1 "$script" | sed -e 's/^#![[:space:]]*//' -e 's/[[:space:]].*//')
+      if [[ -z "$interp" ]]; then
+        echo "[FAIL] could not parse interpreter from shebang of ${script}" >&2
+        return 1
+      fi
+      "${QEMU_EXECVE}" "$interp" "$script" "$@"
+      return
+    fi
+    "${QEMU_EXECVE}" "$@"
+  else
+    "$@"
+  fi
+}
+
 # Run a command, capture its output, and require that output to contain a
 # pattern. Capturing first stops grep -q from SIGPIPE-ing a live producer
 # under pipefail, which is what made the REPL check fail while the string
@@ -43,7 +71,7 @@ echo "=== Testing bytecode compilation ==="
 ocamlc -o hi hi.ml
 
 # Verify direct bytecode execution (shebang must work)
-if ! ./hi | grep -q "Hello World"; then
+if ! run_target ./hi | grep -q "Hello World"; then
   echo "  [FAIL] bytecode direct execution failed (shebang broken?)"
   echo "  Checking runtime-launch-info BINDIR..."
   if [[ -f "${PREFIX}/lib/ocaml/runtime-launch-info" ]]; then
@@ -72,7 +100,7 @@ assert_contains "ocamlc.byte via ocamlrun" "${VERSION}" ocamlrun "${OCAML_PREFIX
 # 2. Native compilation + execution
 echo "=== Testing native compilation ==="
 ocamlopt -o hi hi.ml
-assert_contains "native execution" "Hello World" ./hi
+assert_contains "native execution" "Hello World" run_target ./hi
 rm -f ./hi
 
 # 3. REPL test (ocaml toplevel)
@@ -103,18 +131,18 @@ printf 'let () = Lib.greet ()\n' > main.ml
 ocamlc -c lib.ml
 ocamlc -c main.ml
 ocamlc -o multi lib.cmo main.cmo
-assert_contains "multi-file bytecode" "From Lib" ./multi
+assert_contains "multi-file bytecode" "From Lib" run_target ./multi
 
 ocamlopt -c lib.ml
 ocamlopt -c main.ml
 ocamlopt -o multi lib.cmx main.cmx
-assert_contains "multi-file native" "From Lib" ./multi
+assert_contains "multi-file native" "From Lib" run_target ./multi
 
 # 6. Bytecode compiler via ocamlrun (full compile)
 echo "=== Testing bytecode compiler via ocamlrun ==="
 printf 'print_endline "Hi CF"\n' > hi.ml
 ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
-assert_contains "full bytecode compile via ocamlrun" "Hi CF" ./hi
+assert_contains "full bytecode compile via ocamlrun" "Hi CF" run_target ./hi
 
 # 7. Complete executable test (used by Dune bootstrap)
 # This exercises: ocamlc -output-complete-exe -I +unix unix.cma ...
@@ -143,10 +171,16 @@ else
 fi
 
 # Run it
-assert_contains "executing" "complete-exe works" ./complete_test.exe
+assert_contains "executing" "complete-exe works" run_target ./complete_test.exe
 
 # Verify it works without ocamlrun in PATH (truly standalone)
-assert_contains "standalone execution (no ocamlrun)" "complete-exe works" env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe
+if [[ -n "${QEMU_EXECVE:-}" ]]; then
+  assert_contains "standalone execution (no ocamlrun)" "complete-exe works" \
+    env -u OCAMLLIB PATH=/usr/bin:/bin "${QEMU_EXECVE}" ./complete_test.exe
+else
+  assert_contains "standalone execution (no ocamlrun)" "complete-exe works" \
+    env -u OCAMLLIB PATH=/usr/bin:/bin ./complete_test.exe
+fi
 
 rm -f complete_exe_test.ml complete_test.exe
 
@@ -166,7 +200,7 @@ echo -n "  compiling with -custom..."
 if ocamlc -custom -g -o custom_test -I +unix unix.cma custom_test.ml 2>custom_link_err.txt; then
   echo " OK"
   echo -n "  executing: "
-  ./custom_test | grep -q "custom-link works" && echo "OK" || { echo "FAIL"; exit 1; }
+  run_target ./custom_test | grep -q "custom-link works" && echo "OK" || { echo "FAIL"; exit 1; }
 else
   echo " FAIL"
   echo "  Linker error during -custom bytecode linking:"

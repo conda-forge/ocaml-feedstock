@@ -62,7 +62,6 @@ context:
   qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
   is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le"]) and (cross_target_platform_ != build_platform) }}
   qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=10"]') if is_qemuable else '' }}
-  qemu_run: ${{ '${QEMU_EXECVE} ' if is_qemuable else '' }}
 
 recipe:
   name: ocaml-packages
@@ -581,7 +580,7 @@ outputs:
           - if: is_native and unix
             then: cd testing && ./test-compiler-wrappers.sh
           - if: is_cross_target
-            then: cd testing && ${{ qemu_run }}./test-compiler-wrappers.sh cross-target
+            then: cd testing && ./test-compiler-wrappers.sh cross-target
           - if: not (is_native and unix) and not is_cross_target
             then: echo "Skipping wrapper tests"
         files:
@@ -669,7 +668,7 @@ outputs:
               export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
               export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
-          - cd testing && ${{ qemu_run }}${{ dot }}test-compilation.${{ sh }} ${{ version }}
+          - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
         files:
           recipe:
             - testing/test-compilation.${{ sh }}
@@ -691,7 +690,7 @@ outputs:
               export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
               export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
-          - cd testing && ${{ qemu_run }}${{ dot }}test-toolchain-vars.${{ sh }}
+          - cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
         files:
           recipe:
             - testing/test-toolchain-vars.${{ sh }}
