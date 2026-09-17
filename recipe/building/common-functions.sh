@@ -43,7 +43,7 @@ run_logged() {
   else
     local rc=$?
     echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
-    tail -100 "${logfile}" | sed "s/^/${indent} /"
+    tail -400 "${logfile}" | sed "s/^/${indent} /"
     return ${rc}
   fi
 }
@@ -374,7 +374,7 @@ setup_cflags_ldflags() {
       export "${name}_CFLAGS=${CFLAGS:-}"
       export "${name}_LDFLAGS=${LDFLAGS:-}"
       ;;
-    CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le)
+    CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le|CROSS_linux-aarch64_linux-ppc64le)
       # Cross-compiling FOR Linux aarch64/ppc64le
       # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted with
       # mixed build/target flags that cause -march=nocona on aarch64 cross-compiler
@@ -400,6 +400,11 @@ setup_cflags_ldflags() {
     NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
       export "${name}_CFLAGS=-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem ${BUILD_PREFIX}/include"
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib"
+      ;;
+    NATIVE_linux-aarch64_linux-ppc64le)
+      # Native OCaml build during cross-platform CI (runs on the aarch64 BUILD machine)
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib"
       ;;
     CROSS_linux-64_linux-64|CROSS_osx-64_osx-64|CROSS_nonunix-*|*)

@@ -4,7 +4,7 @@
 #
 # Usage:
 #   test-package-integrity.sh                    # Native build (can execute binaries)
-#   test-package-integrity.sh cross-target       # Cross-target build (can't execute binaries)
+#   test-package-integrity.sh cross-target       # Cross-target build (executes under QEMU_EXECVE when set)
 #   test-package-integrity.sh cross <target>     # Cross-compiler build
 
 set -euo pipefail
@@ -13,6 +13,24 @@ MODE="${1:-native}"
 TARGET="${2:-}"
 
 echo "=== OCaml Package Integrity Tests (mode: ${MODE}) ==="
+
+# binutils_impl provides triplet-prefixed tools only. PATH can also hold a
+# target-arch copy, so use the first prefixed one that runs on this host.
+build_tool() {
+  local dir cand
+  local IFS=:
+  for dir in ${PATH}; do
+    for cand in "${dir}"/*-"$1"; do
+      if [[ -x "${cand}" ]] && "${cand}" --version >/dev/null 2>&1; then
+        echo "${cand}"
+        return 0
+      fi
+    done
+  done
+  echo "$1"
+}
+STRINGS=$(build_tool strings)
+echo "Using strings: ${STRINGS}"
 
 # ============================================================================
 # HELPER: Check a file for staging/build-time paths
@@ -149,9 +167,9 @@ if [[ "${MODE}" == "cross" ]]; then
   # --- Binary strings check ---
   echo "Checking ${OCAMLOPT_BIN} for build-time paths..."
   if [[ -f "${OCAMLOPT_BIN}" ]]; then
-    if strings "${OCAMLOPT_BIN}" | grep -q "rattler-build_"; then
+    if "${STRINGS}" "${OCAMLOPT_BIN}" | grep -q "rattler-build_"; then
       echo "ERROR: ocamlopt.opt contains build-time paths"
-      strings "${OCAMLOPT_BIN}" | grep "rattler-build_" | head -5
+      "${STRINGS}" "${OCAMLOPT_BIN}" | grep "rattler-build_" | head -5
       exit 1
     fi
     echo "  ocamlopt.opt binary: clean"
@@ -177,11 +195,17 @@ else
   MAKEFILE_CONFIG="${PREFIX}/lib/ocaml/Makefile.config"
   OCAMLOPT_BIN="${PREFIX}/bin/ocamlopt.opt"
 
-  # For cross-target builds binaries are for the target platform; skip execution-based tests
+  # Cross-target binaries run under the emulator when one is available
+  OCAML_RUN=(ocamlc.opt)
   CAN_EXECUTE=true
   if [[ "${MODE}" == "cross-target" ]]; then
-    CAN_EXECUTE=false
-    echo "Cross-target build: skipping execution-based tests (no QEMU)"
+    if [[ -n "${QEMU_EXECVE:-}" ]]; then
+      OCAML_RUN=("${QEMU_EXECVE}" "${PREFIX}/bin/ocamlc.opt")
+      echo "Cross-target build: running ocamlc.opt under ${QEMU_EXECVE}"
+    else
+      CAN_EXECUTE=false
+      echo "Cross-target build: skipping execution-based tests (QEMU_EXECVE not set)"
+    fi
   fi
 
   # --- OCAMLLIB env var ---
@@ -258,12 +282,11 @@ else
     echo "  Makefile.config: -L paths clean"
   fi
 
-  # --- -config-var checks (skip for cross-target) ---
+  # --- -config-var checks ---
   if [[ "${CAN_EXECUTE}" == "true" ]]; then
-    OCAML_CMD="ocamlc.opt"
-    echo "Checking ${OCAML_CMD} -config-var values..."
+    echo "Checking ocamlc.opt -config-var values..."
 
-    STDLIB_PATH=$("${OCAML_CMD}" -config-var standard_library)
+    STDLIB_PATH=$("${OCAML_RUN[@]}" -config-var standard_library)
     echo "  standard_library=${STDLIB_PATH}"
     if echo "${STDLIB_PATH}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
       echo "ERROR: standard_library contains build-time staging path"
@@ -271,13 +294,13 @@ else
     fi
     echo "  standard_library: clean"
 
-    CC_PATH=$("${OCAML_CMD}" -config-var bytecomp_c_compiler 2>/dev/null || echo "N/A")
+    CC_PATH=$("${OCAML_RUN[@]}" -config-var bytecomp_c_compiler 2>/dev/null || echo "N/A")
     echo "  bytecomp_c_compiler=${CC_PATH}"
 
-    CC_PATH=$("${OCAML_CMD}" -config-var native_c_compiler 2>/dev/null || echo "N/A")
+    CC_PATH=$("${OCAML_RUN[@]}" -config-var native_c_compiler 2>/dev/null || echo "N/A")
     echo "  native_c_compiler=${CC_PATH}"
 
-    CC_PATH=$("${OCAML_CMD}" -config-var c_compiler)
+    CC_PATH=$("${OCAML_RUN[@]}" -config-var c_compiler)
     echo "  c_compiler=${CC_PATH}"
     if echo "${CC_PATH}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
       echo "ERROR: c_compiler contains build-time staging path: ${CC_PATH}"
@@ -289,7 +312,7 @@ else
     fi
     echo "  c_compiler: clean"
 
-    ASM_PATH=$("${OCAML_CMD}" -config-var asm)
+    ASM_PATH=$("${OCAML_RUN[@]}" -config-var asm)
     echo "  asm=${ASM_PATH}"
     if echo "${ASM_PATH}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
       echo "ERROR: asm contains build-time staging path: ${ASM_PATH}"
@@ -297,7 +320,7 @@ else
     fi
     echo "  asm: clean"
 
-    BYTECCLIBS=$("${OCAML_CMD}" -config-var bytecomp_c_libraries 2>/dev/null || echo "N/A")
+    BYTECCLIBS=$("${OCAML_RUN[@]}" -config-var bytecomp_c_libraries 2>/dev/null || echo "N/A")
     echo "  bytecomp_c_libraries=${BYTECCLIBS}"
     if [[ "${BYTECCLIBS}" != "N/A" ]] && echo "${BYTECCLIBS}" | grep -qE -- "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
       echo "ERROR: bytecomp_c_libraries contains build-time -L path: ${BYTECCLIBS}"
@@ -305,7 +328,7 @@ else
     fi
     echo "  bytecomp_c_libraries: clean"
 
-    ZSTDLIBS=$("${OCAML_CMD}" -config-var compression_c_libraries 2>/dev/null || echo "N/A")
+    ZSTDLIBS=$("${OCAML_RUN[@]}" -config-var compression_c_libraries 2>/dev/null || echo "N/A")
     echo "  compression_c_libraries=${ZSTDLIBS}"
     if [[ "${ZSTDLIBS}" != "N/A" ]] && echo "${ZSTDLIBS}" | grep -qE -- "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
       echo "ERROR: compression_c_libraries contains build-time -L path: ${ZSTDLIBS}"
@@ -313,7 +336,7 @@ else
     fi
     echo "  compression_c_libraries: clean (or not present in this version)"
 
-    NATIVECCLIBS=$("${OCAML_CMD}" -config-var native_c_libraries 2>/dev/null || echo "N/A")
+    NATIVECCLIBS=$("${OCAML_RUN[@]}" -config-var native_c_libraries 2>/dev/null || echo "N/A")
     echo "  native_c_libraries=${NATIVECCLIBS}"
     if [[ "${NATIVECCLIBS}" != "N/A" ]] && echo "${NATIVECCLIBS}" | grep -qE -- "-L[^ ]*(conda-bld|rattler-build|build_env)"; then
       echo "ERROR: native_c_libraries contains build-time -L path: ${NATIVECCLIBS}"
@@ -328,9 +351,9 @@ else
   echo "Checking ocamlc.opt binary for build-time paths..."
   OCAMLC_BIN="${PREFIX}/bin/ocamlc.opt"
   if [[ -f "${OCAMLC_BIN}" ]]; then
-    if strings "${OCAMLC_BIN}" | grep -q "rattler-build_"; then
+    if "${STRINGS}" "${OCAMLC_BIN}" | grep -q "rattler-build_"; then
       echo "ERROR: ocamlc.opt contains build-time paths"
-      strings "${OCAMLC_BIN}" | grep "rattler-build_" | head -5
+      "${STRINGS}" "${OCAMLC_BIN}" | grep "rattler-build_" | head -5
       exit 1
     fi
     echo "  ocamlc.opt binary: clean"
