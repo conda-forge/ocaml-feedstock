@@ -82,6 +82,12 @@ mkdir -p "${SRC_DIR}"/_logs && export LOG_DIR="${SRC_DIR}"/_logs
 CONFIGURE=(./configure)
 MAKE=(make)
 
+# Upstream marshals the non -l part of ZSTD_LIBS into
+# compilerlibs/ocamlcommon.cmxa as -ccopt, where relocation NUL-pads the
+# prefix-dependent -L it leaves in lib_ccopts (issue #132). Keep only the
+# -l flags; ZSTD_LIBS itself stays intact for linking.
+COMPRESSED_MARSHALING_OVERRIDE='COMPRESSED_MARSHALING_FLAGS=-cclib -lcomprmarsh $(patsubst %, -cclib %, $(filter -l%,$(ZSTD_LIBS)))'
+
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
@@ -579,7 +585,7 @@ build_native() {
   # ============================================================================
 
   echo "  [3/4] Compiling native compiler"
-  run_logged "world" "${MAKE[@]}" world.opt -j"${CPU_COUNT}"
+  run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
 
   # ============================================================================
   # Tests (Optional)
@@ -1040,7 +1046,7 @@ TOOLWRAPPER
         NATIVE_STDLIB="${NATIVE_STDLIB}"
       )
 
-      run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j"${CPU_COUNT}"
+      run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
 
       # --- Install crossopt ---
       echo "  [6/7] Installing cross-compiler via 'make installcross'..."
@@ -1598,7 +1604,16 @@ EOF
       )
     fi
 
-    run_logged "crosscompiledopt" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" -j"${CPU_COUNT}"
+    # Diagnostic: confirm the host prefix actually carries libzstd, and in
+    # which architecture, before the link that needs it.
+    echo "  zstd in host prefix:"
+    ls -l "${PREFIX}"/lib/libzstd* 2>&1 || echo "    NONE FOUND"
+    file "${PREFIX}"/lib/libzstd.so 2>&1 || true
+
+    # ocamlopt builds the compilerlibs link from flags recorded in the .cmxa,
+    # which no longer carries a -L, so give the cross gcc a search path it
+    # consults directly. Scoped to this make, not exported build-wide.
+    run_logged "crosscompiledopt" env LIBRARY_PATH="${PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
   )
 
   # ============================================================================
