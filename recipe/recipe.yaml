@@ -61,7 +61,7 @@ context:
   # ===========================================================================
   qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
   is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le"]) and (cross_target_platform_ != build_platform) }}
-  qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=10"]') if is_qemuable else '' }}
+  qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=12"]') if is_qemuable else '' }}
 
 recipe:
   name: ocaml-packages
@@ -501,6 +501,9 @@ outputs:
       # Package integrity: paths, config, env vars, rpath
       # ----------------------------------------------------------------------
       - script:
+          - if: is_qemuable
+            then: |
+              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
           - if: is_native
             then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
           - if: is_cross_target
@@ -513,13 +516,14 @@ outputs:
           recipe:
             - testing/test-package-integrity.${{ sh }}
         requirements:
-          run:
-            # Use _impl to avoid activation script noise in test output
+          build:
+            - ${{ m2 }}grep
+            # Native readelf/strings for inspecting target binaries
             - if: unix
               then:
-                - binutils_impl_${{ target_platform }}
-            - ${{ m2 }}file
-            - ${{ m2 }}grep
+                - binutils_impl_${{ build_platform }}
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
 
       # ----------------------------------------------------------------------
       # CROSS-TARGET: Cross-compiled binary architecture verification
@@ -532,10 +536,11 @@ outputs:
           recipe:
             - testing/test-cross-arch.${{ sh }}
         requirements:
-          run:
+          build:
+            - ${{ m2 }}grep
             - if: unix
               then:
-                - binutils_impl_${{ target_platform }}
+                - binutils_impl_${{ build_platform }}
 
       # ----------------------------------------------------------------------
       # NATIVE: Tool version checks
@@ -548,7 +553,7 @@ outputs:
           recipe:
             - testing/test-tool-versions.${{ sh }}
         requirements:
-          run:
+          build:
             - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
@@ -562,7 +567,7 @@ outputs:
           recipe:
             - testing/test-native-only-tools.${{ sh }}
         requirements:
-          run:
+          build:
             - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
@@ -574,9 +579,7 @@ outputs:
           # Target binaries need user-mode emulation when the host arch differs
           - if: is_qemuable
             then: |
-              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-              export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
           - if: is_native and unix
             then: cd testing && ./test-compiler-wrappers.sh
           - if: is_cross_target
@@ -609,9 +612,7 @@ outputs:
           # Emulator for running target binaries on the build platform
           - if: is_qemuable
             then: |
-              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-              export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
           - if: is_cross_compiler
             then: |
               cd testing
@@ -624,7 +625,6 @@ outputs:
           build:
             - if: is_qemuable
               then: ${{ qemu_pkg }}
-          run:
             - ${{ m2 }}file
 
   # ==========================================================================
@@ -664,7 +664,6 @@ outputs:
                 exit 1
               fi
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-              export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
               "${QEMU_EXECVE}" "$(command -v ocamlopt${{ xt }})" -version && echo "ocaml-compiler toolchain ready"
             else: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
         requirements:
@@ -679,9 +678,7 @@ outputs:
           # Target binaries need user-mode emulation when the host arch differs
           - if: is_qemuable
             then: |
-              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-              export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
           - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
         files:
           recipe:
@@ -690,7 +687,6 @@ outputs:
           build:
             - if: is_qemuable
               then: ${{ qemu_pkg }}
-          run:
             - ${{ m2 }}file
             - ${{ m2 }}grep
 
@@ -701,9 +697,7 @@ outputs:
           # Target binaries need user-mode emulation when the host arch differs
           - if: is_qemuable
             then: |
-              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }} || true)}"
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-              export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
           - cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
         files:
           recipe:
@@ -712,7 +706,6 @@ outputs:
           build:
             - if: is_qemuable
               then: ${{ qemu_pkg }}
-          run:
             - ${{ m2 }}grep
 
 about:

@@ -66,11 +66,10 @@ run_target() {
 
 # Under qemu the conda-ocaml-* wrappers are native scripts, which cannot exec
 # a ppc64le tool themselves. They word-split CONDA_OCAML_* unquoted, so the
-# emulator is put in front of each target tool. grep and file are ppc64le
-# test requirements too, so they are routed through run_target.
+# emulator is put in front of each target tool.
 qemu_wrap_toolchain() {
   [[ -n "${QEMU_EXECVE:-}" ]] || return 0
-  local _v _name _val _tool _rest _path _t _p
+  local _v _name _val _tool _rest _path
   for _v in CC AS LD AR RANLIB MKEXE MKDLL; do
     _name=CONDA_OCAML_${_v}
     _val=${!_name:-}
@@ -87,12 +86,6 @@ qemu_wrap_toolchain() {
     # as a test's logging wrapper is left as it is.
     [[ "${_path}" == "${PREFIX:-/nonexistent}/"* ]] || continue
     export "${_name}=${QEMU_EXECVE} ${_path}${_rest}"
-  done
-  for _t in grep file; do
-    _p=$(type -P -- "${_t}" || true)
-    if [[ -n "${_p}" && "${_p}" == "${PREFIX:-/nonexistent}/"* ]]; then
-      eval "${_t}() { run_target \"${_p}\" \"\$@\"; }"
-    fi
   done
 }
 qemu_wrap_toolchain

@@ -6,6 +6,22 @@ set -euo pipefail
 
 echo "=== Cross-Compiled Binary Architecture Tests ==="
 
+# binutils_impl provides triplet-prefixed tools only. PATH can also hold a
+# target-arch copy, so use the first prefixed one that runs on this host.
+build_tool() {
+  local dir cand
+  local IFS=:
+  for dir in ${PATH}; do
+    for cand in "${dir}"/*-"$1"; do
+      if [[ -x "${cand}" ]] && "${cand}" --version >/dev/null 2>&1; then
+        echo "${cand}"
+        return 0
+      fi
+    done
+  done
+  echo "$1"
+}
+
 # Get target platform from positional argument (passed by recipe.yaml)
 TARGET_PLATFORM="${1:-}"
 if [[ -z "$TARGET_PLATFORM" ]]; then
@@ -20,12 +36,12 @@ echo "Target platform: ${TARGET_PLATFORM}"
 case "${TARGET_PLATFORM}" in
   linux-aarch64)
     ARCH_CHECK="AArch64"
-    CHECK_CMD="readelf -h"
+    CHECK_CMD="$(build_tool readelf) -h"
     SHARED_EXT="so"
     ;;
   linux-ppc64le)
     ARCH_CHECK="PowerPC64"
-    CHECK_CMD="readelf -h"
+    CHECK_CMD="$(build_tool readelf) -h"
     SHARED_EXT="so"
     ;;
   osx-arm64)
@@ -40,6 +56,7 @@ case "${TARGET_PLATFORM}" in
 esac
 
 echo "Expected architecture: ${ARCH_CHECK}"
+echo "Check command: ${CHECK_CMD}"
 echo ""
 
 check_binary() {
@@ -58,7 +75,7 @@ check_binary() {
     echo "FAILED"
     echo "    Expected: ${ARCH_CHECK}"
     echo "    Got:"
-    ${CHECK_CMD} "$binary" 2>/dev/null | head -5
+    ${CHECK_CMD} "$binary" | head -5
     exit 1
   fi
 }
