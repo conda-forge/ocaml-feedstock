@@ -13,6 +13,16 @@ run_target() {
       echo "[WARN] QEMU_LD_PREFIX does not exist: ${QEMU_LD_PREFIX}" >&2
       echo "[WARN] qemu will fall back to /lib and may fail confusingly" >&2
     fi
+    # A bare command name is resolved here so both qemu and the #! check below
+    # get a real path.
+    if [[ -n "${1:-}" && "$1" != */* ]]; then
+      local resolved
+      resolved=$(type -P -- "$1" || true)
+      if [[ -n "$resolved" ]]; then
+        shift
+        set -- "$resolved" "$@"
+      fi
+    fi
     if [[ -f "${1:-}" && "$(head -c 2 "${1:-}" 2>/dev/null)" == '#!' ]]; then
       local script="$1"
       shift
@@ -21,6 +31,28 @@ run_target() {
       if [[ -z "$interp" ]]; then
         echo "[FAIL] could not parse interpreter from shebang of ${script}" >&2
         return 1
+      fi
+      # #!/usr/bin/env <prog> is resolved through PATH, as env itself would.
+      if [[ "${interp}" == */env ]]; then
+        local envprog
+        envprog=$(head -n 1 "$script" | sed -e 's/^#![[:space:]]*[^[:space:]]*[[:space:]]*//' -e 's/[[:space:]].*//')
+        if [[ -n "${envprog}" ]]; then
+          interp=$(type -P -- "${envprog}" || echo "${interp}")
+        fi
+      fi
+      if [[ "${interp}" != "${PREFIX:-/nonexistent}/"* ]]; then
+        # A native interpreter cannot start target binaries. OCaml's sh
+        # launcher header only re-execs this file under the ocamlrun next to
+        # it, so that step is done here under the emulator instead.
+        local line2
+        line2=$(sed -n '2p' "$script")
+        if [[ "${line2}" == exec*ocamlrun* ]]; then
+          echo "[qemu] sh launcher ${script} -> $(dirname "$script")/ocamlrun" >&2
+          "${QEMU_EXECVE}" "$(dirname "$script")/ocamlrun" "$script" "$@"
+          return
+        fi
+        echo "[FAIL] ${script}: native interpreter ${interp} cannot run target binaries under emulation" >&2
+        return 126
       fi
       echo "[qemu] shebang ${script} -> ${interp}" >&2
       "${QEMU_EXECVE}" "$interp" "$script" "$@"
@@ -32,6 +64,63 @@ run_target() {
   fi
 }
 
+# Under qemu the conda-ocaml-* wrappers are native scripts, which cannot exec
+# a ppc64le tool themselves. They word-split CONDA_OCAML_* unquoted, so the
+# emulator is put in front of each target tool. grep and file are ppc64le
+# test requirements too, so they are routed through run_target. Call this
+# again after re-sourcing an activation script, which can reset the variables.
+qemu_wrap_toolchain() {
+  [[ -n "${QEMU_EXECVE:-}" ]] || return 0
+  local _v _name _val _tool _rest _path _t _p
+  for _v in CC AS LD AR RANLIB MKEXE MKDLL; do
+    _name=CONDA_OCAML_${_v}
+    _val=${!_name:-}
+    [[ -n "${_val}" && "${_val}" != "${QEMU_EXECVE} "* ]] || continue
+    _tool=${_val%% *}
+    _rest=
+    [[ "${_val}" == *" "* ]] && _rest=" ${_val#* }"
+    _path=$(type -P -- "${_tool}" || true)
+    if [[ -z "${_path}" ]]; then
+      echo "[WARN] ${_name}: ${_tool} not found on PATH, left unprefixed" >&2
+      continue
+    fi
+    # Only target tools under $PREFIX need the emulator; a native script such
+    # as a test's logging wrapper is left as it is.
+    [[ "${_path}" == "${PREFIX:-/nonexistent}/"* ]] || continue
+    export "${_name}=${QEMU_EXECVE} ${_path}${_rest}"
+  done
+  for _t in grep file; do
+    _p=$(type -P -- "${_t}" || true)
+    if [[ -n "${_p}" && "${_p}" == "${PREFIX:-/nonexistent}/"* ]]; then
+      eval "${_t}() { run_target \"${_p}\" \"\$@\"; }"
+    fi
+  done
+}
+qemu_wrap_toolchain
+
+# Re-run the package's activation as activating its own env would. CONDA_PREFIX
+# must name the prefix under test for OCAML_PREFIX/OCAMLLIB to be right, which
+# is not the case when the test has a separate build env.
+reactivate_ocaml() {
+  local target="${PREFIX:-${CONDA_PREFIX:-}}"
+  local script="${target}/etc/conda/activate.d/ocaml_activate.sh"
+  [[ -f "${script}" ]] || return 0
+  local had_prefix=0 saved_prefix=""
+  if [[ -n "${CONDA_PREFIX+x}" ]]; then
+    had_prefix=1
+    saved_prefix="${CONDA_PREFIX}"
+  fi
+  export CONDA_PREFIX="${target}"
+  # shellcheck disable=SC1090
+  source "${script}"
+  if [[ "${had_prefix}" == 1 ]]; then
+    export CONDA_PREFIX="${saved_prefix}"
+  else
+    unset CONDA_PREFIX
+  fi
+  qemu_wrap_toolchain
+}
+
 echo "=== Test: CONDA_OCAML_* Toolchain Variables ==="
 
 ERRORS=0
@@ -41,9 +130,7 @@ echo ""
 echo "Test 1: Activation script sets default CONDA_OCAML_* values"
 
 # Source activation script (may already be sourced)
-if [[ -f "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh" ]]; then
-    source "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh"
-fi
+reactivate_ocaml
 
 # Check that variables are set
 for var in CONDA_OCAML_CC CONDA_OCAML_AS CONDA_OCAML_AR CONDA_OCAML_MKDLL; do
@@ -59,8 +146,8 @@ echo "PASS: All CONDA_OCAML_* variables are set"
 echo ""
 echo "Test 2: ocamlopt -config uses conda-ocaml-* wrapper scripts"
 
-CONFIG_CC=$(ocamlopt -config-var c_compiler)
-CONFIG_ASM=$(ocamlopt -config-var asm)
+CONFIG_CC=$(run_target ocamlopt -config-var c_compiler)
+CONFIG_ASM=$(run_target ocamlopt -config-var asm)
 
 echo "  c_compiler = $CONFIG_CC"
 echo "  asm = $CONFIG_ASM"
@@ -77,7 +164,7 @@ fi
 echo ""
 echo "Test 2b: Verify wrapper scripts are installed"
 for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
-    if [[ -x "${CONDA_PREFIX}/bin/${wrapper}" ]]; then
+    if [[ -x "${PREFIX:-${CONDA_PREFIX}}/bin/${wrapper}" ]]; then
         echo "  $wrapper: OK"
     else
         echo "  $wrapper: MISSING"
@@ -114,15 +201,13 @@ chmod +x "$TESTDIR/cc-wrapper"
 
 # Set custom CC and reactivate
 export CONDA_OCAML_CC="$TESTDIR/cc-wrapper"
-if [[ -f "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh" ]]; then
-    source "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh"
-fi
+reactivate_ocaml
 
 # Clear log and compile
 > "$TESTDIR/cc.log"
 cd "$TESTDIR"
 
-if ocamlopt -o hello stub.c hello.ml 2>&1; then
+if run_target ocamlopt -o hello stub.c hello.ml 2>&1; then
     echo "  Compilation succeeded"
 
     # Check if wrapper was called
@@ -154,14 +239,12 @@ echo ""
 echo "Test 4: Default CC works after unsetting custom value"
 
 unset CONDA_OCAML_CC
-if [[ -f "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh" ]]; then
-    source "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh"
-fi
+reactivate_ocaml
 
 echo "  CONDA_OCAML_CC = ${CONDA_OCAML_CC:-<not set>}"
 
 cd "$TESTDIR"
-if ocamlopt -o hello2 hello.ml 2>&1; then
+if run_target ocamlopt -o hello2 hello.ml 2>&1; then
     echo "PASS: Compilation works with default CC"
     run_target ./hello2
 else
