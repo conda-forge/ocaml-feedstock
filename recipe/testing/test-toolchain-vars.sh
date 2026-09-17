@@ -67,8 +67,7 @@ run_target() {
 # Under qemu the conda-ocaml-* wrappers are native scripts, which cannot exec
 # a ppc64le tool themselves. They word-split CONDA_OCAML_* unquoted, so the
 # emulator is put in front of each target tool. grep and file are ppc64le
-# test requirements too, so they are routed through run_target. Call this
-# again after re-sourcing an activation script, which can reset the variables.
+# test requirements too, so they are routed through run_target.
 qemu_wrap_toolchain() {
   [[ -n "${QEMU_EXECVE:-}" ]] || return 0
   local _v _name _val _tool _rest _path _t _p
@@ -98,44 +97,18 @@ qemu_wrap_toolchain() {
 }
 qemu_wrap_toolchain
 
-# Re-run the package's activation as activating its own env would. CONDA_PREFIX
-# must name the prefix under test for OCAML_PREFIX/OCAMLLIB to be right, which
-# is not the case when the test has a separate build env.
-reactivate_ocaml() {
-  local target="${PREFIX:-${CONDA_PREFIX:-}}"
-  local script="${target}/etc/conda/activate.d/ocaml_activate.sh"
-  [[ -f "${script}" ]] || return 0
-  local had_prefix=0 saved_prefix=""
-  if [[ -n "${CONDA_PREFIX+x}" ]]; then
-    had_prefix=1
-    saved_prefix="${CONDA_PREFIX}"
-  fi
-  export CONDA_PREFIX="${target}"
-  # shellcheck disable=SC1090
-  source "${script}"
-  if [[ "${had_prefix}" == 1 ]]; then
-    export CONDA_PREFIX="${saved_prefix}"
-  else
-    unset CONDA_PREFIX
-  fi
-  qemu_wrap_toolchain
-}
-
 echo "=== Test: CONDA_OCAML_* Toolchain Variables ==="
 
 ERRORS=0
 
 # Test 1: Verify activation script sets defaults
 echo ""
-echo "Test 1: Activation script sets default CONDA_OCAML_* values"
-
-# Source activation script (may already be sourced)
-reactivate_ocaml
+echo "Test 1: Environment activation sets default CONDA_OCAML_* values"
 
 # Check that variables are set
 for var in CONDA_OCAML_CC CONDA_OCAML_AS CONDA_OCAML_AR CONDA_OCAML_MKDLL; do
     if [[ -z "${!var:-}" ]]; then
-        echo "FAIL: $var is not set after activation"
+        echo "FAIL: $var is not set by environment activation"
         exit 1
     fi
     echo "  $var = ${!var}"
@@ -164,7 +137,7 @@ fi
 echo ""
 echo "Test 2b: Verify wrapper scripts are installed"
 for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
-    if [[ -x "${PREFIX:-${CONDA_PREFIX}}/bin/${wrapper}" ]]; then
+    if [[ -x "${PREFIX}/bin/${wrapper}" ]]; then
         echo "  $wrapper: OK"
     else
         echo "  $wrapper: MISSING"
@@ -199,9 +172,8 @@ exec $REAL_CC "\$@"
 EOF
 chmod +x "$TESTDIR/cc-wrapper"
 
-# Set custom CC and reactivate
+# conda-ocaml-cc reads CONDA_OCAML_CC when it runs
 export CONDA_OCAML_CC="$TESTDIR/cc-wrapper"
-reactivate_ocaml
 
 # Clear log and compile
 > "$TESTDIR/cc.log"
@@ -236,10 +208,9 @@ fi
 
 # Test 4: Restore default and verify it still works
 echo ""
-echo "Test 4: Default CC works after unsetting custom value"
+echo "Test 4: Default CC works after restoring it"
 
-unset CONDA_OCAML_CC
-reactivate_ocaml
+export CONDA_OCAML_CC="${REAL_CC}"
 
 echo "  CONDA_OCAML_CC = ${CONDA_OCAML_CC:-<not set>}"
 
