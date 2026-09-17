@@ -30,6 +30,7 @@ get_target_arch() {
   case "${target}" in
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
+    riscv64-*) echo "riscv" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
   esac
@@ -43,6 +44,7 @@ get_target_id() {
   case "${target}" in
     aarch64-conda-linux-gnu) echo "AARCH64" ;;
     powerpc64le-conda-linux-gnu) echo "PPC64LE" ;;
+    riscv64-conda-linux-gnu) echo "RISCV64" ;;
     arm64-apple-darwin*) echo "ARM64" ;;
     x86_64-conda-linux-gnu|x86_64-apple-darwin*) echo "X86_64" ;;
     *) echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]' ;;
@@ -245,6 +247,20 @@ TESTEOF
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
+      riscv)
+        if echo "$_file_output" | grep -qi "risc-v"; then
+          echo "    [OK] Produces riscv64 binaries"
+        else
+          echo "    [FAIL] ERROR: Expected riscv64, got: $_file_output"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        fi
+        ;;
+      *)
+        # An unrecognised CROSS_ARCH is exactly the botched-wiring case this
+        # test exists to catch - silence here would read as a pass.
+        echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify binary architecture"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
+        ;;
     esac
 
     # Execution test with QEMU if available
@@ -255,6 +271,11 @@ TESTEOF
       else
         echo "    ~ Execution SKIPPED (QEMU execution failed - expected on some platforms)"
       fi
+    elif [[ -n "$qemu_cmd" ]]; then
+      # A qemu command was declared for this target but is not runnable - a
+      # botched dispatch entry must not pass silently as a skip.
+      echo "    [FAIL] ERROR: declared qemu command '${qemu_cmd}' not found or not runnable"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     elif [[ "${target}" != *-apple-darwin* ]]; then
       # Non-fatal: linux target without a usable emulator
       echo "    ~ Execution SKIPPED (${qemu_cmd:-qemu-execve-*} not found)"
@@ -821,6 +842,11 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
       QEMU_CMD=$(get_qemu_cmd "linux-ppc64le")
       QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux PPC64LE"
+      ;;
+    riscv64-conda-linux-gnu)
+      QEMU_CMD=$(get_qemu_cmd "linux-riscv64")
+      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
+      ARCH_NAME="Linux RISCV64 (riscv64)"
       ;;
     arm64-apple-darwin*)
       QEMU_CMD=""

@@ -3,12 +3,14 @@ context:
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
+
   dot: ${{ "./" if unix else "" }}
   library: ${{ "Library/" if not unix else "" }}
   m2: ${{ "m2-" if not unix else "" }}
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
+
   # ===========================================================================
   # GCC-style derived values (not variant keys - keeps filenames clean)
   # cross_target_platform_ comes from variants.yaml
@@ -19,6 +21,7 @@ context:
       "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                  else
       "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"             else
       "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"             else
+      "riscv64-conda-linux-gnu"     if cross_target_platform_ == "linux-riscv64"             else
       "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                    else
       "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                 else
       "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc" else
@@ -28,21 +31,23 @@ context:
   # Which platform builds cross-compilers for each target
   cross_build_platform: >-
     ${{
-      "linux-aarch64" if cross_target_platform_ == "linux-ppc64le"                           else
-      "linux-64" if cross_target_platform_ in ["linux-64", "linux-aarch64"]                  else
-      "osx-64"   if cross_target_platform_ in ["osx-64", "osx-arm64"]                        else
-      "win-64"   if cross_target_platform_ == "win-64"                                       else
+      "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64"]        else
+      "linux-64"      if cross_target_platform_ in ["linux-64", "linux-aarch64"]             else
+      "osx-64"        if cross_target_platform_ in ["osx-64", "osx-arm64"]                   else
+      "win-64"        if cross_target_platform_ == "win-64"                                  else
       target_platform
     }}
+
+  cross_stdlib_version: ${{ "2.39" if cross_target_platform_ == "linux-riscv64" else c_stdlib_version | default("2.17") }}
+
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
   is_native: ${{ cross_target_platform_ == target_platform and build_platform == target_platform }}
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and cross_build_platform == target_platform }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
-  # True for outputs that lay out files under the standard target-tree paths
-  # (bin/, lib/ocaml/) rather than nested under lib/ocaml-cross-compilers/*.
   is_standard_layout: ${{ is_native or is_cross_target }}
+
   # ===========================================================================
   # Targets whose cross-compiler is built in this lane instead of coming from a
   # published ocaml_<target> package. One condition drives both the
@@ -56,11 +61,12 @@ context:
   # published, but only for linux-64, and this lane now builds on linux-aarch64.
   # ===========================================================================
   bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x", "win-arm64"] }}
+
   # ===========================================================================
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
   qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
-  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le"]) and (cross_target_platform_ != build_platform) }}
+  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le", "linux-riscv64"]) and (cross_target_platform_ != build_platform) }}
   qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=12"]') if is_qemuable else '' }}
 
 recipe:
@@ -237,7 +243,7 @@ outputs:
             - if: linux
               then:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
-                - sysroot_${{ cross_target_platform_ }} ${{ c_stdlib_version }}.*
+                - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
               else:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*

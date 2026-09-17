@@ -117,6 +117,7 @@ get_target_id() {
   case "${target}" in
     aarch64-conda-linux-gnu) echo "AARCH64" ;;
     powerpc64le-conda-linux-gnu) echo "PPC64LE" ;;
+    riscv64-conda-linux-gnu) echo "RISCV64" ;;
     arm64-apple-darwin*) echo "ARM64" ;;
     x86_64-conda-linux-gnu|x86_64-apple-darwin*) echo "X86_64" ;;
     *) echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]' ;;
@@ -131,6 +132,7 @@ get_target_arch() {
   case "${target}" in
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
+    riscv64-*) echo "riscv" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
   esac
@@ -145,6 +147,7 @@ get_target_platform() {
     aarch64-*) echo "linux-aarch64" ;;
     arm64-*) echo "osx-arm64" ;;
     powerpc64le-*) echo "linux-ppc64le" ;;
+    riscv64-*) echo "linux-riscv64" ;;
     x86_64-conda-linux-gnu) echo "linux-64" ;;
     x86_64-apple-darwin*) echo "osx-64" ;;
     *) echo "amd64" ;;  # default
@@ -343,6 +346,9 @@ get_arch_for_sanitization() {
     powerpc64le-*|linux-ppc64le|ppc64le-*)
       echo "powerpc64le"
       ;;
+    riscv64-*|linux-riscv64)
+      echo "riscv64"
+      ;;
     x86_64-*|linux-64|osx-64)
       echo "x86_64"
       ;;
@@ -381,6 +387,14 @@ setup_cflags_ldflags() {
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
       ;;
+    CROSS_linux-64_linux-riscv64|CROSS_linux-aarch64_linux-riscv64)
+      # Cross-compiling FOR Linux riscv64
+      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted with
+      # mixed build/target flags
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
+      # -Wl,--allow-shlib-undefined: target libzstd.so references pthread_create/pthread_join@GLIBC_2.34, which the cross ocamlc.opt/ocamlopt.opt link otherwise rejects
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib -Wl,--allow-shlib-undefined"
+      ;;
     CROSS_osx-64_osx-arm64)
       # Cross-compiling FOR macOS ARM64 (on osx-64)
       # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted
@@ -397,12 +411,12 @@ setup_cflags_ldflags() {
       export "${name}_CFLAGS=-march=core2 -mtune=haswell -mssse3 -ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       ;;
-    NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le)
+    NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le|NATIVE_linux-64_linux-riscv64)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
       export "${name}_CFLAGS=-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib"
       ;;
-    NATIVE_linux-aarch64_linux-ppc64le)
+    NATIVE_linux-aarch64_linux-ppc64le|NATIVE_linux-aarch64_linux-riscv64)
       # Native OCaml build during cross-platform CI (runs on the aarch64 BUILD machine)
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib"
