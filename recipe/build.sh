@@ -1940,15 +1940,34 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     # Cross-target mode: override with TARGET platform toolchain
     # The package runs on OCAML_TARGET_PLATFORM, so it needs that platform's tools
     if [[ "${BUILD_MODE}" == "cross-target" ]]; then
-      echo "  (Using TARGET toolchain: ${OCAML_TARGET_TRIPLET}-*)"
-      export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
-      export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
-      export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
-      export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
-      export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
-      export CONDA_OCAML_WINDRES="${OCAML_TARGET_TRIPLET}-windres"
+      case "${OCAML_TARGET_TRIPLET}" in
+        *-apple-*)
+          # macOS ships no -gcc driver. These mirror setup_toolchain's apple arm in
+          # common-functions.sh, minus its -isysroot: that is a build-time path and
+          # the values here are substituted into the shipped activation script.
+          _version_min="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+          echo "  (Using TARGET toolchain: ${OCAML_TARGET_TRIPLET}-clang + llvm-*)"
+          export CONDA_OCAML_AR="llvm-ar"
+          export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-clang"
+          export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-clang"
+          export CONDA_OCAML_LD="ld.lld"
+          export CONDA_OCAML_RANLIB="llvm-ranlib"
+          export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-clang ${_version_min} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
+          export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-clang ${_version_min} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+          export CONDA_OCAML_WINDRES="${OCAML_TARGET_TRIPLET}-windres"
+          ;;
+        *)
+          echo "  (Using TARGET toolchain: ${OCAML_TARGET_TRIPLET}-*)"
+          export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
+          export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
+          export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
+          export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
+          export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
+          export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
+          export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
+          export CONDA_OCAML_WINDRES="${OCAML_TARGET_TRIPLET}-windres"
+          ;;
+      esac
     elif [[ -z "${CONDA_OCAML_AR:-}" ]]; then
       # Stage 3 fast path (native mode): use triplet-prefixed names from BUILD_PREFIX
       # These MUST be triplet-prefixed (not generic cc/ar) because in cross-compilation
@@ -1962,16 +1981,15 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       export CONDA_OCAML_CC=$(basename "${CC:-cc}")
       export CONDA_OCAML_LD=$(basename "${LD:-ld}")
       export CONDA_OCAML_RANLIB=$(basename "${RANLIB:-ranlib}")
-      # macOS needs rpath for downstream binaries to find libzstd
+      # macOS needs version-min and headerpad for install_name rewriting, rpath so
+      # downstream binaries find libzstd, and -undefined dynamic_lookup to defer
+      # symbol resolution to runtime.
       if [[ "${target_platform}" == osx-* ]]; then
-        export CONDA_OCAML_MKEXE="${CC:-cc} -Wl,-rpath,@executable_path/../lib"
+        _version_min="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+        export CONDA_OCAML_MKEXE="${CC:-cc} ${_version_min} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
+        export CONDA_OCAML_MKDLL="${CC:-cc} ${_version_min} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
       else
         export CONDA_OCAML_MKEXE="${CC:-cc}"
-      fi
-      # macOS needs -undefined dynamic_lookup to defer symbol resolution to runtime
-      if [[ "${target_platform}" == osx-* ]]; then
-        export CONDA_OCAML_MKDLL="${CC:-cc} -shared -undefined dynamic_lookup"
-      else
         export CONDA_OCAML_MKDLL="${CC:-cc} -shared"
       fi
       export CONDA_OCAML_WINDRES="${WINDRES:-windres}"
