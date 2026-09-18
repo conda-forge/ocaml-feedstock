@@ -454,13 +454,21 @@ outputs:
                   else:
                     - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
                     - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
-                    - ${{ library }}lib/ocaml/libasm{run,rund,runi}.lib
-                    - ${{ library }}lib/ocaml/libcaml{run,rund,runi}.lib
-                    - ${{ library }}lib/ocaml/libcamlruntime_{eventsbyt,eventsnat}.lib
-                    - ${{ library }}lib/ocaml/libcamlstr{byt,nat}.lib
+                    - ${{ library }}lib/ocaml/libasmrun.lib
+                    - ${{ library }}lib/ocaml/libasmrund.lib
+                    - ${{ library }}lib/ocaml/libasmruni.lib
+                    - ${{ library }}lib/ocaml/libcamlrun.lib
+                    - ${{ library }}lib/ocaml/libcamlrund.lib
+                    - ${{ library }}lib/ocaml/libcamlruni.lib
+                    - ${{ library }}lib/ocaml/libcamlruntime_eventsbyt.lib
+                    - ${{ library }}lib/ocaml/libcamlruntime_eventsnat.lib
+                    - ${{ library }}lib/ocaml/libcamlstrbyt.lib
+                    - ${{ library }}lib/ocaml/libcamlstrnat.lib
                     - ${{ library }}lib/ocaml/libcomprmarsh.lib
-                    - ${{ library }}lib/ocaml/libthread{s,snat}.lib
-                    - ${{ library }}lib/ocaml/libunix{byt,nat}.lib
+                    - ${{ library }}lib/ocaml/libthreads.lib
+                    - ${{ library }}lib/ocaml/libthreadsnat.lib
+                    - ${{ library }}lib/ocaml/libunixbyt.lib
+                    - ${{ library }}lib/ocaml/libunixnat.lib
                     - ${{ library }}lib/ocaml/std_exit.obj
                     - ${{ library }}lib/ocaml/stdlib.lib
                 - if: unix
@@ -478,8 +486,18 @@ outputs:
               then:
                 - etc/conda/activate.d/ocaml_cross_activate.sh
                 - etc/conda/deactivate.d/ocaml_cross_deactivate.sh
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt,mklib,yacc}
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml{c,dep,lex,objinfo,opt}.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlc
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamldep
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamllex
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlmklib
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlyacc
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlc.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamldep.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamllex.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
