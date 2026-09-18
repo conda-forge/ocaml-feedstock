@@ -1,5 +1,5 @@
 context:
-  build_number: 7
+  build_number: 8
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -580,6 +580,18 @@ outputs:
           run:
             - ${{ m2 }}file
             - ${{ m2 }}grep
+
+      # ----------------------------------------------------------------------
+      # compiler-libs native link (issue #132)
+      # unix only - no .bat companion
+      # ----------------------------------------------------------------------
+      - script:
+          - if: unix
+            then: cd testing && ./test-compiler-libs-link.sh ${{ version }}
+            else: echo "Skipping compiler-libs link test (needs unix)"
+        files:
+          recipe:
+            - testing/test-compiler-libs-link.sh
 
       # ----------------------------------------------------------------------
       # CONDA_OCAML_* toolchain variable tests
