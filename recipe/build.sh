@@ -82,6 +82,12 @@ mkdir -p "${SRC_DIR}"/_logs && export LOG_DIR="${SRC_DIR}"/_logs
 CONFIGURE=(./configure)
 MAKE=(make)
 
+# Upstream marshals the non -l part of ZSTD_LIBS into
+# compilerlibs/ocamlcommon.cmxa as -ccopt, where relocation NUL-pads the
+# prefix-dependent -L it leaves in lib_ccopts (issue #132). Keep only the
+# -l flags; ZSTD_LIBS itself stays intact for linking.
+COMPRESSED_MARSHALING_OVERRIDE='COMPRESSED_MARSHALING_FLAGS=-cclib -lcomprmarsh $(patsubst %, -cclib %, $(filter -l%,$(ZSTD_LIBS)))'
+
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
@@ -459,16 +465,32 @@ build_native() {
 
   local config_file="utils/config.generated.ml"
 
-  # NOTE: Do NOT remove -L paths here - they're needed for the build.
-  # The -L removal for the *_c_libraries values happens further down, still
-  # BEFORE world.opt: world.opt compiles those values into the Config module,
-  # so any edit made after it has no effect on `ocamlopt -config-var`.
-
   if is_unix; then
     # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
     # This allows tools like Dune to invoke the compiler via Unix.create_process
     # (which doesn't expand shell variables) while still honoring runtime overrides
     patch_config_generated_ml_native
+
+    # -config-var reads these from the Config module compiled out of
+    # config.generated.ml, not from Makefile.config, so a build-time -L must be
+    # removed here. After world.opt the value is already compiled in and editing
+    # this file has no effect.
+    if [[ "${target_platform}" == "osx"* ]]; then
+      local _cfg_ml="utils/config.generated.ml"
+      if [[ -f "${_cfg_ml}" ]]; then
+        local _cvar
+        for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+          if grep -q "^let ${_cvar} = " "${_cfg_ml}"; then
+            sed -i -E "/^let ${_cvar} = /s#-L[^ \"]+ *##g" "${_cfg_ml}"
+            echo "  [config-sanitize] ${_cvar}: $(grep "^let ${_cvar} = " "${_cfg_ml}")"
+          else
+            echo "  [config-sanitize] WARNING: ${_cvar} not matched in ${_cfg_ml}"
+          fi
+        done
+      else
+        echo "  [config-sanitize] WARNING: ${_cfg_ml} not found"
+      fi
+    fi
   elif [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
     # MSVC: Don't override config.generated.ml - configure's defaults include
     # required flags (e.g., asm = "ml64 -nologo -Cp -c -Fo" where -Fo is
@@ -537,36 +559,12 @@ build_native() {
     sed -i 's/^\(MK[A-Z]*=.*\)[[:space:]]*-link[[:space:]]*$/\1/' "$config_file"
   fi
 
-  # Strip build-time -L paths from config.generated.ml (macOS)
-  #
-  # utils/config.generated.ml holds the *_c_libraries values that configure
-  # produced. world.opt compiles these INTO the Config module, so
-  # `ocamlc/ocamlopt -config-var bytecomp_c_libraries` reads THIS file, not
-  # Makefile.config. Cleaning Makefile.config cannot affect it.
-  #
-  # This MUST run BEFORE world.opt. Editing config.generated.ml afterwards has no
-  # effect. The strip also removes the legitimate relocatable -L${PREFIX}/lib; on
-  # macOS conda-ocaml-mkexe re-supplies it at runtime, which is why this is
-  # guarded to osx only.
-  if [[ "${target_platform}" == "osx"* ]]; then
-    local _cfg_ml="utils/config.generated.ml"
-    echo "  - Stripping build-time -L paths from ${_cfg_ml}..."
-    local _cvar
-    for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
-      if grep -q "^let ${_cvar} = " "${_cfg_ml}" 2>/dev/null; then
-        sed -i -E "/^let ${_cvar} = /s#-L[^ |]+ *##g" "${_cfg_ml}"
-      fi
-    done
-    grep -E '^let (bytecomp|native|compression)_c_libraries = ' "${_cfg_ml}" \
-      | sed 's/^/    /' || echo "    (no matching vars)"
-  fi
-
   # ============================================================================
   # Build
   # ============================================================================
 
   echo "  [3/4] Compiling native compiler"
-  run_logged "world" "${MAKE[@]}" world.opt -j"${CPU_COUNT}"
+  run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
 
   # ============================================================================
   # Tests (Optional)
@@ -1029,7 +1027,7 @@ TOOLWRAPPER
 
       # Serialized: Makefile.cross deletes utils/*.cmi and middle_end/*.cmi mid-build,
       # which races with parallel compile jobs and corrupts what a concurrent ocamlc reads
-      run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" -j1
+      run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j1
 
       # --- Install crossopt ---
       echo "  [6/7] Installing cross-compiler via 'make installcross'..."
@@ -1520,7 +1518,7 @@ EOF
   # leg. TARGET_ID is only set in build_cross_compiler(), so derive it here.
   # Without this, crosscompiledopt fails at Makefile:608 compilerlibs/ocamlcommon.cmxa
   # with "<triplet>-ocaml-ar: line 4: exec: llvm-ar-19: not found".
-  local _tgt_id
+  local _tgt_id _mkexe_val
   _tgt_id=$(get_target_id "${OCAML_TARGET_TRIPLET}")
   export "CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/}"
   export "CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
@@ -1536,7 +1534,16 @@ EOF
   # Only set on this leg: _setup_crossopt_env() deliberately leaves MKEXE
   # unset so the crossopt leg keeps using the native linker (see its comment).
   if [[ -n "${CROSS_MKEXE:-}" ]]; then
-    export "CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE}"
+    _mkexe_val="${CROSS_MKEXE}"
+    # gcc ignores LIBRARY_PATH when configured as a cross compiler, so the
+    # linux targets need the search path on the link driver's own command
+    # line. Set on the exported override rather than in CROSS_MKEXE: the
+    # shipped <triplet>-ocaml-mkexe wrapper bakes CROSS_MKEXE as its default
+    # at generation time, and a prefix baked into a shipped artifact is fatal.
+    if [[ "${target_platform}" == "linux-"* ]]; then
+      _mkexe_val="${_mkexe_val} -L${PREFIX}/lib"
+    fi
+    export "CONDA_OCAML_${_tgt_id}_MKEXE=${_mkexe_val}"
   fi
   if [[ -n "${CROSS_MKDLL:-}" ]]; then
     export "CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL}"
@@ -1548,8 +1555,11 @@ EOF
     export "CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_CC} ${CROSS_LDFLAGS} -Wl,-E -ldl -Wl,--no-as-needed -lm -Wl,--as-needed"
   fi
   echo "  [tool-override] CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/} CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
-  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE:-<unset>}"
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKEXE=${_mkexe_val:-<unset>}"
   echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL:-<unset>}"
+  # Confirm which binary the cross ocamlopt actually execs for the native link.
+  echo "  [tool-override] mkexe wrapper body:"
+  cat "${BUILD_PREFIX}/bin/${OCAML_TARGET_TRIPLET}-ocaml-mkexe" 2>&1 || echo "    NOT FOUND"
 
   # ============================================================================
   # Build crosscompiledopt
@@ -1572,7 +1582,16 @@ EOF
       )
     fi
 
-    run_logged "crosscompiledopt" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" -j"${CPU_COUNT}"
+    # Diagnostic: confirm the host prefix actually carries libzstd, and in
+    # which architecture, before the link that needs it.
+    echo "  zstd in host prefix:"
+    ls -l "${PREFIX}"/lib/libzstd* 2>&1 || echo "    NONE FOUND"
+    file "${PREFIX}"/lib/libzstd.so 2>&1 || true
+
+    # ocamlopt builds the compilerlibs link from flags recorded in the .cmxa,
+    # which no longer carries a -L, so give the cross gcc a search path it
+    # consults directly. Scoped to this make, not exported build-wide.
+    run_logged "crosscompiledopt" env LIBRARY_PATH="${PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
   )
 
   # ============================================================================
