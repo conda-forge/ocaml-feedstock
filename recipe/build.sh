@@ -504,14 +504,36 @@ build_native() {
   echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config_file" | head -1 || echo '(not found)')"
 
   # NOTE: Do NOT remove -L paths here - they're needed for the build.
-  # The -L path removal for bytecomp_c_libraries happens AFTER world.opt build
-  # but BEFORE install, to avoid non-relocatable paths in installed binaries.
+  # The -L path removal for bytecomp_c_libraries happens below, right after
+  # patch_config_generated_ml_native and before world.opt, so the paths never
+  # reach the compiled Config module.
 
   if is_unix; then
     # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
     # This allows tools like Dune to invoke the compiler via Unix.create_process
     # (which doesn't expand shell variables) while still honoring runtime overrides
     patch_config_generated_ml_native
+
+    # -config-var reads these from the Config module compiled out of
+    # config.generated.ml, not from Makefile.config, so a build-time -L must be
+    # removed here. After world.opt the value is already compiled in and editing
+    # this file has no effect.
+    if [[ "${target_platform}" == "osx"* ]]; then
+      local _cfg_ml="utils/config.generated.ml"
+      if [[ -f "${_cfg_ml}" ]]; then
+        local _cvar
+        for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+          if grep -q "^let ${_cvar} = " "${_cfg_ml}"; then
+            sed -i -E "/^let ${_cvar} = /s#-L[^ \"]+ *##g" "${_cfg_ml}"
+            echo "  [config-sanitize] ${_cvar}: $(grep "^let ${_cvar} = " "${_cfg_ml}")"
+          else
+            echo "  [config-sanitize] WARNING: ${_cvar} not matched in ${_cfg_ml}"
+          fi
+        done
+      else
+        echo "  [config-sanitize] WARNING: ${_cfg_ml} not found"
+      fi
+    fi
   elif [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
     # MSVC: Don't override config.generated.ml — configure's defaults include
     # required flags (e.g., asm = "ml64 -nologo -Cp -c -Fo" where -Fo is
