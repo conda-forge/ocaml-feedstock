@@ -503,11 +503,6 @@ build_native() {
   # Debug: Check native_compiler exists before patching
   echo "    config.generated.ml native_compiler: $(grep 'native_compiler' "$config_file" | head -1 || echo '(not found)')"
 
-  # NOTE: Do NOT remove -L paths here - they're needed for the build.
-  # The -L path removal for bytecomp_c_libraries happens below, right after
-  # patch_config_generated_ml_native and before world.opt, so the paths never
-  # reach the compiled Config module.
-
   if is_unix; then
     # Unix: Use conda-ocaml-* wrapper scripts that expand CONDA_OCAML_* environment variables
     # This allows tools like Dune to invoke the compiler via Unix.create_process
