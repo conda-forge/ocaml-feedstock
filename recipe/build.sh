@@ -1558,7 +1558,7 @@ EOF
   # leg. TARGET_ID is only set in build_cross_compiler(), so derive it here.
   # Without this, crosscompiledopt fails at Makefile:608 compilerlibs/ocamlcommon.cmxa
   # with "<triplet>-ocaml-ar: line 4: exec: llvm-ar-19: not found".
-  local _tgt_id
+  local _tgt_id _mkexe_val
   _tgt_id=$(get_target_id "${OCAML_TARGET_TRIPLET}")
   export "CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/}"
   export "CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
@@ -1574,14 +1574,26 @@ EOF
   # Only set on this leg: _setup_crossopt_env() deliberately leaves MKEXE
   # unset so the crossopt leg keeps using the native linker (see its comment).
   if [[ -n "${CROSS_MKEXE:-}" ]]; then
-    export "CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE}"
+    _mkexe_val="${CROSS_MKEXE}"
+    # gcc ignores LIBRARY_PATH when configured as a cross compiler, so the
+    # linux targets need the search path on the link driver's own command
+    # line. Set on the exported override rather than in CROSS_MKEXE: the
+    # shipped <triplet>-ocaml-mkexe wrapper bakes CROSS_MKEXE as its default
+    # at generation time, and a prefix baked into a shipped artifact is fatal.
+    if [[ "${target_platform}" == "linux-"* ]]; then
+      _mkexe_val="${_mkexe_val} -L${PREFIX}/lib"
+    fi
+    export "CONDA_OCAML_${_tgt_id}_MKEXE=${_mkexe_val}"
   fi
   if [[ -n "${CROSS_MKDLL:-}" ]]; then
     export "CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL}"
   fi
   echo "  [tool-override] CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/} CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
-  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_MKEXE:-<unset>}"
+  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKEXE=${_mkexe_val:-<unset>}"
   echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL:-<unset>}"
+  # Confirm which binary the cross ocamlopt actually execs for the native link.
+  echo "  [tool-override] mkexe wrapper body:"
+  cat "${BUILD_PREFIX}/bin/${OCAML_TARGET_TRIPLET}-ocaml-mkexe" 2>&1 || echo "    NOT FOUND"
 
   # ============================================================================
   # Build crosscompiledopt
