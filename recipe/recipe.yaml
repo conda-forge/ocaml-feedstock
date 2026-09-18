@@ -701,12 +701,25 @@ outputs:
       # unix only - no .bat companion
       # ----------------------------------------------------------------------
       - script:
+          # Target binaries need user-mode emulation when the host arch differs
+          - if: is_qemuable
+            then: |
+              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }})}"
+              if [ -z "${QEMU_EXECVE}" ]; then
+                echo "[FAIL] qemu-execve-${{ qemu_arch }} not found on PATH" >&2
+                exit 1
+              fi
+              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
           - if: unix
             then: cd testing && ./test-compiler-libs-link.sh ${{ version }}
             else: echo "Skipping compiler-libs link test (needs unix)"
         files:
           recipe:
             - testing/test-compiler-libs-link.sh
+        requirements:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
 
       # ----------------------------------------------------------------------
       # CONDA_OCAML_* toolchain variable tests
