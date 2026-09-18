@@ -586,9 +586,9 @@ outputs:
       # unix only - no .bat companion
       # ----------------------------------------------------------------------
       - script:
-          - if: unix and not arm64
+          - if: unix
             then: cd testing && ./test-compiler-libs-link.sh ${{ version }}
-            else: echo "Skipping compiler-libs link test (needs unix, non-arm64)"
+            else: echo "Skipping compiler-libs link test (needs unix)"
         files:
           recipe:
             - testing/test-compiler-libs-link.sh
