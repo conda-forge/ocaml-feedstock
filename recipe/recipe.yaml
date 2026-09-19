@@ -182,6 +182,10 @@ outputs:
           - if: not unix and c_compiler == "vs2022"
             then:
               - ${{ stdlib("c") }}
+        strong_constraints:
+          - if: not unix
+            then:
+              - ocaml_${{ cross_target_platform_ }} * ${{ c_compiler }}_*
       build:
         # --- Common build deps (all cases) ---
         - if: not unix and c_compiler == "gcc"
