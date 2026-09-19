@@ -5,7 +5,7 @@
 
 [workspace]
 name = "ocaml-feedstock"
-version = "2026.9.10"  # conda-smithy version used to generate this file
+version = "2026.9.19"  # conda-smithy version used to generate this file
 description = "Pixi configuration for conda-forge/ocaml-feedstock"
 authors = ["@conda-forge/ocaml"]
 channels = ["conda-forge"]
@@ -118,6 +118,15 @@ description = "Debug ocaml-feedstock with variant osx_64_cross_target_platform_o
 [feature.build.tasks."inspect-osx_64_cross_target_platform_osx-arm64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/osx_64_cross_target_platform_osx-arm64.yaml"
 description = "List contents of ocaml-feedstock packages built for variant osx_64_cross_target_platform_osx-arm64"
+[feature.build.tasks."build-osx_arm64_cross_target_platform_osx-64"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/osx_arm64_cross_target_platform_osx-64.yaml --target-platform osx-arm64"
+description = "Build ocaml-feedstock with variant osx_arm64_cross_target_platform_osx-64 directly (without setup scripts)"
+[feature.build.tasks."debug-osx_arm64_cross_target_platform_osx-64"]
+cmd = "rattler-build debug setup --recipe recipe -m .ci_support/osx_arm64_cross_target_platform_osx-64.yaml --target-platform osx-arm64"
+description = "Debug ocaml-feedstock with variant osx_arm64_cross_target_platform_osx-64 directly (without setup scripts)"
+[feature.build.tasks."inspect-osx_arm64_cross_target_platform_osx-64"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/osx_arm64_cross_target_platform_osx-64.yaml"
+description = "List contents of ocaml-feedstock packages built for variant osx_arm64_cross_target_platform_osx-64"
 [feature.build.tasks."build-osx_arm64_cross_target_platform_osx-arm64"]
 cmd = "rattler-build build --recipe recipe -m .ci_support/osx_arm64_cross_target_platform_osx-arm64.yaml --target-platform osx-arm64"
 description = "Build ocaml-feedstock with variant osx_arm64_cross_target_platform_osx-arm64 directly (without setup scripts)"
