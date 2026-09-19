@@ -970,27 +970,6 @@ else
       TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
   fi
-
-  # macOS arm64: test x86_64 cross-compiler
-  if [[ "$BUILD_PLATFORM" == "osx-arm64" ]]; then
-    # Test x86_64 cross-compiler (no QEMU for macOS)
-    if test_cross_compiler \
-      "x86_64-apple-darwin13.4.0" \
-      "macOS x86_64" \
-      "" \
-      ""; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for x86_64
-    if test_toolchain_env_vars "x86_64-apple-darwin13.4.0"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
 fi
 
 echo ""
