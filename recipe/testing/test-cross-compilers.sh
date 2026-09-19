@@ -312,8 +312,18 @@ TESTEOF
                 TEST_ERRORS=$((TEST_ERRORS + 1))
               fi
               ;;
+            amd64)
+              if echo "${rtlib_arch}" | grep -q "x86_64"; then
+                echo "    [OK] ${rtname}: ${rtlib_arch}"
+              else
+                echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected x86_64)"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
+              fi
+              ;;
             *)
-              echo "    ~ ${rtname}: ${rtlib_arch} (no check for ${CROSS_ARCH})"
+              # Silence here would read as a pass and hide a wrong-arch runtime.
+              echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+              TEST_ERRORS=$((TEST_ERRORS + 1))
               ;;
           esac
           ;;
@@ -338,8 +348,26 @@ TESTEOF
                   TEST_ERRORS=$((TEST_ERRORS + 1))
                 fi
                 ;;
+              riscv)
+                if echo "${rtlib_arch}" | grep -qi "risc-v"; then
+                  echo "    [OK] ${rtname}: RISC-V"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              amd64)
+                if echo "${rtlib_arch}" | grep -qi "x86-64\|x86_64"; then
+                  echo "    [OK] ${rtname}: x86_64"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
               *)
-                echo "    ~ ${rtname}: ${rtlib_arch}"
+                # Silence here would read as a pass and hide a wrong-arch runtime.
+                echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
                 ;;
             esac
           else
@@ -813,9 +841,9 @@ echo "Build platform:  ${BUILD_PLATFORM}"
 echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
 
-# Only run on native x86_64 platforms where cross-compilers are built
-if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]]; then
-  echo "Cross-compilers only built on linux-64 and osx-64, skipping"
+# Only run on platforms that host a cross-compiler build
+if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
+  echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
 fi
 
@@ -937,6 +965,27 @@ else
 
     # Test environment variable override for arm64
     if test_toolchain_env_vars "arm64-apple-darwin20.0.0"; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+  fi
+
+  # macOS arm64: test x86_64 cross-compiler
+  if [[ "$BUILD_PLATFORM" == "osx-arm64" ]]; then
+    # Test x86_64 cross-compiler (no QEMU for macOS)
+    if test_cross_compiler \
+      "x86_64-apple-darwin13.4.0" \
+      "macOS x86_64" \
+      "" \
+      ""; then
+      :
+    else
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+
+    # Test environment variable override for x86_64
+    if test_toolchain_env_vars "x86_64-apple-darwin13.4.0"; then
       :
     else
       TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
