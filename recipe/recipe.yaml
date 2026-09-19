@@ -110,6 +110,7 @@ outputs:
     build:
       skip: cross_target_platform_ != target_platform
       noarch: generic
+      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       script: echo "OCaml metapackage"
     requirements:
       run:
