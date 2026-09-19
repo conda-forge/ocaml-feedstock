@@ -403,12 +403,27 @@ setup_cflags_ldflags() {
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
       export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
       ;;
+    CROSS_osx-arm64_osx-64)
+      # Cross-compiling FOR macOS x86_64 (on osx-arm64)
+      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted
+      # The host SDK already carries the x86_64 slice, so no sysroot download here.
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${CONDA_BUILD_SYSROOT:+ -isysroot ${CONDA_BUILD_SYSROOT}}"
+      export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs${CONDA_BUILD_SYSROOT:+ -isysroot ${CONDA_BUILD_SYSROOT}}"
+      ;;
     NATIVE_osx-64_osx-arm64)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
       # MUST include -L${BUILD_PREFIX}/lib for zstd - PREFIX has ARM64 libs!
       # CRITICAL: Also strip -L$PREFIX from global LDFLAGS (conda-build sets it with ARM64 paths)
       export LDFLAGS="-L${BUILD_PREFIX}/lib ${LDFLAGS//-L${PREFIX}\/lib/}"
       export "${name}_CFLAGS=-march=core2 -mtune=haswell -mssse3 -ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
+      export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+      ;;
+    NATIVE_osx-arm64_osx-64)
+      # Native OCaml build during cross-platform CI (runs on the arm64 BUILD machine)
+      # MUST include -L${BUILD_PREFIX}/lib for zstd - PREFIX has x86_64 libs!
+      # CRITICAL: Also strip -L$PREFIX from global LDFLAGS (conda-build sets it with x86_64 paths)
+      export LDFLAGS="-L${BUILD_PREFIX}/lib ${LDFLAGS//-L${PREFIX}\/lib/}"
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       ;;
     NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le|NATIVE_linux-64_linux-riscv64)
