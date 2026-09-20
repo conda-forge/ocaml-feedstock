@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Comprehensive cross-compiler validation tests
-# Tests cross-compilers built on linux-64 and osx-64 platforms
+# Tests a cross-compiler on the platform that hosts its build
 # These tests verify the cross-compilers are correctly configured for use
 # by downstream packages like dune/opam.
 
@@ -90,10 +90,11 @@ test_cross_compiler() {
   OCAML_CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
   OCAML_CROSS_LIBDIR="${OCAML_CROSS_PREFIX}/lib/ocaml"
 
-  # Check if cross-compiler exists
+  # An absent cross-compiler is a build failure, not a skip: this script runs only
+  # on is_cross_compiler lanes, whose deliverable is exactly this binary.
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  [SKIP] ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
+    return 1
   fi
 
   # Setup macOS ARM64 SDK for linking tests
@@ -746,8 +747,8 @@ test_toolchain_env_vars() {
   CROSS_OCAMLOPT="${PREFIX}/bin/${target}-ocamlopt"
 
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  [SKIP] ${target} cross-compiler not found"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found"
+    return 1
   fi
 
   # Create fake toolchain wrappers to test environment override
@@ -785,7 +786,7 @@ EOF
     echo "    [FAIL] ERROR: ${TOOLCHAIN_WRAPPER} not found or not executable"
     echo "      Cross-compiler should have standalone toolchain wrappers"
     ENV_TEST_PASSED=0
-    return 0
+    return 1
   fi
 
   # Debug: Check wrapper script content
@@ -841,8 +842,9 @@ echo "Build platform:  ${BUILD_PLATFORM}"
 echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
 
-# Only run on platforms that host a cross-compiler build
-if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
+# Only run on platforms that host a cross-compiler build. linux-aarch64 hosts the
+# ppc64le and riscv64 cross-compilers, per cross_build_platform in recipe.yaml.
+if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "linux-aarch64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
   echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
 fi
