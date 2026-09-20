@@ -1217,6 +1217,7 @@ EOF
           aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
           power) _expected="PowerPC|ppc64" ;;
           riscv) _expected="RISC-V|RISCV|riscv" ;;
+          amd64) _expected="x86_64|amd64" ;;
           *) _expected="${CROSS_ARCH}" ;;
         esac
         if ! echo "$_arch_info" | grep -qiE "$_expected"; then

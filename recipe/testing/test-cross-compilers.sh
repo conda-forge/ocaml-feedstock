@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Comprehensive cross-compiler validation tests
-# Tests cross-compilers built on linux-64 and osx-64 platforms
+# Tests a cross-compiler on the platform that hosts its build
 # These tests verify the cross-compilers are correctly configured for use
 # by downstream packages like dune/opam.
 
@@ -12,9 +12,8 @@ TARGET_PLATFORM="${3:-${target_platform:-}}"
 TARGET_TRIPLE="${4:-}"
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> [build_platform] [target_platform] [target_triple]"
-  echo "  target_triple: Optional specific target to test (e.g., aarch64-conda-linux-gnu)"
-  echo "                 If omitted, tests all available targets for the build platform"
+  echo "Usage: $0 <version> <build_platform> <target_platform> <target_triple>"
+  echo "  target_triple: the cross target to test (e.g., aarch64-conda-linux-gnu)"
   exit 1
 fi
 
@@ -90,10 +89,11 @@ test_cross_compiler() {
   OCAML_CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
   OCAML_CROSS_LIBDIR="${OCAML_CROSS_PREFIX}/lib/ocaml"
 
-  # Check if cross-compiler exists
+  # An absent cross-compiler is a build failure, not a skip: this script runs only
+  # on is_cross_compiler lanes, whose deliverable is exactly this binary.
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  [SKIP] ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
+    return 1
   fi
 
   # Setup macOS ARM64 SDK for linking tests
@@ -312,8 +312,18 @@ TESTEOF
                 TEST_ERRORS=$((TEST_ERRORS + 1))
               fi
               ;;
+            amd64)
+              if echo "${rtlib_arch}" | grep -q "x86_64"; then
+                echo "    [OK] ${rtname}: ${rtlib_arch}"
+              else
+                echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected x86_64)"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
+              fi
+              ;;
             *)
-              echo "    ~ ${rtname}: ${rtlib_arch} (no check for ${CROSS_ARCH})"
+              # Silence here would read as a pass and hide a wrong-arch runtime.
+              echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+              TEST_ERRORS=$((TEST_ERRORS + 1))
               ;;
           esac
           ;;
@@ -338,8 +348,26 @@ TESTEOF
                   TEST_ERRORS=$((TEST_ERRORS + 1))
                 fi
                 ;;
+              riscv)
+                if echo "${rtlib_arch}" | grep -qi "risc-v"; then
+                  echo "    [OK] ${rtname}: RISC-V"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              amd64)
+                if echo "${rtlib_arch}" | grep -qi "x86-64\|x86_64"; then
+                  echo "    [OK] ${rtname}: x86_64"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
               *)
-                echo "    ~ ${rtname}: ${rtlib_arch}"
+                # Silence here would read as a pass and hide a wrong-arch runtime.
+                echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
                 ;;
             esac
           else
@@ -718,8 +746,8 @@ test_toolchain_env_vars() {
   CROSS_OCAMLOPT="${PREFIX}/bin/${target}-ocamlopt"
 
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  [SKIP] ${target} cross-compiler not found"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found"
+    return 1
   fi
 
   # Create fake toolchain wrappers to test environment override
@@ -757,7 +785,7 @@ EOF
     echo "    [FAIL] ERROR: ${TOOLCHAIN_WRAPPER} not found or not executable"
     echo "      Cross-compiler should have standalone toolchain wrappers"
     ENV_TEST_PASSED=0
-    return 0
+    return 1
   fi
 
   # Debug: Check wrapper script content
@@ -813,9 +841,10 @@ echo "Build platform:  ${BUILD_PLATFORM}"
 echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
 
-# Only run on native x86_64 platforms where cross-compilers are built
-if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]]; then
-  echo "Cross-compilers only built on linux-64 and osx-64, skipping"
+# Only run on platforms that host a cross-compiler build. linux-aarch64 hosts the
+# ppc64le and riscv64 cross-compilers, per cross_build_platform in recipe.yaml.
+if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "linux-aarch64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
+  echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
 fi
 
@@ -881,67 +910,8 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
   fi
 else
-  # No specific target - test all available targets for the build platform
-
-  # Linux x86_64: test aarch64 and ppc64le cross-compilers
-  if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
-    # Test aarch64 cross-compiler
-    if test_cross_compiler \
-      "aarch64-conda-linux-gnu" \
-      "Linux ARM64 (aarch64)" \
-      "$(get_qemu_cmd linux-aarch64)" \
-      "$(get_qemu_prefix aarch64-conda-linux-gnu)"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for aarch64
-    if test_toolchain_env_vars "aarch64-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test ppc64le cross-compiler
-    if test_cross_compiler \
-      "powerpc64le-conda-linux-gnu" \
-      "Linux PPC64LE" \
-      "$(get_qemu_cmd linux-ppc64le)" \
-      "$(get_qemu_prefix powerpc64le-conda-linux-gnu)"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for ppc64le
-    if test_toolchain_env_vars "powerpc64le-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
-
-  # macOS x86_64: test arm64 cross-compiler
-  if [[ "$BUILD_PLATFORM" == "osx-64" ]]; then
-    # Test arm64 cross-compiler (no QEMU for macOS)
-    if test_cross_compiler \
-      "arm64-apple-darwin20.0.0" \
-      "macOS ARM64" \
-      "" \
-      ""; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for arm64
-    if test_toolchain_env_vars "arm64-apple-darwin20.0.0"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
+  echo "ERROR: no target triple supplied (argument 4); nothing to test"
+  exit 1
 fi
 
 echo ""

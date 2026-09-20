@@ -33,7 +33,8 @@ context:
     ${{
       "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64"]        else
       "linux-64"      if cross_target_platform_ in ["linux-64", "linux-aarch64"]             else
-      "osx-64"        if cross_target_platform_ in ["osx-64", "osx-arm64"]                   else
+      "osx-arm64"     if cross_target_platform_ == "osx-64"                                  else
+      "osx-64"        if cross_target_platform_ == "osx-arm64"                               else
       "win-64"        if cross_target_platform_ == "win-64"                                  else
       target_platform
     }}
