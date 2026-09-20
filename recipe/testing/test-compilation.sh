@@ -115,9 +115,48 @@ assert_contains() {
   exit 1
 }
 
+# Architecture the OCaml toolchain is configured to emit. On a cross lane that
+# is the target, not the build machine, so every artifact produced here must
+# match it. file(1) is a declared requirement of this test block, so it is the
+# one inspector guaranteed present on every platform.
+#
+# This reads the ocamlopt on PATH, which is the target's compiler in every
+# context this script runs in. Reusing the script where the cross tool is
+# triplet-prefixed instead would make it report the build machine's arch.
+assert_arch() {
+  local label="$1" artifact="$2" pattern out
+  case "${OCAML_ARCH}" in
+    amd64) pattern="x86[-_]64" ;;
+    arm64) pattern="aarch64|arm64" ;;
+    power) pattern="PowerPC|ppc64" ;;
+    riscv) pattern="RISC-V" ;;
+    s390x) pattern="S/390|s390" ;;
+    i386)  pattern="80386|i386" ;;
+    *)
+      echo "  [FAIL] ${label}: no file(1) pattern known for ocamlopt architecture '${OCAML_ARCH}'"
+      exit 1
+      ;;
+  esac
+  out="$(file -b "${artifact}" 2>&1 || true)"
+  if printf '%s' "${out}" | grep -qEi "${pattern}"; then
+    echo "  ${label} architecture (${OCAML_ARCH}): OK"
+    return 0
+  fi
+  echo "  [FAIL] ${label}: ${artifact} is not ${OCAML_ARCH}"
+  echo "  expected file(1) output to match: ${pattern}"
+  echo "  actual: ${out}"
+  exit 1
+}
+
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
   echo "Usage: $0 <version>"
+  exit 1
+fi
+
+OCAML_ARCH="$(run_target ocamlopt -config | sed -n 's/^architecture: *//p')"
+if [[ -z "${OCAML_ARCH}" ]]; then
+  echo "[FAIL] could not read architecture from ocamlopt -config"
   exit 1
 fi
 
@@ -180,10 +219,14 @@ else
   exit 1
 fi
 
-# 4. ocamldep actually parsing files
+# 4. ocamldep resolving a real dependency between two files
 echo "=== Testing ocamldep ==="
-run_target ocamldep hi.ml > /dev/null
-echo "  ocamldep parsing: OK"
+printf 'let value = 42\n' > deplib.ml
+printf 'let () = ignore Deplib.value\n' > depmain.ml
+# Assert on the discovered dependency edge, not just on exit status: an
+# ocamldep that parsed nothing still exits 0.
+assert_contains "ocamldep parsing" "deplib\.cm" run_target ocamldep depmain.ml
+rm -f deplib.ml depmain.ml
 
 # 5. Multi-file compilation (exercises module system)
 echo "=== Testing multi-file compilation ==="
@@ -301,7 +344,19 @@ if run_target ocamlmklib -o stub_test stub_test.o 2>mklib_err.txt; then
     ls -l
     exit 1
   fi
+  if [ ! -s libstub_test.a ]; then
+    echo "  [FAIL] libstub_test.a is empty"
+    ls -l
+    exit 1
+  fi
   echo "  shared+static libs created: OK"
+  # The C stub object is both what the archive is built from and what
+  # ocamlmklib links into the shared object, so checking both ends catches a
+  # native compiler or a native linker reaching a cross lane. file(1) reports
+  # only "current ar archive" for libstub_test.a, so that archive's
+  # architecture is carried by stub_test.o rather than asserted directly.
+  assert_arch "C stub object" stub_test.o
+  assert_arch "ocamlmklib shared library" dllstub_test.so
 else
   echo " FAIL"
   echo "  ocamlmklib error:"
