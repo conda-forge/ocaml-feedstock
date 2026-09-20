@@ -12,9 +12,8 @@ TARGET_PLATFORM="${3:-${target_platform:-}}"
 TARGET_TRIPLE="${4:-}"
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> [build_platform] [target_platform] [target_triple]"
-  echo "  target_triple: Optional specific target to test (e.g., aarch64-conda-linux-gnu)"
-  echo "                 If omitted, tests all available targets for the build platform"
+  echo "Usage: $0 <version> <build_platform> <target_platform> <target_triple>"
+  echo "  target_triple: the cross target to test (e.g., aarch64-conda-linux-gnu)"
   exit 1
 fi
 
@@ -911,67 +910,8 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
   fi
 else
-  # No specific target - test all available targets for the build platform
-
-  # Linux x86_64: test aarch64 and ppc64le cross-compilers
-  if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
-    # Test aarch64 cross-compiler
-    if test_cross_compiler \
-      "aarch64-conda-linux-gnu" \
-      "Linux ARM64 (aarch64)" \
-      "$(get_qemu_cmd linux-aarch64)" \
-      "$(get_qemu_prefix aarch64-conda-linux-gnu)"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for aarch64
-    if test_toolchain_env_vars "aarch64-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test ppc64le cross-compiler
-    if test_cross_compiler \
-      "powerpc64le-conda-linux-gnu" \
-      "Linux PPC64LE" \
-      "$(get_qemu_cmd linux-ppc64le)" \
-      "$(get_qemu_prefix powerpc64le-conda-linux-gnu)"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for ppc64le
-    if test_toolchain_env_vars "powerpc64le-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
-
-  # macOS x86_64: test arm64 cross-compiler
-  if [[ "$BUILD_PLATFORM" == "osx-64" ]]; then
-    # Test arm64 cross-compiler (no QEMU for macOS)
-    if test_cross_compiler \
-      "arm64-apple-darwin20.0.0" \
-      "macOS ARM64" \
-      "" \
-      ""; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for arm64
-    if test_toolchain_env_vars "arm64-apple-darwin20.0.0"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
+  echo "ERROR: no target triple supplied (argument 4); nothing to test"
+  exit 1
 fi
 
 echo ""
