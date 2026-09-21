@@ -28,7 +28,9 @@ context:
       "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else                                                 
       "unknown"
     }}
-  # Which platform builds cross-compilers for each target
+  # Which platform builds cross-compilers for each target. Empty for a target
+  # that is not listed, which never equals target_platform, so an unlisted
+  # target builds nowhere.
   cross_build_platform: >-
     ${{
       "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64"]        else
@@ -36,8 +38,14 @@ context:
       "osx-arm64"     if cross_target_platform_ == "osx-64"                                  else
       "osx-64"        if cross_target_platform_ == "osx-arm64"                               else
       "win-64"        if cross_target_platform_ == "win-64"                                  else
-      target_platform
+      ""
     }}
+  # Second build machine for the targets whose cross-compiler is published for
+  # two of them, empty for the rest. A folded block renders to a string, so the
+  # two-host test lives in is_cross_compiler, where the expression is inline and
+  # keeps its boolean type.
+  cross_build_platform_alt: >-
+    ${{ "linux-64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64"] else "" }}
 
   cross_stdlib_version: ${{ "2.39" if cross_target_platform_ == "linux-riscv64" else c_stdlib_version | default("2.17") }}
 
@@ -45,7 +53,7 @@ context:
   # Build case detection helpers (exactly one is true per build)
   # ===========================================================================
   is_native: ${{ cross_target_platform_ == target_platform and build_platform == target_platform }}
-  is_cross_compiler: ${{ cross_target_platform_ != target_platform and cross_build_platform == target_platform }}
+  is_cross_compiler: ${{ cross_target_platform_ != target_platform and (cross_build_platform == target_platform or cross_build_platform_alt == target_platform) }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   is_standard_layout: ${{ is_native or is_cross_target }}
 
@@ -57,9 +65,10 @@ context:
   # MAINTAINED LIST: prune a target once its cross-compiler is published on
   # conda-forge FOR THIS LANE'S BUILD PLATFORM. Nothing self-corrects, so a
   # stale entry means that lane keeps building its own cross-compiler forever
-  # with no signal that it is doing so. linux-ppc64le qualifies on the build
-  # platform clause rather than the existence one: ocaml_linux-ppc64le is
-  # published, but only for linux-64, and this lane now builds on linux-aarch64.
+  # with no signal that it is doing so. linux-ppc64le and linux-riscv64 stay
+  # listed because their cross-compilers are published to the experimental
+  # label only, so the cross-target lanes cannot resolve one from the main
+  # channel yet.
   # ===========================================================================
   bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x", "win-arm64"] }}
 
@@ -134,7 +143,7 @@ outputs:
   # 1. NATIVE (is_native): cross_target_platform_ == target_platform == build_platform
   #    Native compiler built on its own platform (e.g., linux-64 on linux-64)
   #
-  # 2. CROSS-COMPILER (is_cross_compiler): cross_target_platform_ != target_platform AND cross_build_platform == target_platform
+  # 2. CROSS-COMPILER (is_cross_compiler): cross_target_platform_ != target_platform AND this lane is one of its build machines
   #    Cross-compiler built on designated platform (e.g., aarch64 cross on linux-64)
   #    Produces binaries that run on build platform, generate code for cross_target_platform_
   #
