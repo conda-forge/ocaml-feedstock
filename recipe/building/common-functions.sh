@@ -505,16 +505,30 @@ setup_toolchain() {
        _MKEXE="$(basename "${_CC}") -Wl,-E -ldl"
       ;;
     *-mingw32)
-       _AR=$(find_tool "${target}-ar" true)
-       _AS=$(find_tool "${target}-as" true)
-       _CC=$(find_tool "${target}-gcc" true)
-       _LD=$(find_tool "${target}-ld" true)
-       _NM=$(find_tool "${target}-nm" true)
-       _RANLIB=$(find_tool "${target}-ranlib" true)
-       _STRIP=$(find_tool "${target}-strip" true)
+       # zig ships <triplet>-zig-<tool> wrappers and exports these; m2w64 ships the
+       # GNU names. zig has no nm or strip, which the MSVC arm below also leaves empty.
+       _AR="${ZIG_AR:-$(find_tool "${target}-ar" true)}"
+       _AS="${ZIG_ASM:-$(find_tool "${target}-as" true)}"
+       _CC="${ZIG_CC:-$(find_tool "${target}-gcc" true)}"
+       _LD="${ZIG_LLD:-$(find_tool "${target}-ld" true)}"
+       _RANLIB="${ZIG_RANLIB:-$(find_tool "${target}-ranlib" true)}"
+       # zig exports Windows paths and make runs these through /bin/sh, which eats
+       # the backslashes; find_tool already returns forward slashes so this is a no-op there
+       _AR="${_AR//\\//}"
+       _AS="${_AS//\\//}"
+       _CC="${_CC//\\//}"
+       _LD="${_LD//\\//}"
+       _RANLIB="${_RANLIB//\\//}"
+       if [[ -n "${ZIG_CC:-}" ]]; then
+         _NM=""
+         _STRIP=""
+       else
+         _NM=$(find_tool "${target}-nm" true)
+         _STRIP=$(find_tool "${target}-strip" true)
+       fi
 
        _ASM=$(basename "${_AS}")
-  
+
        _MKDLL="$(basename "${_CC}")"
        _MKEXE="$(basename "${_CC}")"
       ;;

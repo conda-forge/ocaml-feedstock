@@ -100,6 +100,10 @@ source:
       # the mingw64arm flexdll chain.
       - if: not unix
         then: patches/add-aarch64-w64-mingw32-support.patch
+      # clang defines __GNUC__ but its __builtin_setjmp is unusable on Windows,
+      # so the MPR#7638 GCC branch has to exclude it.
+      - if: not unix
+        then: patches/fix-clang-mingw64-setjmp.patch
   - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
