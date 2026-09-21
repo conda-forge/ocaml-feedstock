@@ -396,6 +396,10 @@ build_native() {
         --host="${OCAML_TARGET_TRIPLET}"
       )
     fi
+    if [[ "${target_platform}" == "win-arm64" ]]; then
+      # OCaml has no arm64 Windows native-code backend, so this target is bytecode-only.
+      CONFIG_ARGS+=(--disable-native-compiler)
+    fi
   fi
 
   # ============================================================================
