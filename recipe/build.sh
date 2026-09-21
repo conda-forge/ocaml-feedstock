@@ -233,6 +233,9 @@ build_native() {
   if [[ -z "${CONDA_TOOLCHAIN_BUILD:-}" ]]; then
     if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
       CONDA_TOOLCHAIN_BUILD="no-pc-toolchain"
+    elif [[ "${target_platform}" == "win-arm64" ]]; then
+      # zig's activation does not export it and the lane is native, so build == target
+      CONDA_TOOLCHAIN_BUILD="${OCAML_TARGET_TRIPLET}"
     else
       echo "ERROR: CONDA_TOOLCHAIN_BUILD not set (compiler activation failed?)"
       exit 1

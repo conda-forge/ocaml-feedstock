@@ -27,7 +27,6 @@ context:
       "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc" else
       "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else
       "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and c_compiler == "zig" else
-      "aarch64-pc-windows"          if cross_target_platform_ == "win-arm64" and c_compiler == "vs2022" else
       "unknown"
     }}
   # Which platform builds cross-compilers for each target. Empty for a target
@@ -262,7 +261,9 @@ outputs:
         - ${{ m2 }}make
         - ${{ m2 }}sed
         - ${{ m2 }}tar
-        - binutils
+        # no win-arm64 build exists; that lane is bytecode-only and needs no native binutils
+        - if: build_platform != "win-arm64"
+          then: binutils
 
         # --- CROSS-COMPILER: Target platform toolchain ---
         # Guard (cross_target_platform_ != build_platform) prevents self-referenced cycle detection

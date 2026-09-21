@@ -5,7 +5,6 @@ c_compiler:
       - gcc
   - if: not unix and arm64
     then:
-      - vs2022
       - zig
 
 cross_target_platform_:

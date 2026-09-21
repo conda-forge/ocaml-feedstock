@@ -375,7 +375,7 @@ setup_cflags_ldflags() {
   [[ "${target}" != "linux-"* ]] && [[ "${target}" != "osx-"* ]] && target="nonunix-${target#*-}"
   
   case "${name}_${native}_${target}" in
-    NATIVE_osx-64_osx-64|NATIVE_osx-arm64_osx-arm64|NATIVE_linux-64_linux-64|NATIVE_linux-aarch64_linux-aarch64|NATIVE_nonunix-64_nonunix-64)
+    NATIVE_osx-64_osx-64|NATIVE_osx-arm64_osx-arm64|NATIVE_linux-64_linux-64|NATIVE_linux-aarch64_linux-aarch64|NATIVE_nonunix-64_nonunix-64|NATIVE_nonunix-arm64_nonunix-arm64)
       # Native build: use environment CFLAGS (set by conda-build for this platform)
       export "${name}_CFLAGS=${CFLAGS:-}"
       export "${name}_LDFLAGS=${LDFLAGS:-}"
