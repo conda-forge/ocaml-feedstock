@@ -644,6 +644,84 @@ build_native() {
       echo "  [DIAG]   zstd link FAILED (exit ${_diag_zstd_rc}) - see ${_diag_zstd_log##*/}"
       tail -100 "${_diag_zstd_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
     fi
+
+    # PROBE D: escalate synthetic object count to test whether the link
+    # failure tracks object COUNT / command-line length rather than object
+    # identity. Use make -n to capture the ocamlruns.exe link command since
+    # ordinary make only prints the MKEXE banner, never the arguments.
+    echo "  [DIAG] probe D: object-count escalation and ocamlruns.exe dry-run"
+
+    echo "  [DIAG]   part D1: synthetic object-count escalation"
+    _diag_d_dir="${LOG_DIR}/diag_scale"
+    mkdir -p "${_diag_d_dir}" || true
+    set +e
+    _diag_d_failed_compiles=0
+    _diag_d_first_failed_log=""
+    for _diag_d_i in $(seq 0 255); do
+      printf 'int _diag_d_func_%d(void) { return %d; }\n' "${_diag_d_i}" "${_diag_d_i}" > "${_diag_d_dir}/obj_${_diag_d_i}.c"
+      "${NATIVE_CC}" ${NATIVE_CFLAGS:-} -c "${_diag_d_dir}/obj_${_diag_d_i}.c" -o "${_diag_d_dir}/obj_${_diag_d_i}.obj" > "${_diag_d_dir}/compile_${_diag_d_i}.log" 2>&1
+      _diag_d_rc=$?
+      if [[ ${_diag_d_rc} -ne 0 ]]; then
+        (( _diag_d_failed_compiles++ ))
+        if [[ -z "${_diag_d_first_failed_log}" ]]; then
+          _diag_d_first_failed_log="${_diag_d_dir}/compile_${_diag_d_i}.log"
+        fi
+      fi
+    done
+    printf 'int main(void) { return 0; }\n' > "${_diag_d_dir}/main.c"
+    "${NATIVE_CC}" ${NATIVE_CFLAGS:-} -c "${_diag_d_dir}/main.c" -o "${_diag_d_dir}/main.obj" > "${_diag_d_dir}/compile_main.log" 2>&1
+    _diag_d_rc=$?
+    if [[ ${_diag_d_rc} -ne 0 ]]; then
+      (( _diag_d_failed_compiles++ ))
+      if [[ -z "${_diag_d_first_failed_log}" ]]; then
+        _diag_d_first_failed_log="${_diag_d_dir}/compile_main.log"
+      fi
+    fi
+    set -e
+    echo "  [DIAG]     compiled 257 objects, ${_diag_d_failed_compiles} failed"
+    if [[ -n "${_diag_d_first_failed_log}" && -f "${_diag_d_first_failed_log}" ]]; then
+      tail -20 "${_diag_d_first_failed_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
+    fi
+
+    for _diag_d_count in 1 16 64 128 256; do
+      _diag_d_objs=()
+      for _diag_d_i in $(seq 0 $((_diag_d_count - 1))); do
+        _diag_d_objs+=("${_diag_d_dir}/obj_${_diag_d_i}.obj")
+      done
+      _diag_d_objs+=("${_diag_d_dir}/main.obj")
+      _diag_d_exe="${_diag_d_dir}/link_${_diag_d_count}.exe"
+      _diag_d_log="${_diag_d_dir}/link_${_diag_d_count}.log"
+      _diag_d_cmdstr="${NATIVE_CC} ${NATIVE_CFLAGS:-} ${_diag_d_objs[*]} -o ${_diag_d_exe} ${NATIVE_LDFLAGS:-}"
+      _diag_d_cmdlen=${#_diag_d_cmdstr}
+      set +e
+      "${NATIVE_CC}" ${NATIVE_CFLAGS:-} "${_diag_d_objs[@]}" -o "${_diag_d_exe}" ${NATIVE_LDFLAGS:-} > "${_diag_d_log}" 2>&1
+      _diag_d_rc=$?
+      set -e
+      echo "  [DIAG]     objects=${_diag_d_count} exit=${_diag_d_rc} cmdlen=${_diag_d_cmdlen}"
+      if [[ ${_diag_d_rc} -ne 0 ]]; then
+        tail -40 "${_diag_d_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
+      fi
+    done
+
+    echo "  [DIAG]   part D2: ocamlruns.exe make -n dry run"
+    _diag_d_dryrun_log="${LOG_DIR}/diag_ocamlruns_dryrun.log"
+    set +e
+    "${MAKE[@]}" -n runtime/ocamlruns.exe > "${_diag_d_dryrun_log}" 2>&1
+    _diag_d_dryrun_rc=$?
+    set -e
+    _diag_d_dryrun_lines=$(wc -l < "${_diag_d_dryrun_log}" 2>/dev/null || echo "unknown")
+    echo "  [DIAG]     dry run exit=${_diag_d_dryrun_rc} lines=${_diag_d_dryrun_lines}"
+    _diag_d_ocamlruns_lines=$(grep -i 'ocamlruns' "${_diag_d_dryrun_log}" 2>/dev/null) || true
+    echo "${_diag_d_ocamlruns_lines}" | tail -20 | sed 's/^/  [DIAG]   /' || true
+    _diag_d_maxlen=0
+    while IFS= read -r _diag_d_line; do
+      _diag_d_linelen=${#_diag_d_line}
+      if [[ ${_diag_d_linelen} -gt ${_diag_d_maxlen} ]]; then
+        _diag_d_maxlen=${_diag_d_linelen}
+      fi
+    done <<< "${_diag_d_ocamlruns_lines}"
+    echo "  [DIAG]     longest ocamlruns-related line length=${_diag_d_maxlen} chars"
+
     echo "  ------------------------------------------------------------"
   fi
 
