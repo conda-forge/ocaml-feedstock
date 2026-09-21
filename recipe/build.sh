@@ -585,17 +585,16 @@ build_native() {
     echo "  ------------------------------------------------------------"
     echo "  [DIAG] win-arm64 zig link diagnostics (non-fatal)"
     echo "  ------------------------------------------------------------"
+    echo "  [DIAG]   NATIVE_CC='${NATIVE_CC:-}'"
+    echo "  [DIAG]   NATIVE_AR='${NATIVE_AR:-}'"
+    echo "  [DIAG]   NATIVE_CFLAGS='${NATIVE_CFLAGS:-}'"
+    echo "  [DIAG]   NATIVE_LDFLAGS='${NATIVE_LDFLAGS:-}'"
 
-    # PROBE A: locate the aarch64 mingw runtime archives and report their
-    # size. Reference point: a healthy libmingw32 archive is roughly 10MB;
-    # a few hundred KB would indicate a stub/placeholder archive.
-    echo "  [DIAG] probe A: mingw runtime archive sizes (healthy libmingw32 ~= 10MB)"
-    set +e
-    while IFS= read -r -d '' _diag_lib; do
-      _diag_sz=$(stat -c '%s' "${_diag_lib}" 2>/dev/null || stat -f '%z' "${_diag_lib}" 2>/dev/null || echo "unknown")
-      echo "  [DIAG]   ${_diag_lib} : ${_diag_sz} bytes"
-    done < <(find "${BUILD_PREFIX}" \( -name 'libmingw32.*' -o -name 'libmingwex.*' -o -name 'libucrt.*' -o -name 'libwinpthread.*' \) -print0 2>/dev/null)
-    set -e
+    # Split the flag variables on spaces into arrays once; the global IFS
+    # (set to $'\n\t' earlier) is never reassigned, so unquoted expansion
+    # of these variables does not word-split on spaces.
+    IFS=' ' read -r -a _diag_cflags <<< "${NATIVE_CFLAGS:-}"
+    IFS=' ' read -r -a _diag_ldflags <<< "${NATIVE_LDFLAGS:-}"
 
     # PROBE B: link a trivial C program with the same compiler and flags
     # the real build uses, to check whether zig can link anything at all
@@ -606,7 +605,7 @@ build_native() {
     _diag_log="${LOG_DIR}/diag_trivial_link.log"
     printf 'int main(void) { return 0; }\n' > "${_diag_src}" || true
     set +e
-    "${NATIVE_CC}" ${NATIVE_CFLAGS:-} "${_diag_src}" -o "${_diag_exe}" ${NATIVE_LDFLAGS:-} > "${_diag_log}" 2>&1
+    "${NATIVE_CC}" "${_diag_cflags[@]+"${_diag_cflags[@]}"}" "${_diag_src}" -o "${_diag_exe}" "${_diag_ldflags[@]+"${_diag_ldflags[@]}"}" > "${_diag_log}" 2>&1
     _diag_rc=$?
     set -e
     if [[ ${_diag_rc} -eq 0 ]]; then
@@ -616,94 +615,10 @@ build_native() {
       tail -100 "${_diag_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
     fi
 
-    # PROBE C: locate the libzstd artifacts and attempt a link that
-    # actually references a zstd symbol. libzstd on this lane is
-    # conda-forge's stock prebuilt win-arm64 binary, built by a different
-    # toolchain than the zig cc that emits every other input to the
-    # MKEXE step - this checks whether that mismatch is what the linker
-    # cannot consume.
-    echo "  [DIAG] probe C: libzstd artifacts and zstd-symbol link"
-    set +e
-    while IFS= read -r -d '' _diag_lib; do
-      _diag_sz=$(stat -c '%s' "${_diag_lib}" 2>/dev/null || stat -f '%z' "${_diag_lib}" 2>/dev/null || echo "unknown")
-      echo "  [DIAG]   ${_diag_lib} : ${_diag_sz} bytes"
-    done < <(find "${PREFIX}" \( -name 'libzstd.*' -o -name 'zstd.*' \) -print0 2>/dev/null)
-    set -e
-
-    _diag_zstd_src="${LOG_DIR}/diag_zstd_link.c"
-    _diag_zstd_exe="${LOG_DIR}/diag_zstd_link.exe"
-    _diag_zstd_log="${LOG_DIR}/diag_zstd_link.log"
-    printf 'unsigned ZSTD_versionNumber(void);\nint main(void) { return ZSTD_versionNumber() == 0; }\n' > "${_diag_zstd_src}" || true
-    set +e
-    "${NATIVE_CC}" ${NATIVE_CFLAGS:-} "${_diag_zstd_src}" -o "${_diag_zstd_exe}" -L"${PREFIX}/Library/lib" -lzstd ${NATIVE_LDFLAGS:-} > "${_diag_zstd_log}" 2>&1
-    _diag_zstd_rc=$?
-    set -e
-    if [[ ${_diag_zstd_rc} -eq 0 ]]; then
-      echo "  [DIAG]   zstd link SUCCEEDED (exit ${_diag_zstd_rc})"
-    else
-      echo "  [DIAG]   zstd link FAILED (exit ${_diag_zstd_rc}) - see ${_diag_zstd_log##*/}"
-      tail -100 "${_diag_zstd_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
-    fi
-
-    # PROBE D: escalate synthetic object count to test whether the link
-    # failure tracks object COUNT / command-line length rather than object
-    # identity. Use make -n to capture the ocamlruns.exe link command since
-    # ordinary make only prints the MKEXE banner, never the arguments.
-    echo "  [DIAG] probe D: object-count escalation and ocamlruns.exe dry-run"
-
-    echo "  [DIAG]   part D1: synthetic object-count escalation"
-    _diag_d_dir="${LOG_DIR}/diag_scale"
-    mkdir -p "${_diag_d_dir}" || true
-    set +e
-    _diag_d_failed_compiles=0
-    _diag_d_first_failed_log=""
-    for _diag_d_i in $(seq 0 255); do
-      printf 'int _diag_d_func_%d(void) { return %d; }\n' "${_diag_d_i}" "${_diag_d_i}" > "${_diag_d_dir}/obj_${_diag_d_i}.c"
-      "${NATIVE_CC}" ${NATIVE_CFLAGS:-} -c "${_diag_d_dir}/obj_${_diag_d_i}.c" -o "${_diag_d_dir}/obj_${_diag_d_i}.obj" > "${_diag_d_dir}/compile_${_diag_d_i}.log" 2>&1
-      _diag_d_rc=$?
-      if [[ ${_diag_d_rc} -ne 0 ]]; then
-        (( _diag_d_failed_compiles++ ))
-        if [[ -z "${_diag_d_first_failed_log}" ]]; then
-          _diag_d_first_failed_log="${_diag_d_dir}/compile_${_diag_d_i}.log"
-        fi
-      fi
-    done
-    printf 'int main(void) { return 0; }\n' > "${_diag_d_dir}/main.c"
-    "${NATIVE_CC}" ${NATIVE_CFLAGS:-} -c "${_diag_d_dir}/main.c" -o "${_diag_d_dir}/main.obj" > "${_diag_d_dir}/compile_main.log" 2>&1
-    _diag_d_rc=$?
-    if [[ ${_diag_d_rc} -ne 0 ]]; then
-      (( _diag_d_failed_compiles++ ))
-      if [[ -z "${_diag_d_first_failed_log}" ]]; then
-        _diag_d_first_failed_log="${_diag_d_dir}/compile_main.log"
-      fi
-    fi
-    set -e
-    echo "  [DIAG]     compiled 257 objects, ${_diag_d_failed_compiles} failed"
-    if [[ -n "${_diag_d_first_failed_log}" && -f "${_diag_d_first_failed_log}" ]]; then
-      tail -20 "${_diag_d_first_failed_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
-    fi
-
-    for _diag_d_count in 1 16 64 128 256; do
-      _diag_d_objs=()
-      for _diag_d_i in $(seq 0 $((_diag_d_count - 1))); do
-        _diag_d_objs+=("${_diag_d_dir}/obj_${_diag_d_i}.obj")
-      done
-      _diag_d_objs+=("${_diag_d_dir}/main.obj")
-      _diag_d_exe="${_diag_d_dir}/link_${_diag_d_count}.exe"
-      _diag_d_log="${_diag_d_dir}/link_${_diag_d_count}.log"
-      _diag_d_cmdstr="${NATIVE_CC} ${NATIVE_CFLAGS:-} ${_diag_d_objs[*]} -o ${_diag_d_exe} ${NATIVE_LDFLAGS:-}"
-      _diag_d_cmdlen=${#_diag_d_cmdstr}
-      set +e
-      "${NATIVE_CC}" ${NATIVE_CFLAGS:-} "${_diag_d_objs[@]}" -o "${_diag_d_exe}" ${NATIVE_LDFLAGS:-} > "${_diag_d_log}" 2>&1
-      _diag_d_rc=$?
-      set -e
-      echo "  [DIAG]     objects=${_diag_d_count} exit=${_diag_d_rc} cmdlen=${_diag_d_cmdlen}"
-      if [[ ${_diag_d_rc} -ne 0 ]]; then
-        tail -40 "${_diag_d_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
-      fi
-    done
-
-    echo "  [DIAG]   part D2: ocamlruns.exe make -n dry run"
+    # PROBE D2: dry-run the ocamlruns.exe link recipe via make -n to capture
+    # the exact command, since ordinary make only prints the MKEXE banner,
+    # never the arguments.
+    echo "  [DIAG] probe D2: ocamlruns.exe make -n dry run"
     _diag_d_dryrun_log="${LOG_DIR}/diag_ocamlruns_dryrun.log"
     set +e
     "${MAKE[@]}" -n runtime/ocamlruns.exe > "${_diag_d_dryrun_log}" 2>&1
@@ -721,6 +636,102 @@ build_native() {
       fi
     done <<< "${_diag_d_ocamlruns_lines}"
     echo "  [DIAG]     longest ocamlruns-related line length=${_diag_d_maxlen} chars"
+
+    # PROBE E: probe B's link succeeds at 359 chars while the real
+    # ocamlruns.exe link (281 chars) panics, so command-line size is not the
+    # trigger. Add probe B's untested arguments to its baseline one at a
+    # time to isolate which argument zig's linker cannot handle.
+    echo "  [DIAG] probe E: incremental argument isolation on probe B's baseline"
+    _diag_e_dir="${LOG_DIR}/diag_e"
+    mkdir -p "${_diag_e_dir}" || true
+    _diag_e_main_c="${_diag_e_dir}/main.c"
+    _diag_e_main_obj="${_diag_e_dir}/main.obj"
+    printf 'int main(void) { return 0; }\n' > "${_diag_e_main_c}" || true
+    set +e
+    "${NATIVE_CC}" "${_diag_cflags[@]+"${_diag_cflags[@]}"}" -c "${_diag_e_main_c}" -o "${_diag_e_main_obj}" > "${_diag_e_dir}/compile_main.log" 2>&1
+    _diag_e_main_rc=$?
+    set -e
+
+    if [[ ${_diag_e_main_rc} -ne 0 ]]; then
+      echo "  [DIAG]     probe E: main.obj compile FAILED (exit ${_diag_e_main_rc}), skipping E0-E6"
+      tail -30 "${_diag_e_dir}/compile_main.log" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
+    else
+      # Build one static archive, then copy its bytes verbatim to a .lib
+      # name, so E2a and E2b test only the extension the linker dispatches
+      # on rather than any content difference.
+      _diag_e_ar_dir="${_diag_e_dir}/ar_src"
+      mkdir -p "${_diag_e_ar_dir}" || true
+      printf 'int _diag_e_sym1(void) { return 1; }\n' > "${_diag_e_ar_dir}/a1.c"
+      printf 'int _diag_e_sym2(void) { return 2; }\n' > "${_diag_e_ar_dir}/a2.c"
+      set +e
+      "${NATIVE_CC}" "${_diag_cflags[@]+"${_diag_cflags[@]}"}" -c "${_diag_e_ar_dir}/a1.c" -o "${_diag_e_ar_dir}/a1.obj" > "${_diag_e_ar_dir}/compile_a1.log" 2>&1
+      _diag_e_a1_rc=$?
+      "${NATIVE_CC}" "${_diag_cflags[@]+"${_diag_cflags[@]}"}" -c "${_diag_e_ar_dir}/a2.c" -o "${_diag_e_ar_dir}/a2.obj" > "${_diag_e_ar_dir}/compile_a2.log" 2>&1
+      _diag_e_a2_rc=$?
+      set -e
+
+      _diag_e_have_archive=0
+      if [[ ${_diag_e_a1_rc} -eq 0 && ${_diag_e_a2_rc} -eq 0 ]]; then
+        set +e
+        "${NATIVE_AR}" rcs "${_diag_e_dir}/libdiag_e.a" "${_diag_e_ar_dir}/a1.obj" "${_diag_e_ar_dir}/a2.obj" > "${_diag_e_dir}/ar.log" 2>&1
+        _diag_e_ar_rc=$?
+        set -e
+        if [[ ${_diag_e_ar_rc} -eq 0 ]]; then
+          cp "${_diag_e_dir}/libdiag_e.a" "${_diag_e_dir}/libdiag_e.lib" || true
+          _diag_e_have_archive=1
+        else
+          echo "  [DIAG]     probe E: archiver FAILED (exit ${_diag_e_ar_rc}), skipping E2a/E2b"
+          tail -20 "${_diag_e_dir}/ar.log" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
+        fi
+      else
+        echo "  [DIAG]     probe E: archive member compile failed, skipping E2a/E2b"
+      fi
+
+      _diag_e_labels=("E0 baseline")
+      _diag_e_labels+=("E1 baseline + -municode")
+      if [[ ${_diag_e_have_archive} -eq 1 ]]; then
+        _diag_e_labels+=("E2a baseline + libdiag_e.a")
+        _diag_e_labels+=("E2b baseline + libdiag_e.lib")
+      fi
+      _diag_e_labels+=("E3 baseline + -l:libpthread.a")
+      _diag_e_labels+=("E4 baseline + -lgcc_eh")
+      _diag_e_labels+=("E5 baseline + syslibs")
+
+      # E6 is the control: if it panics, the reconstruction is faithful and
+      # whichever of E1-E5 also panicked is the culprit; if E6 is clean, the
+      # trigger involves the real prims.obj/libcamlrun content rather than
+      # these flags.
+      _diag_e_labels+=("E6 baseline + all")
+
+      for _diag_e_label in "${_diag_e_labels[@]}"; do
+        _diag_e_tag="${_diag_e_label%% *}"
+        _diag_e_args=()
+        case "${_diag_e_tag}" in
+          E0) ;;
+          E1) _diag_e_args=("-municode") ;;
+          E2a) _diag_e_args=("${_diag_e_dir}/libdiag_e.a") ;;
+          E2b) _diag_e_args=("${_diag_e_dir}/libdiag_e.lib") ;;
+          E3) _diag_e_args=("-l:libpthread.a") ;;
+          E4) _diag_e_args=("-lgcc_eh") ;;
+          E5) _diag_e_args=("-lws2_32" "-lole32" "-luuid" "-lversion" "-lshlwapi" "-lsynchronization") ;;
+          E6)
+            _diag_e_args=("-municode" "-l:libpthread.a" "-lgcc_eh" "-lws2_32" "-lole32" "-luuid" "-lversion" "-lshlwapi" "-lsynchronization")
+            if [[ ${_diag_e_have_archive} -eq 1 ]]; then
+              _diag_e_args+=("${_diag_e_dir}/libdiag_e.a" "${_diag_e_dir}/libdiag_e.lib")
+            fi
+            ;;
+        esac
+        _diag_e_log="${_diag_e_dir}/link_${_diag_e_tag}.log"
+        set +e
+        "${NATIVE_CC}" "${_diag_cflags[@]+"${_diag_cflags[@]}"}" "${_diag_e_main_obj}" "${_diag_e_args[@]+"${_diag_e_args[@]}"}" -o "${_diag_e_dir}/link_${_diag_e_tag}.exe" "${_diag_ldflags[@]+"${_diag_ldflags[@]}"}" > "${_diag_e_log}" 2>&1
+        _diag_e_rc=$?
+        set -e
+        echo "  [DIAG]     ${_diag_e_label}: exit=${_diag_e_rc}"
+        if [[ ${_diag_e_rc} -ne 0 ]]; then
+          tail -30 "${_diag_e_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
+        fi
+      done
+    fi
 
     echo "  ------------------------------------------------------------"
   fi
