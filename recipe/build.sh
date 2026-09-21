@@ -639,8 +639,9 @@ build_native() {
 
     # PROBE E: probe B's link succeeds at 359 chars while the real
     # ocamlruns.exe link (281 chars) panics, so command-line size is not the
-    # trigger. Add probe B's untested arguments to its baseline one at a
-    # time to isolate which argument zig's linker cannot handle.
+    # trigger. E3 reproduces the panic with the exact token configure emits
+    # (-l:libpthread.a); E7/E8 test the two GNU-style replacement spellings
+    # so the fix step below can pick whichever one actually links.
     echo "  [DIAG] probe E: incremental argument isolation on probe B's baseline"
     _diag_e_dir="${LOG_DIR}/diag_e"
     mkdir -p "${_diag_e_dir}" || true
@@ -652,74 +653,30 @@ build_native() {
     _diag_e_main_rc=$?
     set -e
 
+    # Exit codes for the two pthread replacement candidates, read by the
+    # fix step below (outside this diagnostic block). Default to failure
+    # so a skipped probe (main.obj compile failure) is treated as "did
+    # not link" rather than silently picking a replacement.
+    _diag_e7_rc=1
+    _diag_e8_rc=1
+
     if [[ ${_diag_e_main_rc} -ne 0 ]]; then
-      echo "  [DIAG]     probe E: main.obj compile FAILED (exit ${_diag_e_main_rc}), skipping E0-E6"
+      echo "  [DIAG]     probe E: main.obj compile FAILED (exit ${_diag_e_main_rc}), skipping E0/E3/E7/E8"
       tail -30 "${_diag_e_dir}/compile_main.log" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
     else
-      # Build one static archive, then copy its bytes verbatim to a .lib
-      # name, so E2a and E2b test only the extension the linker dispatches
-      # on rather than any content difference.
-      _diag_e_ar_dir="${_diag_e_dir}/ar_src"
-      mkdir -p "${_diag_e_ar_dir}" || true
-      printf 'int _diag_e_sym1(void) { return 1; }\n' > "${_diag_e_ar_dir}/a1.c"
-      printf 'int _diag_e_sym2(void) { return 2; }\n' > "${_diag_e_ar_dir}/a2.c"
-      set +e
-      "${NATIVE_CC}" "${_diag_cflags[@]+"${_diag_cflags[@]}"}" -c "${_diag_e_ar_dir}/a1.c" -o "${_diag_e_ar_dir}/a1.obj" > "${_diag_e_ar_dir}/compile_a1.log" 2>&1
-      _diag_e_a1_rc=$?
-      "${NATIVE_CC}" "${_diag_cflags[@]+"${_diag_cflags[@]}"}" -c "${_diag_e_ar_dir}/a2.c" -o "${_diag_e_ar_dir}/a2.obj" > "${_diag_e_ar_dir}/compile_a2.log" 2>&1
-      _diag_e_a2_rc=$?
-      set -e
-
-      _diag_e_have_archive=0
-      if [[ ${_diag_e_a1_rc} -eq 0 && ${_diag_e_a2_rc} -eq 0 ]]; then
-        set +e
-        "${NATIVE_AR}" rcs "${_diag_e_dir}/libdiag_e.a" "${_diag_e_ar_dir}/a1.obj" "${_diag_e_ar_dir}/a2.obj" > "${_diag_e_dir}/ar.log" 2>&1
-        _diag_e_ar_rc=$?
-        set -e
-        if [[ ${_diag_e_ar_rc} -eq 0 ]]; then
-          cp "${_diag_e_dir}/libdiag_e.a" "${_diag_e_dir}/libdiag_e.lib" || true
-          _diag_e_have_archive=1
-        else
-          echo "  [DIAG]     probe E: archiver FAILED (exit ${_diag_e_ar_rc}), skipping E2a/E2b"
-          tail -20 "${_diag_e_dir}/ar.log" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
-        fi
-      else
-        echo "  [DIAG]     probe E: archive member compile failed, skipping E2a/E2b"
-      fi
-
       _diag_e_labels=("E0 baseline")
-      _diag_e_labels+=("E1 baseline + -municode")
-      if [[ ${_diag_e_have_archive} -eq 1 ]]; then
-        _diag_e_labels+=("E2a baseline + libdiag_e.a")
-        _diag_e_labels+=("E2b baseline + libdiag_e.lib")
-      fi
       _diag_e_labels+=("E3 baseline + -l:libpthread.a")
-      _diag_e_labels+=("E4 baseline + -lgcc_eh")
-      _diag_e_labels+=("E5 baseline + syslibs")
-
-      # E6 is the control: if it panics, the reconstruction is faithful and
-      # whichever of E1-E5 also panicked is the culprit; if E6 is clean, the
-      # trigger involves the real prims.obj/libcamlrun content rather than
-      # these flags.
-      _diag_e_labels+=("E6 baseline + all")
+      _diag_e_labels+=("E7 baseline + -lpthread")
+      _diag_e_labels+=("E8 baseline + -lwinpthread")
 
       for _diag_e_label in "${_diag_e_labels[@]}"; do
         _diag_e_tag="${_diag_e_label%% *}"
         _diag_e_args=()
         case "${_diag_e_tag}" in
           E0) ;;
-          E1) _diag_e_args=("-municode") ;;
-          E2a) _diag_e_args=("${_diag_e_dir}/libdiag_e.a") ;;
-          E2b) _diag_e_args=("${_diag_e_dir}/libdiag_e.lib") ;;
           E3) _diag_e_args=("-l:libpthread.a") ;;
-          E4) _diag_e_args=("-lgcc_eh") ;;
-          E5) _diag_e_args=("-lws2_32" "-lole32" "-luuid" "-lversion" "-lshlwapi" "-lsynchronization") ;;
-          E6)
-            _diag_e_args=("-municode" "-l:libpthread.a" "-lgcc_eh" "-lws2_32" "-lole32" "-luuid" "-lversion" "-lshlwapi" "-lsynchronization")
-            if [[ ${_diag_e_have_archive} -eq 1 ]]; then
-              _diag_e_args+=("${_diag_e_dir}/libdiag_e.a" "${_diag_e_dir}/libdiag_e.lib")
-            fi
-            ;;
+          E7) _diag_e_args=("-lpthread") ;;
+          E8) _diag_e_args=("-lwinpthread") ;;
         esac
         _diag_e_log="${_diag_e_dir}/link_${_diag_e_tag}.log"
         set +e
@@ -730,10 +687,53 @@ build_native() {
         if [[ ${_diag_e_rc} -ne 0 ]]; then
           tail -30 "${_diag_e_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
         fi
+        if [[ "${_diag_e_tag}" == "E7" ]]; then
+          _diag_e7_rc=${_diag_e_rc}
+        elif [[ "${_diag_e_tag}" == "E8" ]]; then
+          _diag_e8_rc=${_diag_e_rc}
+        fi
       done
     fi
 
+    # What did configure actually generate? Show every pthread-related line
+    # in Makefile.config so the exact variable carrying the panic token is
+    # visible next to the probe results above. grep exits 1 on no match,
+    # which set -euo pipefail would otherwise treat as fatal.
+    echo "  [DIAG] Makefile.config pthread lines"
+    if [[ -f "Makefile.config" ]]; then
+      grep -n 'pthread' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG]   /' || echo "  [DIAG]   (no pthread lines found)"
+    else
+      echo "  [DIAG]   Makefile.config not found"
+    fi
+
     echo "  ------------------------------------------------------------"
+  fi
+
+  # ============================================================================
+  # FIX (fatal-eligible): win-arm64 zig pthread linker panic
+  # ============================================================================
+  # zig 0.17 panics on aarch64-w64-mingw32 when given the GNU exact-filename
+  # argument -l:libpthread.a (see probe E above). Upstream OCaml's configure
+  # emits that exact token into Makefile.config. Replace it with whichever
+  # of -lpthread / -lwinpthread probe E proved links cleanly on this
+  # toolchain; if neither did, leave Makefile.config untouched and warn.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    _pthread_replacement=""
+    if [[ "${_diag_e7_rc:-1}" -eq 0 ]]; then
+      _pthread_replacement="-lpthread"
+    elif [[ "${_diag_e8_rc:-1}" -eq 0 ]]; then
+      _pthread_replacement="-lwinpthread"
+    fi
+
+    if [[ -z "${_pthread_replacement}" ]]; then
+      echo "  [FIX] WARNING: neither -lpthread nor -lwinpthread linked cleanly in probe E; leaving -l:libpthread.a in Makefile.config unchanged"
+    elif [[ ! -f "Makefile.config" ]]; then
+      echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a with ${_pthread_replacement}"
+    else
+      echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
+      sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
+      grep -n -F -e "${_pthread_replacement}" "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
+    fi
   fi
 
   if [[ "${target_platform}" == "win-arm64" ]]; then
