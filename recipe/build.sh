@@ -615,6 +615,35 @@ build_native() {
       echo "  [DIAG]   trivial link FAILED (exit ${_diag_rc}) - see ${_diag_log##*/}"
       tail -100 "${_diag_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
     fi
+
+    # PROBE C: locate the libzstd artifacts and attempt a link that
+    # actually references a zstd symbol. libzstd on this lane is
+    # conda-forge's stock prebuilt win-arm64 binary, built by a different
+    # toolchain than the zig cc that emits every other input to the
+    # MKEXE step - this checks whether that mismatch is what the linker
+    # cannot consume.
+    echo "  [DIAG] probe C: libzstd artifacts and zstd-symbol link"
+    set +e
+    while IFS= read -r -d '' _diag_lib; do
+      _diag_sz=$(stat -c '%s' "${_diag_lib}" 2>/dev/null || stat -f '%z' "${_diag_lib}" 2>/dev/null || echo "unknown")
+      echo "  [DIAG]   ${_diag_lib} : ${_diag_sz} bytes"
+    done < <(find "${PREFIX}" \( -name 'libzstd.*' -o -name 'zstd.*' \) -print0 2>/dev/null)
+    set -e
+
+    _diag_zstd_src="${LOG_DIR}/diag_zstd_link.c"
+    _diag_zstd_exe="${LOG_DIR}/diag_zstd_link.exe"
+    _diag_zstd_log="${LOG_DIR}/diag_zstd_link.log"
+    printf 'unsigned ZSTD_versionNumber(void);\nint main(void) { return ZSTD_versionNumber() == 0; }\n' > "${_diag_zstd_src}" || true
+    set +e
+    "${NATIVE_CC}" ${NATIVE_CFLAGS:-} "${_diag_zstd_src}" -o "${_diag_zstd_exe}" -L"${PREFIX}/Library/lib" -lzstd ${NATIVE_LDFLAGS:-} > "${_diag_zstd_log}" 2>&1
+    _diag_zstd_rc=$?
+    set -e
+    if [[ ${_diag_zstd_rc} -eq 0 ]]; then
+      echo "  [DIAG]   zstd link SUCCEEDED (exit ${_diag_zstd_rc})"
+    else
+      echo "  [DIAG]   zstd link FAILED (exit ${_diag_zstd_rc}) - see ${_diag_zstd_log##*/}"
+      tail -100 "${_diag_zstd_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
+    fi
     echo "  ------------------------------------------------------------"
   fi
 
