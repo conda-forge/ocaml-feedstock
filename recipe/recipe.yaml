@@ -268,6 +268,12 @@ outputs:
         # no win-arm64 build exists; that lane is bytecode-only and needs no native binutils
         - if: build_platform != "win-arm64"
           then: binutils
+        # zig snapshot 2131; build numbers are not monotonic across snapshots here,
+        # so an unconstrained spec resolves to the older 2056 rebuild
+        - if: cross_target_platform_ == "win-arm64"
+          then:
+            - zig_win-arm64 0.17.* *_2131_*
+            - zig_impl_win-arm64 0.17.* *_2131_*
 
         # --- CROSS-COMPILER: Target platform toolchain ---
         # Guard (cross_target_platform_ != build_platform) prevents self-referenced cycle detection

@@ -575,6 +575,50 @@ build_native() {
   # ============================================================================
 
   if [[ "${target_platform}" == "win-arm64" ]]; then
+    # ==========================================================================
+    # DIAGNOSTIC (non-fatal): win-arm64 zig link probes
+    # ==========================================================================
+    # zig 0.17 aborts with an internal panic at the MKEXE step that links
+    # runtime/ocamlruns.exe. These probes narrow the trigger and MUST NOT be
+    # allowed to fail the build - every command here is guarded so a probe
+    # failure cannot abort the lane before the real make step runs.
+    echo "  ------------------------------------------------------------"
+    echo "  [DIAG] win-arm64 zig link diagnostics (non-fatal)"
+    echo "  ------------------------------------------------------------"
+
+    # PROBE A: locate the aarch64 mingw runtime archives and report their
+    # size. Reference point: a healthy libmingw32 archive is roughly 10MB;
+    # a few hundred KB would indicate a stub/placeholder archive.
+    echo "  [DIAG] probe A: mingw runtime archive sizes (healthy libmingw32 ~= 10MB)"
+    set +e
+    while IFS= read -r -d '' _diag_lib; do
+      _diag_sz=$(stat -c '%s' "${_diag_lib}" 2>/dev/null || stat -f '%z' "${_diag_lib}" 2>/dev/null || echo "unknown")
+      echo "  [DIAG]   ${_diag_lib} : ${_diag_sz} bytes"
+    done < <(find "${BUILD_PREFIX}" \( -name 'libmingw32.*' -o -name 'libmingwex.*' -o -name 'libucrt.*' -o -name 'libwinpthread.*' \) -print0 2>/dev/null)
+    set -e
+
+    # PROBE B: link a trivial C program with the same compiler and flags
+    # the real build uses, to check whether zig can link anything at all
+    # on this host/input combination.
+    echo "  [DIAG] probe B: trivial link with NATIVE_CC/NATIVE_CFLAGS/NATIVE_LDFLAGS"
+    _diag_src="${LOG_DIR}/diag_trivial_link.c"
+    _diag_exe="${LOG_DIR}/diag_trivial_link.exe"
+    _diag_log="${LOG_DIR}/diag_trivial_link.log"
+    printf 'int main(void) { return 0; }\n' > "${_diag_src}" || true
+    set +e
+    "${NATIVE_CC}" ${NATIVE_CFLAGS:-} "${_diag_src}" -o "${_diag_exe}" ${NATIVE_LDFLAGS:-} > "${_diag_log}" 2>&1
+    _diag_rc=$?
+    set -e
+    if [[ ${_diag_rc} -eq 0 ]]; then
+      echo "  [DIAG]   trivial link SUCCEEDED (exit ${_diag_rc})"
+    else
+      echo "  [DIAG]   trivial link FAILED (exit ${_diag_rc}) - see ${_diag_log##*/}"
+      tail -100 "${_diag_log}" 2>/dev/null | sed 's/^/  [DIAG]   /' || true
+    fi
+    echo "  ------------------------------------------------------------"
+  fi
+
+  if [[ "${target_platform}" == "win-arm64" ]]; then
     # configured with --disable-native-compiler, so world.opt has nothing to build
     echo "  [3/4] Compiling bytecode compiler"
     run_logged "world" "${MAKE[@]}" world "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
