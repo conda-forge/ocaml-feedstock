@@ -97,11 +97,27 @@ source:
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
+      # Teaches configure to accept the aarch64-w64-mingw32 triple and select
+      # the mingw64arm flexdll chain.
+      - if: not unix
+        then: patches/add-aarch64-w64-mingw32-support.patch
   - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
+      patches:
+        # Adds the mingw64arm chain and build target to flexdll.
+        - patches/flexdll-add-mingw64arm-support.patch
+        # Modern windres rejects the FLEXDLL_FULL_VERSION macro expansion in
+        # version.rc VALUE entries.
+        - patches/flexdll-version-rc-windres-syntax-fix.patch
+        # OCaml's root Makefile expects .obj aliases for the mingw64 chain;
+        # flexdll only produces .o.
+        - patches/flexdll-makefile-obj-extension-for-mingw64.patch
+        # Guards flexdll's parse-time ocamlopt -version / -where shell probes
+        # so they can be supplied via env.
+        - patches/flexdll-makefile-skip-ocamlopt-probes.patch
   - if: not unix and c_compiler == "vs2022"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz

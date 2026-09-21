@@ -547,9 +547,11 @@ build_native() {
   elif [[ "${target_platform}" != "linux"* ]] && [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
     local config_file="Makefile.config"
 
-    # non-unix: Fix flexlink toolchain detection
-    sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
-    sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
+    # non-unix: Fix flexlink toolchain detection; the chain follows the target architecture
+    local flexdll_chain=mingw64
+    [[ "${target_platform}" == "win-arm64" ]] && flexdll_chain=mingw64arm
+    sed -i "s/^TOOLCHAIN.*/TOOLCHAIN=${flexdll_chain}/" "$config_file"
+    sed -i "s/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=${flexdll_chain}/" "$config_file"
 
     # Fix $(addprefix -link ,$(OC_LDFLAGS)) generating garbage when empty
     # Use $(if $(strip ...)) to guard against empty/whitespace-only values
