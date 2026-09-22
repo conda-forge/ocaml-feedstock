@@ -121,6 +121,9 @@ source:
         # Guards flexdll's parse-time ocamlopt -version / -where shell probes
         # so they can be supplied via env.
         - patches/flexdll-makefile-skip-ocamlopt-probes.patch
+        # zig's windres wrapper forwards -i to resinator as an include dir, not
+        # the input file; the patch gates positional input to the mingw64arm chain.
+        - patches/flexdll-windres-positional-input-win-arm64.patch
   - if: not unix and c_compiler == "vs2022"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
