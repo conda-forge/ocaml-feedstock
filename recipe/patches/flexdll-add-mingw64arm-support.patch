@@ -147,7 +147,7 @@ diff -ruN a/Makefile b/Makefile
  	$(MIN64CC) $(GCC_FLAGS) -DMINGW -c -o $@ $<
  
 +flexdll_mingw64arm.obj: flexdll.c flexdll.h
-+	$(CC) $(GCC_FLAGS) -DMINGW -c -o $@ $<
++	$(CC) $(GCC_FLAGS) -DMINGW -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe -c -o $@ $<
 +
  flexdll_initer_msvc.obj: flexdll_initer.c
  	$(MSVC_PREFIX) $(MSVCC) $(MSVC_FLAGS) -c /Fo"$@" $<
@@ -157,7 +157,7 @@ diff -ruN a/Makefile b/Makefile
  	$(MIN64CC) $(GCC_FLAGS) -c -o $@ $<
  
 +flexdll_initer_mingw64arm.obj: flexdll_initer.c
-+	$(CC) $(GCC_FLAGS) -c -o $@ $<
++	$(CC) $(GCC_FLAGS) -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe -c -o $@ $<
 +
  
  demo_msvc: flexlink.exe flexdll_msvc.obj flexdll_initer_msvc.obj

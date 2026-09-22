@@ -867,38 +867,6 @@ build_native() {
       echo "  [DIAG imports]   ${_imports_dir}"
     done
 
-    # Bounded symbol search: confined to just the libarm64 and lib-common
-    # mingw import-lib dirs, not the whole zig tree, so this diagnostic probe
-    # stays cheap.
-    _imports_dirscan_dirs=()
-    for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
-      if [[ "${_imports_dir}" == */libarm64 || "${_imports_dir}" == */lib-common ]]; then
-        _imports_dirscan_dirs+=("${_imports_dir}")
-      fi
-    done
-    for _imports_dirscan_symbol in WSASocketW getaddrinfo freeaddrinfo __isnan pthread_spin_lock; do
-      _imports_dirscan_owner=""
-      if [[ -n "${_imports_nm}" ]]; then
-        set +e
-        for _imports_dirscan_dir in "${_imports_dirscan_dirs[@]+"${_imports_dirscan_dirs[@]}"}"; do
-          for _imports_dirscan_archive in "${_imports_dirscan_dir}"/*.a; do
-            [[ -f "${_imports_dirscan_archive}" ]] || continue
-            _imports_dirscan_hit=$("${_imports_nm}" --defined-only "${_imports_dirscan_archive}" 2>/dev/null | grep " ${_imports_dirscan_symbol}$" 2>/dev/null | head -1)
-            if [[ -n "${_imports_dirscan_hit}" ]]; then
-              _imports_dirscan_owner="$(basename "${_imports_dirscan_archive}")"
-              break 2
-            fi
-          done
-        done
-        set -e
-      fi
-      if [[ -n "${_imports_dirscan_owner}" ]]; then
-        echo "  [DIAG imports] dirscan: ${_imports_dirscan_symbol} -> ${_imports_dirscan_owner}"
-      else
-        echo "  [DIAG imports] dirscan: ${_imports_dirscan_symbol} -> NOT FOUND"
-      fi
-    done
-
     _imports_stage_dir="${BUILD_PREFIX}/Library/lib/ocaml-arm64-imports"
     _imports_tmp_dir="${_imports_stage_dir}/.tmp"
     _imports_generated=0
@@ -1250,29 +1218,6 @@ build_native() {
       grep -n -E '^(CFLAGS|OC_CFLAGS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (no CFLAGS/OC_CFLAGS lines found)"
     else
       echo "  [FIX] ERROR: Makefile.config not found, cannot append -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe"
-    fi
-  fi
-
-  # ============================================================================
-  # FIX: win-arm64 flexdll build needs the same disabled features
-  # ============================================================================
-  # flexdll compiles its own mingw64arm chain object (flexdll_mingw64arm.obj)
-  # through a hardcoded compile rule in its own Makefile that ignores CFLAGS
-  # entirely, so the sanitizer, stack-protector and stack-probe helpers it
-  # references are unresolvable at link time unless the flags are sedded
-  # directly into that rule. flexdll is built as part of the world target
-  # below (--with-flexdll).
-  if [[ "${target_platform}" == "win-arm64" ]]; then
-    _flexdll_makefile="flexdll/Makefile"
-    if [[ -f "${_flexdll_makefile}" ]]; then
-      echo "  [DIAG imports] flexdll Makefile: ${_flexdll_makefile}"
-      echo "  [DIAG imports] flexdll compile rule (before)"
-      grep -n -F -- '-Wall -DMINGW' "${_flexdll_makefile}" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (pattern not found)"
-      sed -i 's/-Wall -DMINGW/-Wall -DMINGW -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe/g' "${_flexdll_makefile}" || true
-      echo "  [DIAG imports] flexdll compile rule (after)"
-      grep -n -F -- '-Wall -DMINGW' "${_flexdll_makefile}" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (pattern not found)"
-    else
-      echo "  [DIAG imports] ERROR: ${_flexdll_makefile} not found, cannot patch flexdll compile rule"
     fi
   fi
 
