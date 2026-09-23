@@ -1500,6 +1500,20 @@ C_EOF
   fi
 
   # ============================================================================
+  # DIAGNOSTIC (non-fatal): win-arm64 OCaml runtime entry point
+  # ============================================================================
+  # OCaml's entry point is wmain via the main_os macro, so the link keeps
+  # -municode. This records that entry point in the log.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    if [[ -f "runtime/main.c" ]]; then
+      echo "  [DIAG] runtime/main.c entry point lines"
+      grep -nE 'main_os|wmain|int main' runtime/main.c | head -20 | sed 's/^/  [DIAG]   /' || echo "  [DIAG]   (no main_os/wmain/int main matches found)"
+    else
+      echo "  [DIAG] runtime/main.c not found"
+    fi
+  fi
+
+  # ============================================================================
   # DIAGNOSTIC (non-fatal): win-arm64 flexlink compiler name resolution
   # ============================================================================
   # flexlink.exe, built as part of "make world" below, shells out to whichever
@@ -1522,7 +1536,43 @@ C_EOF
     # V=1 and VERBOSE=1 (OCaml's build system has used both spellings) force
     # quiet-mode rules like MKEXE to echo their full command lines, so the
     # actual link command for runtime/ocamlrun.exe becomes visible in the log.
-    run_logged "world" "${MAKE[@]}" world V=1 VERBOSE=1 "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
+    if run_logged "world" "${MAKE[@]}" world V=1 VERBOSE=1 "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"; then
+      :
+    else
+      _world_rc=$?
+      # ========================================================================
+      # DIAGNOSTIC (post-failure): does runtime/libcamlrun.lib carry the entry
+      # point flexlink's -municode link is looking for (main_os/wmain/
+      # WinMain), or does it fall through to libwinpthread.a because the
+      # archive never defines one? _imports_nm/_imports_ar are resolved above
+      # in the ar/nm availability probes.
+      # ========================================================================
+      echo "  [DIAG entry] make world failed (${_world_rc}), probing runtime entry point"
+      if [[ -f "runtime/libcamlrun.lib" ]]; then
+        if [[ -n "${_imports_nm}" ]]; then
+          echo "  [DIAG entry] runtime/libcamlrun.lib symbols matching main_os/wmain/WinMain/main"
+          "${_imports_nm}" runtime/libcamlrun.lib 2>/dev/null | grep -E 'main_os|wmain|WinMain| main$' | head -20 | sed 's/^/  [DIAG entry]   /' || echo "  [DIAG entry]   (no main_os/wmain/WinMain/main matches found)"
+        else
+          echo "  [DIAG entry] no nm resolved, skipping symbol probe"
+        fi
+        if [[ -n "${_imports_ar}" ]]; then
+          echo "  [DIAG entry] runtime/libcamlrun.lib members matching main"
+          "${_imports_ar}" t runtime/libcamlrun.lib 2>/dev/null | grep -E '^main|main\.' | head -10 | sed 's/^/  [DIAG entry]   /' || echo "  [DIAG entry]   (no members matching main found)"
+        else
+          echo "  [DIAG entry] no ar resolved, skipping member listing"
+        fi
+      else
+        echo "  [DIAG entry] runtime/libcamlrun.lib not found"
+      fi
+      for _entry_obj in runtime/main.obj runtime/main.o; do
+        if [[ -f "${_entry_obj}" ]]; then
+          echo "  [DIAG entry] ${_entry_obj} found"
+        else
+          echo "  [DIAG entry] ${_entry_obj} not found"
+        fi
+      done
+      return ${_world_rc}
+    fi
   else
     echo "  [3/4] Compiling native compiler"
     run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
