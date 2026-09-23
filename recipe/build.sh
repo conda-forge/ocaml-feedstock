@@ -1301,17 +1301,19 @@ ${_r30_winsock_objs}"
       fi
     fi
 
-    # Strip the mingw CRT startup shims from both staged pthread archives.
-    # crtexewin.obj/ucrtexewin.obj/crtexe.obj/ucrtexe.obj each define wmain
-    # and call wWinMain, which nothing in this link provides; left in place
-    # they outrank OCaml's own wmain in runtime/libcamlrun.lib at link time.
+    # Strip the mingw CRT startup shims and the fp reset member from both
+    # staged pthread archives. crtexewin.obj/ucrtexewin.obj/crtexe.obj/
+    # ucrtexe.obj each define wmain and call wWinMain, which nothing in this
+    # link provides; fpreset_arm64.obj defines both fpreset and _fpreset,
+    # which ucrtbase already provides. Left in place, each duplicate entry
+    # point collides with the one that should win at link time.
     if [[ -n "${_imports_ar}" ]]; then
       for _imports_crt_archive in "${_imports_winpthread_out}" "${_imports_pthread_out}"; do
         if [[ ! -f "${_imports_crt_archive}" ]]; then
           echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") not staged, skipping"
           continue
         fi
-        _imports_crt_shims=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe)\.obj$') || true
+        _imports_crt_shims=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe|fpreset_arm64)\.obj$') || true
         if [[ -z "${_imports_crt_shims}" ]]; then
           echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") none matched crt startup shim basenames"
         else
@@ -1324,7 +1326,7 @@ ${_r30_winsock_objs}"
           done <<< "${_imports_crt_shims}"
           # empty result here is the success case (no shim members remain), so
           # an empty match must not be treated as a pipeline failure
-          _imports_crt_shims_after=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe)\.obj$') || true
+          _imports_crt_shims_after=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe|fpreset_arm64)\.obj$') || true
           if [[ -z "${_imports_crt_shims_after}" ]]; then
             echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") verified clean, none matched after deletion"
           else
