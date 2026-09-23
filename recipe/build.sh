@@ -914,7 +914,8 @@ build_native() {
 
             _imports_expected_sym=""
             case "${_imports_lib}" in
-              ws2_32) _imports_expected_sym="WSAStartup" ;;
+              # arm64 ws2_32 import lib does not carry WSAStartup; wsock32 supplies that.
+              ws2_32) _imports_expected_sym="WSASocketW" ;;
               kernel32) _imports_expected_sym="CreateFileW" ;;
               user32) _imports_expected_sym="MessageBoxW" ;;
               advapi32) _imports_expected_sym="RegOpenKeyExW" ;;
@@ -935,7 +936,9 @@ build_native() {
             esac
             if [[ -n "${_imports_nm}" && -n "${_imports_expected_sym}" ]]; then
               set +e
-              _imports_verify_hit=$("${_imports_nm}" --defined-only "${_imports_out}" 2>/dev/null | grep " ${_imports_expected_sym}$" 2>/dev/null | head -1)
+              # import libs carry both a bare thunk symbol and an __imp_
+              # prefixed data symbol; accept either spelling as present.
+              _imports_verify_hit=$("${_imports_nm}" --defined-only "${_imports_out}" 2>/dev/null | grep -E " (__imp_)?${_imports_expected_sym}\$" 2>/dev/null | head -1)
               set -e
               if [[ -n "${_imports_verify_hit}" ]]; then
                 echo "  [DIAG imports] ${_imports_lib}: verify found ${_imports_expected_sym}"
@@ -999,11 +1002,20 @@ build_native() {
 
         if [[ -n "${_imports_def}" && -n "${_imports_dlltool}" ]]; then
           echo "  [DIAG imports] ${_imports_lib}: def=${_imports_def} (${_imports_def_mechanism}) (from ${_imports_def_dir:-unknown})"
+          # arm64 windows has no stdcall @N decoration, but the .def files
+          # here carry i386 stdcall spelling (WSASocketW@24). Strip a
+          # trailing @<digits> from each export line before dlltool runs, so
+          # the generated archive defines the undecorated name flexlink asks
+          # for. The end-anchored pattern leaves DATA/alias suffixed lines
+          # untouched since @N is not at end of line there.
+          _imports_def_sanitized="${_imports_tmp_dir}/${_imports_lib}.undecorated.def"
+          sed 's/@[0-9][0-9]*[[:space:]]*$//' "${_imports_def}" > "${_imports_def_sanitized}" 2>/dev/null || cp "${_imports_def}" "${_imports_def_sanitized}"
+          echo "  [DIAG imports] ${_imports_lib}: sanitized def=${_imports_def_sanitized}"
           set +e
           if [[ "${_imports_dlltool_style}" == "llvm" ]]; then
-            "${_imports_dlltool}" -m arm64 -d "${_imports_def}" -l "${_imports_out}" -D "${_imports_lib}.dll" >/dev/null 2>&1
+            "${_imports_dlltool}" -m arm64 -d "${_imports_def_sanitized}" -l "${_imports_out}" -D "${_imports_lib}.dll" >/dev/null 2>&1
           else
-            "${_imports_dlltool}" --machine arm64 --def "${_imports_def}" --output-lib "${_imports_out}" --dllname "${_imports_lib}.dll" >/dev/null 2>&1
+            "${_imports_dlltool}" --machine arm64 --def "${_imports_def_sanitized}" --output-lib "${_imports_out}" --dllname "${_imports_lib}.dll" >/dev/null 2>&1
           fi
           _imports_rc=$?
           set -e
@@ -1079,10 +1091,179 @@ build_native() {
       else
         echo "  [DIAG imports] ${_imports_lib}: not resolved by any mechanism"
       fi
+
+      # DIAG (cheap, bounded to this one archive): which mechanism produced
+      # the accepted ws2_32 archive, and whether the symbols flexlink needs
+      # from it are actually defined.
+      if [[ "${_imports_lib}" == "ws2_32" && -f "${_imports_out}" ]]; then
+        echo "  [DIAG imports] ws2_32 accepted: mechanism=${_imports_mechanism:-none}"
+        _imports_ws2_32_size=$(wc -c < "${_imports_out}" 2>/dev/null) || true
+        echo "  [DIAG imports] ws2_32 accepted: size=${_imports_ws2_32_size}"
+        if [[ -n "${_imports_nm}" ]]; then
+          for _imports_ws2_32_sym in WSASocketW getaddrinfo freeaddrinfo; do
+            set +e
+            # accept either the bare thunk symbol or its __imp_ prefixed form
+            _imports_ws2_32_hit=$("${_imports_nm}" --defined-only "${_imports_out}" 2>/dev/null | grep -E " (__imp_)?${_imports_ws2_32_sym}\$" | head -1)
+            set -e
+            if [[ -n "${_imports_ws2_32_hit}" ]]; then
+              echo "  [DIAG imports] ws2_32 accepted: ${_imports_ws2_32_sym} defined"
+            else
+              echo "  [DIAG imports] ws2_32 accepted: ${_imports_ws2_32_sym} NOT DEFINED"
+            fi
+          done
+        fi
+
+        # bounded spelling probe: raw nm lines for the three symbols, so the
+        # actual linkage form (bare thunk vs __imp_ prefixed) is visible
+        # instead of just a yes/no verdict.
+        if [[ -n "${_imports_nm}" ]]; then
+          echo "  [DIAG imports] ws2_32 spelling: accepted archive raw nm lines"
+          set +e
+          "${_imports_nm}" --defined-only "${_imports_out}" 2>/dev/null | grep -E 'WSASocket|getaddrinfo|freeaddrinfo' | head -12 | sed 's/^/  [DIAG imports]   /'
+          set -e
+          if [[ -n "${_imports_found_archive}" && -f "${_imports_found_archive}" ]]; then
+            echo "  [DIAG imports] ws2_32 spelling: discarded candidate raw nm lines (${_imports_found_archive})"
+            set +e
+            "${_imports_nm}" --defined-only "${_imports_found_archive}" 2>/dev/null | grep -E 'WSASocket|getaddrinfo|freeaddrinfo' | head -12 | sed 's/^/  [DIAG imports]   /'
+            set -e
+          else
+            echo "  [DIAG imports] ws2_32 spelling: no discarded candidate path in scope, accepted archive only"
+          fi
+        fi
+        if [[ -n "${_imports_def}" && -f "${_imports_def}" ]]; then
+          echo "  [DIAG imports] ws2_32 spelling: def source=${_imports_def}"
+          set +e
+          grep -E 'WSASocketW|getaddrinfo|freeaddrinfo' "${_imports_def}" | sed 's/^/  [DIAG imports]   /'
+          set -e
+        fi
+      fi
     done
 
     echo "  [DIAG imports] staging dir contents:"
     ls -la "${_imports_stage_dir}" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || true
+
+    # ==========================================================================
+    # DIAGNOSTIC (non-fatal, round 30): winsock/isnan/pthread_spin symbol audit
+    # ==========================================================================
+    # A prior sweep ran nm once per NOT-FOUND symbol over every archive under
+    # zig's mingw tree and cost 22 minutes. This audit only text-greps .def
+    # files and headers, and runs nm ONLY over the small set of archives
+    # already copied into the staging dir above (never over the zig tree).
+    echo "  ------------------------------------------------------------"
+    echo "  [DIAG r30] symbol audit: WSASocketW/getaddrinfo/freeaddrinfo/__isnan/pthread_spin_*"
+    echo "  ------------------------------------------------------------"
+    _r30_symbols=(WSASocketW getaddrinfo freeaddrinfo __isnan pthread_spin_lock pthread_spin_unlock pthread_spin_destroy)
+
+    # Probe A: which .def files (if any) declare each symbol. Text grep over
+    # the same ordered search dirs used for the archive/def lookup above.
+    echo "  [DIAG r30] probe A: .def declarations"
+    for _r30_sym in "${_r30_symbols[@]}"; do
+      _r30_def_files=$(grep -lrw --include='*.def' "${_r30_sym}" "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}" 2>/dev/null | head -5) || true
+      if [[ -n "${_r30_def_files}" ]]; then
+        _r30_def_list=""
+        while IFS= read -r _r30_deffile; do
+          [[ -z "${_r30_deffile}" ]] && continue
+          _r30_base="$(basename "${_r30_deffile}")"
+          if [[ -z "${_r30_def_list}" ]]; then
+            _r30_def_list="${_r30_base}"
+          else
+            _r30_def_list="${_r30_def_list}, ${_r30_base}"
+          fi
+        done <<< "${_r30_def_files}"
+        echo "  [DIAG r30] def: ${_r30_sym} -> ${_r30_def_list}"
+      else
+        echo "  [DIAG r30] def: ${_r30_sym} -> NO .def DECLARES IT"
+      fi
+    done
+
+    # Probe B: what the already-staged archives actually define. One nm pass
+    # per staged archive (not per symbol), then grep that single dump for
+    # all 7 names.
+    echo "  [DIAG r30] probe B: staged archive definitions"
+    _r30_found_syms=""
+    if [[ -n "${_imports_nm}" ]]; then
+      for _r30_staged in "${_imports_stage_dir}"/*.a; do
+        [[ -f "${_r30_staged}" ]] || continue
+        _r30_dump="${_r30_staged}.r30.defined"
+        "${_imports_nm}" --defined-only "${_r30_staged}" > "${_r30_dump}" 2>/dev/null || true
+        for _r30_sym in "${_r30_symbols[@]}"; do
+          if grep -qw "${_r30_sym}" "${_r30_dump}" 2>/dev/null; then
+            echo "  [DIAG r30] staged: ${_r30_sym} -> $(basename "${_r30_staged}")"
+            _r30_found_syms="${_r30_found_syms} ${_r30_sym}"
+          fi
+        done
+        rm -f "${_r30_dump}" 2>/dev/null || true
+      done
+      for _r30_sym in "${_r30_symbols[@]}"; do
+        case " ${_r30_found_syms} " in
+          *" ${_r30_sym} "*) ;;
+          *) echo "  [DIAG r30] staged: ${_r30_sym} -> NOT DEFINED BY ANY STAGED ARCHIVE" ;;
+        esac
+      done
+    else
+      echo "  [DIAG r30] staged: nm not available, skipping"
+    fi
+
+    # Probe C: exact undefined spellings on the objects that reference these
+    # symbols - reveals __isnan vs _isnan vs isnan, and the same for winsock.
+    echo "  [DIAG r30] probe C: undefined spellings on referencing objects"
+    _r30_float_objs=$(find "${SRC_DIR}" -type f \( -name 'floats.b.obj' -o -name 'floats.bi.obj' -o -name 'floats.bd.obj' \) 2>/dev/null) || true
+    _r30_winsock_dir="${SRC_DIR}/otherlibs/unix"
+    _r30_winsock_objs=""
+    if [[ -d "${_r30_winsock_dir}" ]]; then
+      _r30_winsock_objs=$(grep -lrE 'WSASocketW|getaddrinfo|freeaddrinfo' --include='*.obj' --include='*.o' "${_r30_winsock_dir}" 2>/dev/null) || true
+    fi
+    _r30_probe_c_objs="${_r30_float_objs}
+${_r30_winsock_objs}"
+    if [[ -n "${_imports_nm}" ]]; then
+      while IFS= read -r _r30_obj; do
+        [[ -z "${_r30_obj}" || ! -f "${_r30_obj}" ]] && continue
+        _r30_undef_lines=$("${_imports_nm}" --undefined-only "${_r30_obj}" 2>/dev/null | grep -Ei 'isnan|spin|wsa|addrinfo') || true
+        _r30_undef_list=""
+        while IFS= read -r _r30_uline; do
+          [[ -z "${_r30_uline}" ]] && continue
+          _r30_usym="${_r30_uline##* }"
+          if [[ -z "${_r30_undef_list}" ]]; then
+            _r30_undef_list="${_r30_usym}"
+          else
+            _r30_undef_list="${_r30_undef_list}, ${_r30_usym}"
+          fi
+        done <<< "${_r30_undef_lines}"
+        echo "  [DIAG r30] undef $(basename "${_r30_obj}"): ${_r30_undef_list:-none matched}"
+      done <<< "${_r30_probe_c_objs}"
+    else
+      echo "  [DIAG r30] undef: nm not available, skipping"
+    fi
+    [[ -z "${_r30_float_objs}" ]] && echo "  [DIAG r30] undef: floats.b*.obj not found under SRC_DIR"
+    [[ -z "${_r30_winsock_objs}" ]] && echo "  [DIAG r30] undef: no object under otherlibs/unix references WSA/addrinfo symbols"
+
+    # Probe D: is pthread_spin_lock a header-only inline rather than a real
+    # library symbol? Search the mingw include dirs sibling to the lib dirs
+    # already enumerated above (same sibling-of pattern as def-include).
+    echo "  [DIAG r30] probe D: pthread_spin_lock header search"
+    _r30_include_dirs=()
+    for _r30_libdir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
+      _r30_inc_candidate="$(dirname "${_r30_libdir}")/include"
+      _r30_seen=0
+      for _r30_seen_dir in "${_r30_include_dirs[@]+"${_r30_include_dirs[@]}"}"; do
+        [[ "${_r30_seen_dir}" == "${_r30_inc_candidate}" ]] && _r30_seen=1 && break
+      done
+      [[ "${_r30_seen}" -eq 0 && -d "${_r30_inc_candidate}" ]] && _r30_include_dirs+=("${_r30_inc_candidate}")
+    done
+    _r30_hdr_hits=$(grep -rn -w 'pthread_spin_lock' "${_r30_include_dirs[@]+"${_r30_include_dirs[@]}"}" 2>/dev/null | head -5) || true
+    if [[ -n "${_r30_hdr_hits}" ]]; then
+      while IFS= read -r _r30_hline; do
+        [[ -z "${_r30_hline}" ]] && continue
+        _r30_hfile="${_r30_hline%%:*}"
+        _r30_hrest="${_r30_hline#*:}"
+        _r30_hlineno="${_r30_hrest%%:*}"
+        _r30_hsnippet="${_r30_hrest#*:}"
+        echo "  [DIAG r30] pthread_spin header: $(basename "${_r30_hfile}"):${_r30_hlineno} ${_r30_hsnippet}"
+      done <<< "${_r30_hdr_hits}"
+    else
+      echo "  [DIAG r30] pthread_spin header: NOT IN ANY HEADER"
+    fi
+    echo "  ------------------------------------------------------------"
 
     # pthread: prefer the real symbols in libwinpthread.a. mingw's plain
     # libpthread.a is a small forwarding stub with no bodies of its own - if
@@ -1131,6 +1312,86 @@ build_native() {
       fi
     else
       echo "  [DIAG imports] builtins: NOT FOUND"
+    fi
+
+    # zig's arm64 mingw runtime ships neither the __isnan family nor the
+    # pthread spinlock entry points that libwinpthread's own members call
+    # (rwlock.obj, thread.obj, cond.obj); supply both from a small compiled
+    # archive rather than an empty stub.
+    _imports_compat_src="${_imports_tmp_dir}/conda_arm64_compat.c"
+    _imports_compat_obj="${_imports_tmp_dir}/conda_arm64_compat.o"
+    _imports_compat_out="${_imports_stage_dir}/libconda_arm64_compat.a"
+    cat > "${_imports_compat_src}" << 'C_EOF'
+/* zig's arm64 mingw runtime ships neither the __isnan family nor the
+   pthread spinlock entry points that libwinpthread's own members call. */
+
+typedef void *pthread_spinlock_t;
+
+int __isnan(double x);
+int __isnanf(float x);
+int __isnanl(long double x);
+int pthread_spin_lock(pthread_spinlock_t *lock);
+int pthread_spin_unlock(pthread_spinlock_t *lock);
+int pthread_spin_destroy(pthread_spinlock_t *lock);
+
+int __isnan(double x) { return x != x; }
+int __isnanf(float x) { return x != x; }
+int __isnanl(long double x) { return x != x; }
+
+int pthread_spin_lock(pthread_spinlock_t *lock)
+{
+  while (__atomic_exchange_n((volatile __UINTPTR_TYPE__ *)lock,
+                             (__UINTPTR_TYPE__)1, __ATOMIC_ACQUIRE) != 0) { }
+  return 0;
+}
+
+int pthread_spin_unlock(pthread_spinlock_t *lock)
+{
+  __atomic_store_n((volatile __UINTPTR_TYPE__ *)lock,
+                   (__UINTPTR_TYPE__)0, __ATOMIC_RELEASE);
+  return 0;
+}
+
+int pthread_spin_destroy(pthread_spinlock_t *lock)
+{
+  *lock = 0;
+  return 0;
+}
+C_EOF
+    if [[ -n "${_imports_ar}" ]]; then
+      set +e
+      "${NATIVE_CC}" -c -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe "${_imports_compat_src}" -o "${_imports_compat_obj}" >/dev/null 2>&1
+      _imports_compat_cc_rc=$?
+      set -e
+      echo "  [DIAG imports] compat: compile exit=${_imports_compat_cc_rc}"
+      if [[ "${_imports_compat_cc_rc}" -eq 0 && -f "${_imports_compat_obj}" ]]; then
+        set +e
+        "${_imports_ar}" rcs "${_imports_compat_out}" "${_imports_compat_obj}" >/dev/null 2>&1
+        _imports_compat_ar_rc=$?
+        set -e
+        echo "  [DIAG imports] compat: archive exit=${_imports_compat_ar_rc}"
+        if [[ -f "${_imports_compat_out}" ]]; then
+          _imports_compat_size=$(wc -c < "${_imports_compat_out}" 2>/dev/null) || true
+          echo "  [DIAG imports] compat: libconda_arm64_compat.a size=${_imports_compat_size}"
+          if [[ -n "${_imports_nm}" ]]; then
+            set +e
+            _imports_compat_has_isnan=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __isnan$" | head -1)
+            _imports_compat_has_spin=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " pthread_spin_lock$" | head -1)
+            set -e
+            if [[ -n "${_imports_compat_has_isnan}" && -n "${_imports_compat_has_spin}" ]]; then
+              echo "  [DIAG imports] compat: verified __isnan and pthread_spin_lock defined"
+            else
+              echo "  [DIAG imports] compat: WARNING missing expected symbols (isnan=${_imports_compat_has_isnan:+yes} spin=${_imports_compat_has_spin:+yes})"
+            fi
+          fi
+        else
+          echo "  [DIAG imports] compat: archive not produced"
+        fi
+      else
+        echo "  [DIAG imports] compat: compile failed, libconda_arm64_compat.a not created"
+      fi
+    else
+      echo "  [DIAG imports] compat: no ar tool available, cannot create libconda_arm64_compat.a"
     fi
 
     # Symbol-level verification: confirm the staged archives actually carry
@@ -1189,12 +1450,15 @@ build_native() {
     if [[ -n "${_imports_builtins_libflag}" ]]; then
       _imports_extra_libflags="${_imports_extra_libflags:+${_imports_extra_libflags} }-l${_imports_builtins_libflag}"
     fi
+    if [[ -f "${_imports_stage_dir}/libconda_arm64_compat.a" ]]; then
+      _imports_extra_libflags="${_imports_extra_libflags:+${_imports_extra_libflags} }-lconda_arm64_compat"
+    fi
 
-    if [[ "${_imports_generated}" -gt 0 ]]; then
+    if [[ "${_imports_generated}" -gt 0 || -n "${_imports_extra_libflags}" ]]; then
       export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
       echo "  [FIX] FLEXLINKFLAGS now: ${FLEXLINKFLAGS}"
     else
-      echo "  [DIAG imports] no import libraries generated, leaving FLEXLINKFLAGS unchanged"
+      echo "  [DIAG imports] no import libraries staged, leaving FLEXLINKFLAGS unchanged"
     fi
   fi
 
