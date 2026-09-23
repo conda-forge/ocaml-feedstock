@@ -1291,7 +1291,7 @@ ${_r30_winsock_objs}"
     # startup objects (ucrtexewin.obj defines wmain and calls wWinMain) rather
     # than assuming it from the undefined-symbol error alone.
     if [[ -n "${_imports_ar}" && -f "${_imports_winpthread_out}" ]]; then
-      _imports_winpthread_crt_members=$("${_imports_ar}" t "${_imports_winpthread_out}" 2>/dev/null | grep -E 'crt|exewin|ucrtexe' | head -20)
+      _imports_winpthread_crt_members=$("${_imports_ar}" t "${_imports_winpthread_out}" 2>/dev/null | grep -E 'crt|exewin|ucrtexe' | head -20) || true
       if [[ -n "${_imports_winpthread_crt_members}" ]]; then
         while IFS= read -r _imports_crt_member; do
           echo "  [DIAG imports] libwinpthread.a member: ${_imports_crt_member}"
@@ -1299,6 +1299,41 @@ ${_r30_winsock_objs}"
       else
         echo "  [DIAG imports] libwinpthread.a: none matched crt|exewin|ucrtexe in member names"
       fi
+    fi
+
+    # Strip the mingw CRT startup shims from both staged pthread archives.
+    # crtexewin.obj/ucrtexewin.obj/crtexe.obj/ucrtexe.obj each define wmain
+    # and call wWinMain, which nothing in this link provides; left in place
+    # they outrank OCaml's own wmain in runtime/libcamlrun.lib at link time.
+    if [[ -n "${_imports_ar}" ]]; then
+      for _imports_crt_archive in "${_imports_winpthread_out}" "${_imports_pthread_out}"; do
+        if [[ ! -f "${_imports_crt_archive}" ]]; then
+          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") not staged, skipping"
+          continue
+        fi
+        _imports_crt_shims=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe)\.obj$') || true
+        if [[ -z "${_imports_crt_shims}" ]]; then
+          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") none matched crt startup shim basenames"
+        else
+          _imports_crt_shim_count=$(printf '%s\n' "${_imports_crt_shims}" | grep -c .) || true
+          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") found ${_imports_crt_shim_count} matching member(s)"
+          while IFS= read -r _imports_crt_shim; do
+            [[ -z "${_imports_crt_shim}" ]] && continue
+            echo "  [DIAG imports] crt-strip: deleting ${_imports_crt_shim} from $(basename "${_imports_crt_archive}")"
+            "${_imports_ar}" d "${_imports_crt_archive}" "${_imports_crt_shim}" 2>/dev/null || true
+          done <<< "${_imports_crt_shims}"
+          # empty result here is the success case (no shim members remain), so
+          # an empty match must not be treated as a pipeline failure
+          _imports_crt_shims_after=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe)\.obj$') || true
+          if [[ -z "${_imports_crt_shims_after}" ]]; then
+            echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") verified clean, none matched after deletion"
+          else
+            echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") WARNING still matches after deletion"
+          fi
+        fi
+      done
+    else
+      echo "  [DIAG imports] crt-strip: no ar available, cannot strip CRT startup shims"
     fi
 
     # Compiler-rt/builtins: zig's own runtime carries __chkstk, the stack
@@ -1469,7 +1504,9 @@ C_EOF
     fi
 
     if [[ "${_imports_generated}" -gt 0 || -n "${_imports_extra_libflags}" ]]; then
-      export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
+      # -v makes flexlink print the lld-link command it builds instead of
+      # hiding it, so the merged -L/-l order and CRT objects become visible.
+      export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-v -L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
       echo "  [FIX] FLEXLINKFLAGS now: ${FLEXLINKFLAGS}"
     else
       echo "  [DIAG imports] no import libraries staged, leaving FLEXLINKFLAGS unchanged"
