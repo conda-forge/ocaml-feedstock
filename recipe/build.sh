@@ -403,7 +403,9 @@ build_native() {
     fi
     if [[ "${target_platform}" == "win-arm64" ]]; then
       # OCaml has no arm64 Windows native-code backend, so this target is bytecode-only.
-      CONFIG_ARGS+=(--disable-native-compiler)
+      # ocamldoc man-page generation deadlocks under the freshly built runtime, and the
+      # package already treats ocamldoc as native-only, so disable it here too.
+      CONFIG_ARGS+=(--disable-native-compiler --disable-ocamldoc)
     fi
   fi
 
@@ -433,6 +435,37 @@ build_native() {
   echo ""
   echo "  [1/4] Configuring native compiler"
   run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}" || { cat config.log; exit 1; }
+
+  # ============================================================================
+  # [DIAG ocamldoc] Verify --disable-ocamldoc actually took effect (win-arm64 only)
+  # ============================================================================
+  # configure only WARNS on an unrecognized --disable-* flag, it does not fail,
+  # so a typo'd flag would silently leave ocamldoc enabled and reintroduce the
+  # man-page deadlock. Check both the configure log and the generated
+  # Makefile.config to confirm the flag was recognized and applied.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    echo "  [DIAG ocamldoc] verifying --disable-ocamldoc took effect"
+    if [[ -f "${LOG_DIR}/configure.log" ]]; then
+      _diag_doc_cfg=$(grep -i -E 'unrecognized option|ocamldoc' "${LOG_DIR}/configure.log" 2>/dev/null | head -5) || true
+      if [[ -n "${_diag_doc_cfg}" ]]; then
+        echo "${_diag_doc_cfg}" | sed 's/^/  [DIAG ocamldoc] configure said: /'
+      else
+        echo "  [DIAG ocamldoc] configure said: none"
+      fi
+    else
+      echo "  [DIAG ocamldoc] configure log not found at ${LOG_DIR}/configure.log"
+    fi
+    if [[ -f "Makefile.config" ]]; then
+      _diag_doc_makefile=$(grep -n -i 'ocamldoc' "Makefile.config" 2>/dev/null | head -5) || true
+      if [[ -n "${_diag_doc_makefile}" ]]; then
+        echo "${_diag_doc_makefile}" | sed 's/^/  [DIAG ocamldoc] Makefile.config: /'
+      else
+        echo "  [DIAG ocamldoc] Makefile.config: no ocamldoc entry"
+      fi
+    else
+      echo "  [DIAG ocamldoc] Makefile.config not found"
+    fi
+  fi
 
   # ============================================================================
   # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
@@ -717,6 +750,8 @@ build_native() {
   # emits that exact token into Makefile.config. Replace it with whichever
   # of -lpthread / -lwinpthread probe E proved links cleanly on this
   # toolchain; if neither did, leave Makefile.config untouched and warn.
+  # Independently, -lsynchronization is rewritten to the API-set import lib
+  # api-ms-win-core-synch-l1-2-0 because arm64 Windows has no synchronization.dll.
   if [[ "${target_platform}" == "win-arm64" ]]; then
     _pthread_replacement=""
     if [[ "${_diag_e7_rc:-1}" -eq 0 ]]; then
@@ -725,14 +760,18 @@ build_native() {
       _pthread_replacement="-lwinpthread"
     fi
 
-    if [[ -z "${_pthread_replacement}" ]]; then
-      echo "  [FIX] WARNING: neither -lpthread nor -lwinpthread linked cleanly in probe E; leaving -l:libpthread.a in Makefile.config unchanged"
-    elif [[ ! -f "Makefile.config" ]]; then
-      echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a with ${_pthread_replacement}"
+    if [[ ! -f "Makefile.config" ]]; then
+      echo "  [FIX] ERROR: Makefile.config not found, cannot rewrite library tokens"
     else
-      echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
-      sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
-      grep -n -F -e "${_pthread_replacement}" "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
+      if [[ -n "${_pthread_replacement}" ]]; then
+        echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
+        sed -i -e "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
+      else
+        echo "  [FIX] WARNING: neither -lpthread nor -lwinpthread linked cleanly in probe E; leaving -l:libpthread.a unchanged"
+      fi
+      echo "  [FIX] replacing -lsynchronization with -lapi-ms-win-core-synch-l1-2-0 (arm64 has no synchronization.dll) in Makefile.config"
+      sed -i -e "s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "Makefile.config"
+      grep -n -E '^(BYTECCLIBS|NATIVECCLIBS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
     fi
   fi
 
@@ -872,7 +911,7 @@ build_native() {
     _imports_generated=0
     _imports_stub_libs=()
     mkdir -p "${_imports_stage_dir}" "${_imports_tmp_dir}" || true
-    for _imports_lib in kernel32 ucrtbase ucrt msvcrt user32 advapi32 shell32 ole32 ws2_32 uuid version shlwapi synchronization winpthread pthread gcc_eh wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
+    for _imports_lib in kernel32 ucrtbase ucrt msvcrt user32 advapi32 shell32 ole32 ws2_32 uuid version shlwapi api-ms-win-core-synch-l1-2-0 winpthread pthread gcc_eh wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
       _imports_basenames=("${_imports_lib}.def" "lib${_imports_lib}.def")
       _imports_basenames_in=("${_imports_lib}.def.in" "lib${_imports_lib}.def.in")
       if [[ "${_imports_lib}" == "pthread" || "${_imports_lib}" == "winpthread" ]]; then
@@ -923,14 +962,17 @@ build_native() {
               ole32) _imports_expected_sym="CoCreateInstance" ;;
               shlwapi) _imports_expected_sym="PathFileExistsW" ;;
               version) _imports_expected_sym="GetFileVersionInfoW" ;;
-              synchronization) _imports_expected_sym="WaitOnAddress" ;;
+              api-ms-win-core-synch-l1-2-0) _imports_expected_sym="WaitOnAddress" ;;
               winpthread) _imports_expected_sym="pthread_mutex_lock" ;;
               ucrtbase) _imports_expected_sym="malloc" ;;
               ucrt) _imports_expected_sym="malloc" ;;
               msvcrt) _imports_expected_sym="memcpy" ;;
               uuid) _imports_expected_sym="IID_IUnknown" ;;
               wsock32) _imports_expected_sym="WSAStartup" ;;
-              mingwex) _imports_expected_sym="__isnan" ;;
+              # printf is what the yacc link actually needs from mingwex; it
+              # also proves the archive carries the printf family, not just
+              # some symbol that happens to be present.
+              mingwex) _imports_expected_sym="printf" ;;
               api-ms-win-crt-runtime-l1-1-0) _imports_expected_sym="atexit" ;;
               api-ms-win-crt-math-l1-1-0) _imports_expected_sym="__isnan" ;;
             esac
@@ -1142,6 +1184,17 @@ build_native() {
     echo "  [DIAG imports] staging dir contents:"
     ls -la "${_imports_stage_dir}" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || true
 
+    # bounded listing of what API-set synch import libs zig actually ships,
+    # so a wrong library name in the staging list above is visible in the
+    # log instead of costing another round.
+    echo "  [DIAG imports] synch-candidate scan under ${_imports_ordered_search_dirs[0]:-not derived}:"
+    _imports_synch_hits=$(ls -1 "${_imports_ordered_search_dirs[0]}"/libapi-ms-win-core-synch*.a 2>/dev/null | head -10) || true
+    if [[ -n "${_imports_synch_hits}" ]]; then
+      echo "${_imports_synch_hits}" | sed 's/^/  [DIAG imports] synch-candidate: /'
+    else
+      echo "  [DIAG imports] synch-candidate: none found"
+    fi
+
     # ==========================================================================
     # DIAGNOSTIC (non-fatal, round 30): winsock/isnan/pthread_spin symbol audit
     # ==========================================================================
@@ -1270,6 +1323,7 @@ ${_r30_winsock_objs}"
     # that is what landed in staging, replace it with libwinpthread.a.
     _imports_winpthread_out="${_imports_stage_dir}/libwinpthread.a"
     _imports_pthread_out="${_imports_stage_dir}/libpthread.a"
+    _imports_mingwex_out="${_imports_stage_dir}/libmingwex.a"
     if [[ -f "${_imports_winpthread_out}" ]]; then
       _imports_winpthread_size=$(wc -c < "${_imports_winpthread_out}" 2>/dev/null) || true
       _imports_pthread_size=0
@@ -1301,14 +1355,15 @@ ${_r30_winsock_objs}"
       fi
     fi
 
-    # Strip the mingw CRT startup shims and the fp reset member from both
-    # staged pthread archives. crtexewin.obj/ucrtexewin.obj/crtexe.obj/
-    # ucrtexe.obj each define wmain and call wWinMain, which nothing in this
-    # link provides; fpreset_arm64.obj defines both fpreset and _fpreset,
-    # which ucrtbase already provides. Left in place, each duplicate entry
-    # point collides with the one that should win at link time.
+    # Strip the mingw CRT startup shims and the fp reset member from the
+    # staged pthread and mingwex archives. crtexewin.obj/ucrtexewin.obj/
+    # crtexe.obj/ucrtexe.obj each define wmain and call wWinMain, which
+    # nothing in this link provides; fpreset_arm64.obj defines both fpreset
+    # and _fpreset, which ucrtbase already provides. Left in place, each
+    # duplicate entry point collides with the one that should win at link
+    # time.
     if [[ -n "${_imports_ar}" ]]; then
-      for _imports_crt_archive in "${_imports_winpthread_out}" "${_imports_pthread_out}"; do
+      for _imports_crt_archive in "${_imports_winpthread_out}" "${_imports_pthread_out}" "${_imports_mingwex_out}"; do
         if [[ ! -f "${_imports_crt_archive}" ]]; then
           echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") not staged, skipping"
           continue
@@ -1565,7 +1620,7 @@ C_EOF
     # resolves symbols itself over the archives it is given, so exactly one C
     # runtime must remain in the -l list: ucrtbase stays, msvcrt is excluded
     # below.
-    for _imports_deflib in kernel32 ucrtbase msvcrt ucrt user32 advapi32 shell32 ole32 shlwapi version synchronization uuid ws2_32 winpthread wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
+    for _imports_deflib in kernel32 ucrtbase msvcrt ucrt user32 advapi32 shell32 ole32 shlwapi version api-ms-win-core-synch-l1-2-0 uuid ws2_32 winpthread wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
       _imports_deflib_is_stub=0
       for _imports_stub_check in "${_imports_stub_libs[@]+"${_imports_stub_libs[@]}"}"; do
         if [[ "${_imports_stub_check}" == "${_imports_deflib}" ]]; then
@@ -1666,10 +1721,43 @@ C_EOF
     # V=1 and VERBOSE=1 (OCaml's build system has used both spellings) force
     # quiet-mode rules like MKEXE to echo their full command lines, so the
     # actual link command for runtime/ocamlrun.exe becomes visible in the log.
-    if run_logged "world" "${MAKE[@]}" world V=1 VERBOSE=1 "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"; then
+    #
+    # This lane hangs rather than failing, and run_logged only surfaces its
+    # tail once make returns - a hang gives zero signal. Bound the call with
+    # timeout and run a heartbeat that tails the log every 60s, so a stuck
+    # build still produces a diagnosable failure and shows the last progress.
+    _world_timeout="${OCAML_WORLD_TIMEOUT_S:-1500}"
+    echo "  [DIAG world] bounding make world to ${_world_timeout}s (kill-after 120s)"
+    _world_logfile="${LOG_DIR}/world.log"
+    (
+      _world_hb_elapsed=0
+      while true; do
+        sleep 60
+        _world_hb_elapsed=$((_world_hb_elapsed + 60))
+        if [[ -f "${_world_logfile}" ]]; then
+          _world_hb_last=$(tail -1 "${_world_logfile}" 2>/dev/null | cut -c1-200) || true
+          echo "  [DIAG world] heartbeat ${_world_hb_elapsed}s: ${_world_hb_last:-<empty>}"
+        else
+          echo "  [DIAG world] heartbeat ${_world_hb_elapsed}s: <log not yet created>"
+        fi
+      done
+    ) &
+    _world_hb_pid=$!
+    _world_start=$(date +%s)
+    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world V=1 VERBOSE=1 "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"; then
+      kill "${_world_hb_pid}" 2>/dev/null || true
+      wait "${_world_hb_pid}" 2>/dev/null || true
       :
     else
       _world_rc=$?
+      kill "${_world_hb_pid}" 2>/dev/null || true
+      wait "${_world_hb_pid}" 2>/dev/null || true
+      _world_elapsed=$(( $(date +%s) - _world_start ))
+      if (( _world_elapsed >= _world_timeout - 5 )); then
+        echo "  [DIAG world] make world TIMED OUT after ${_world_timeout}s"
+      else
+        echo "  [DIAG world] make world failed with status ${_world_rc}"
+      fi
       # ========================================================================
       # DIAGNOSTIC (post-failure): does runtime/libcamlrun.lib carry the entry
       # point flexlink's -municode link is looking for (main_os/wmain/
@@ -1749,11 +1837,16 @@ C_EOF
           # ${_entry_dumptool} itself already ran successfully above (the DLL
           # import dump), so its own file header is a known-good comparison
           # for a binary that does execute on this host.
+          if command -v cygpath >/dev/null 2>&1; then
+            _entry_dumptool_win="$(cygpath -w "${_entry_dumptool}" 2>/dev/null)" || true
+          else
+            _entry_dumptool_win="${_entry_dumptool}"
+          fi
           echo "  [DIAG entry] dumping PE/host machine type of ${_entry_dumptool} itself for comparison"
           if [[ "${_entry_dumptool_style}" == "objdump" ]]; then
-            _entry_dumptool_machine=$("${_entry_dumptool}" -f "${_entry_dumptool}" 2>/dev/null | grep -E -i 'architecture|file format' | head -20) || true
+            _entry_dumptool_machine=$("${_entry_dumptool}" -f "${_entry_dumptool_win}" 2>/dev/null | grep -E -i 'architecture|file format' | head -20) || true
           else
-            _entry_dumptool_machine=$("${_entry_dumptool}" --file-headers "${_entry_dumptool}" 2>/dev/null | grep -E -i 'Machine:' | head -20) || true
+            _entry_dumptool_machine=$("${_entry_dumptool}" --file-headers "${_entry_dumptool_win}" 2>/dev/null | grep -E -i 'Machine:' | head -20) || true
           fi
           if [[ -n "${_entry_dumptool_machine}" ]]; then
             echo "${_entry_dumptool_machine}" | sed 's/^/  [DIAG entry] dumptool machine: /'
@@ -1773,6 +1866,197 @@ C_EOF
       fi
       echo "  [DIAG entry] PROCESSOR_ARCHITECTURE=${PROCESSOR_ARCHITECTURE:-unset} PROCESSOR_ARCHITEW6432=${PROCESSOR_ARCHITEW6432:-unset}"
       echo "  [DIAG entry] target_platform=${target_platform:-unset} build_platform=${build_platform:-unset}"
+      # ========================================================================
+      # DIAGNOSTIC (post-failure): determine whether make itself, and the
+      # shell make spawns recipe lines with, are emulated x86_64 MSYS binaries
+      # or native ARM64 ones. An emulated MSYS shell driving a native ARM64
+      # child process is a plausible reason a launch fails silently. Tool
+      # reuses the already-resolved dump tool from the ocamlrun probe above.
+      # ========================================================================
+      if [[ -n "${_entry_dumptool:-}" ]]; then
+        _entry_make_bin="$(command -v "${MAKE[0]}" 2>/dev/null)" || true
+        if [[ -n "${_entry_make_bin}" ]]; then
+          _entry_make_shell_line=$("${_entry_make_bin}" -f /dev/null -p 2>/dev/null | grep -E '^SHELL = ' | head -1) || true
+          echo "  [DIAG entry] make SHELL line: ${_entry_make_shell_line:-none matched}"
+          _entry_make_shell_bin="${_entry_make_shell_line#SHELL = }"
+          if [[ -z "${_entry_make_shell_bin}" ]]; then
+            _entry_make_shell_bin="$(command -v sh)" || true
+          fi
+          if command -v cygpath >/dev/null 2>&1; then
+            _entry_make_bin_win="$(cygpath -w "${_entry_make_bin}" 2>/dev/null)" || true
+          else
+            _entry_make_bin_win="${_entry_make_bin}"
+          fi
+          echo "  [DIAG entry] dumping PE machine type of make (${_entry_make_bin}) via ${_entry_dumptool_style}"
+          if [[ "${_entry_dumptool_style}" == "objdump" ]]; then
+            _entry_make_machine=$("${_entry_dumptool}" -f "${_entry_make_bin_win}" 2>/dev/null | grep -E -i 'architecture|file format' | head -5) || true
+          else
+            _entry_make_machine=$("${_entry_dumptool}" --file-headers "${_entry_make_bin_win}" 2>/dev/null | grep -E -i 'Machine:' | head -5) || true
+          fi
+          if [[ -n "${_entry_make_machine}" ]]; then
+            echo "${_entry_make_machine}" | sed 's/^/  [DIAG entry] make machine: /'
+          else
+            echo "  [DIAG entry] make machine: none matched"
+          fi
+          if [[ -n "${_entry_make_shell_bin}" ]]; then
+            if command -v cygpath >/dev/null 2>&1; then
+              _entry_make_shell_bin_win="$(cygpath -w "${_entry_make_shell_bin}" 2>/dev/null)" || true
+            else
+              _entry_make_shell_bin_win="${_entry_make_shell_bin}"
+            fi
+            echo "  [DIAG entry] dumping PE machine type of make-shell (${_entry_make_shell_bin}) via ${_entry_dumptool_style}"
+            if [[ "${_entry_dumptool_style}" == "objdump" ]]; then
+              _entry_make_shell_machine=$("${_entry_dumptool}" -f "${_entry_make_shell_bin_win}" 2>/dev/null | grep -E -i 'architecture|file format' | head -5) || true
+            else
+              _entry_make_shell_machine=$("${_entry_dumptool}" --file-headers "${_entry_make_shell_bin_win}" 2>/dev/null | grep -E -i 'Machine:' | head -5) || true
+            fi
+            if [[ -n "${_entry_make_shell_machine}" ]]; then
+              echo "${_entry_make_shell_machine}" | sed 's/^/  [DIAG entry] make-shell machine: /'
+            else
+              echo "  [DIAG entry] make-shell machine: none matched"
+            fi
+          else
+            echo "  [DIAG entry] make-shell not resolved, skipping machine type dump"
+          fi
+        else
+          echo "  [DIAG entry] make not resolved, skipping make/make-shell machine type dump"
+        fi
+      else
+        echo "  [DIAG entry] no dump tool resolved, skipping make/make-shell machine type dump"
+      fi
+      # ========================================================================
+      # DIAGNOSTIC (post-failure): attempt to launch ocamlrun.exe directly via
+      # cmd.exe, bypassing the MSYS exec layer entirely. ocamlrun.exe -version
+      # prints a version and exits 0 on a runtime that actually starts; a
+      # binary that cannot start produces a Windows loader error message
+      # instead, which distinguishes an exec-layer problem from a binary one.
+      # ========================================================================
+      if [[ -f "runtime/ocamlrun.exe" ]] && command -v cmd.exe >/dev/null 2>&1; then
+        if command -v cygpath >/dev/null 2>&1; then
+          _entry_win_runtime="$(cygpath -w "${PWD}/runtime/ocamlrun.exe" 2>/dev/null)" || true
+        else
+          _entry_win_runtime="runtime\\ocamlrun.exe"
+        fi
+        echo "  [DIAG entry] launching via cmd.exe: cmd.exe /c \"${_entry_win_runtime}\" -version"
+        if _entry_cmd_out=$(MSYS2_ARG_CONV_EXCL='*' cmd.exe /c "${_entry_win_runtime}" -version 2>&1); then
+          _entry_cmd_rc=0
+        else
+          _entry_cmd_rc=$?
+        fi
+        echo "  [DIAG entry] cmd.exe ocamlrun exit code: ${_entry_cmd_rc}"
+        if [[ -n "${_entry_cmd_out}" ]]; then
+          echo "${_entry_cmd_out}" | head -20 | sed 's/^/  [DIAG entry] cmd.exe ocamlrun: /' || true
+        else
+          echo "  [DIAG entry] cmd.exe ocamlrun: (no output)"
+        fi
+      else
+        if [[ ! -f "runtime/ocamlrun.exe" ]]; then
+          echo "  [DIAG entry] runtime/ocamlrun.exe not found, skipping cmd.exe launch"
+        else
+          echo "  [DIAG entry] cmd.exe not available, skipping direct launch"
+        fi
+      fi
+      # ========================================================================
+      # DIAGNOSTIC (post-failure): run the identical cmd.exe invocation shape
+      # against the known-good native arm64 dump tool. Exit 0 with version
+      # output here means cmd.exe can launch a native arm64 binary and
+      # ocamlrun.exe is specifically broken; a 127 with no output here too
+      # means the cmd.exe leg itself is broken instrumentation and both
+      # cmd.exe results above are void.
+      # ========================================================================
+      if [[ -n "${_entry_dumptool_win:-}" ]] && command -v cmd.exe >/dev/null 2>&1; then
+        echo "  [DIAG entry] launching via cmd.exe: cmd.exe /c \"${_entry_dumptool_win}\" --version"
+        if _entry_ctl_out=$(MSYS2_ARG_CONV_EXCL='*' cmd.exe /c "${_entry_dumptool_win}" --version 2>&1); then
+          _entry_ctl_rc=0
+        else
+          _entry_ctl_rc=$?
+        fi
+        echo "  [DIAG entry] cmd.exe control exit code: ${_entry_ctl_rc}"
+        if [[ -n "${_entry_ctl_out}" ]]; then
+          echo "${_entry_ctl_out}" | head -3 | sed 's/^/  [DIAG entry] cmd.exe control: /' || true
+        else
+          echo "  [DIAG entry] cmd.exe control: (no output)"
+        fi
+      else
+        if [[ -z "${_entry_dumptool_win:-}" ]]; then
+          echo "  [DIAG entry] no dump tool resolved, skipping cmd.exe control"
+        else
+          echo "  [DIAG entry] cmd.exe not available, skipping cmd.exe control"
+        fi
+      fi
+      # ========================================================================
+      # DIAGNOSTIC (post-failure): cmd.exe launches ocamlrun.exe silently
+      # (exit 127, no output), so ask PowerShell for the actual loader message.
+      # ========================================================================
+      if [[ -f "runtime/ocamlrun.exe" ]] && command -v powershell.exe >/dev/null 2>&1; then
+        if [[ -n "${_entry_win_runtime:-}" ]]; then
+          echo "  [DIAG entry] launching via powershell.exe: & '${_entry_win_runtime}' -version"
+          if _entry_ps_out=$(MSYS2_ARG_CONV_EXCL='*' powershell.exe -NoProfile -NonInteractive -Command "& '${_entry_win_runtime}' -version" 2>&1); then
+            _entry_ps_rc=0
+          else
+            _entry_ps_rc=$?
+          fi
+          echo "  [DIAG entry] powershell ocamlrun exit code: ${_entry_ps_rc}"
+          if [[ -n "${_entry_ps_out}" ]]; then
+            echo "${_entry_ps_out}" | head -20 | sed 's/^/  [DIAG entry] powershell ocamlrun: /' || true
+          else
+            echo "  [DIAG entry] powershell ocamlrun: (no output)"
+          fi
+        else
+          echo "  [DIAG entry] _entry_win_runtime not set, skipping powershell launch"
+        fi
+      else
+        if [[ ! -f "runtime/ocamlrun.exe" ]]; then
+          echo "  [DIAG entry] runtime/ocamlrun.exe not found, skipping powershell launch"
+        else
+          echo "  [DIAG entry] powershell.exe not available, skipping powershell launch"
+        fi
+      fi
+      # ========================================================================
+      # DIAGNOSTIC (post-failure): resolving each imported DLL name is a
+      # different check from reading the import table above. synchronization.dll
+      # does not exist on arm64 Windows, which is why the runtime could not
+      # start, and api-ms-win-core-synch-l1-2-0.dll is the API-set that
+      # replaces it. Both names stay in the list so the log shows the old one
+      # gone and the new one resolving.
+      # ========================================================================
+      if [[ -n "${_entry_dumptool:-}" ]] && command -v cmd.exe >/dev/null 2>&1; then
+        _entry_dll_list=(
+          kernel32.dll
+          ucrtbase.dll
+          shell32.dll
+          version.dll
+          synchronization.dll
+          api-ms-win-core-synch-l1-2-0.dll
+          ws2_32.dll
+          shlwapi.dll
+          ole32.dll
+        )
+        for _entry_dll in "${_entry_dll_list[@]}"; do
+          _entry_dll_path=$(MSYS2_ARG_CONV_EXCL='*' cmd.exe /c where "${_entry_dll}" 2>/dev/null | head -1) || true
+          _entry_dll_path="${_entry_dll_path%$'\r'}"
+          if [[ -z "${_entry_dll_path}" ]]; then
+            echo "  [DIAG entry] dll ${_entry_dll}: not resolved"
+            continue
+          fi
+          if [[ "${_entry_dumptool_style}" == "objdump" ]]; then
+            _entry_dll_machine=$("${_entry_dumptool}" -f "${_entry_dll_path}" 2>/dev/null | grep -E -i 'architecture|file format' | head -3) || true
+          else
+            _entry_dll_machine=$("${_entry_dumptool}" --file-headers "${_entry_dll_path}" 2>/dev/null | grep -E -i 'Machine:' | head -3) || true
+          fi
+          if [[ -n "${_entry_dll_machine}" ]]; then
+            echo "  [DIAG entry] dll ${_entry_dll}: ${_entry_dll_path} :: $(echo "${_entry_dll_machine}" | tr '\n' ' ')"
+          else
+            echo "  [DIAG entry] dll ${_entry_dll}: ${_entry_dll_path} :: none matched"
+          fi
+        done
+      else
+        if [[ -z "${_entry_dumptool:-}" ]]; then
+          echo "  [DIAG entry] no dump tool resolved, skipping DLL architecture check"
+        else
+          echo "  [DIAG entry] cmd.exe not available, skipping DLL architecture check"
+        fi
+      fi
       return ${_world_rc}
     fi
   else
