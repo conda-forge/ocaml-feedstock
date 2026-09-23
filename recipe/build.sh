@@ -1287,6 +1287,20 @@ ${_r30_winsock_objs}"
       echo "  [DIAG imports] pthread: libwinpthread.a not staged, cannot backfill libpthread.a"
     fi
 
+    # Archive-membership probe: confirm libwinpthread.a actually carries CRT
+    # startup objects (ucrtexewin.obj defines wmain and calls wWinMain) rather
+    # than assuming it from the undefined-symbol error alone.
+    if [[ -n "${_imports_ar}" && -f "${_imports_winpthread_out}" ]]; then
+      _imports_winpthread_crt_members=$("${_imports_ar}" t "${_imports_winpthread_out}" 2>/dev/null | grep -E 'crt|exewin|ucrtexe' | head -20)
+      if [[ -n "${_imports_winpthread_crt_members}" ]]; then
+        while IFS= read -r _imports_crt_member; do
+          echo "  [DIAG imports] libwinpthread.a member: ${_imports_crt_member}"
+        done <<< "${_imports_winpthread_crt_members}"
+      else
+        echo "  [DIAG imports] libwinpthread.a: none matched crt|exewin|ucrtexe in member names"
+      fi
+    fi
+
     # Compiler-rt/builtins: zig's own runtime carries __chkstk, the stack
     # protector and the ubsan handlers, none of which live in a plain mingw
     # import lib. Search the whole zig lib tree, not just the mingw dirs.
@@ -1505,7 +1519,10 @@ C_EOF
   if [[ "${target_platform}" == "win-arm64" ]]; then
     # configured with --disable-native-compiler, so world.opt has nothing to build
     echo "  [3/4] Compiling bytecode compiler"
-    run_logged "world" "${MAKE[@]}" world "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
+    # V=1 and VERBOSE=1 (OCaml's build system has used both spellings) force
+    # quiet-mode rules like MKEXE to echo their full command lines, so the
+    # actual link command for runtime/ocamlrun.exe becomes visible in the log.
+    run_logged "world" "${MAKE[@]}" world V=1 VERBOSE=1 "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
   else
     echo "  [3/4] Compiling native compiler"
     run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
