@@ -1735,12 +1735,44 @@ C_EOF
           else
             echo "  [DIAG entry] ocamlrun import: none matched"
           fi
+          echo "  [DIAG entry] dumping PE machine type of ${_entry_runtime_exe} via ${_entry_dumptool_style} (${_entry_dumptool})"
+          if [[ "${_entry_dumptool_style}" == "objdump" ]]; then
+            _entry_machine=$("${_entry_dumptool}" -f "${_entry_runtime_exe}" 2>/dev/null | grep -E -i 'architecture|file format' | head -20) || true
+          else
+            _entry_machine=$("${_entry_dumptool}" --file-headers "${_entry_runtime_exe}" 2>/dev/null | grep -E -i 'Machine:' | head -20) || true
+          fi
+          if [[ -n "${_entry_machine}" ]]; then
+            echo "${_entry_machine}" | sed 's/^/  [DIAG entry] ocamlrun machine: /'
+          else
+            echo "  [DIAG entry] ocamlrun machine: none matched"
+          fi
+          # ${_entry_dumptool} itself already ran successfully above (the DLL
+          # import dump), so its own file header is a known-good comparison
+          # for a binary that does execute on this host.
+          echo "  [DIAG entry] dumping PE/host machine type of ${_entry_dumptool} itself for comparison"
+          if [[ "${_entry_dumptool_style}" == "objdump" ]]; then
+            _entry_dumptool_machine=$("${_entry_dumptool}" -f "${_entry_dumptool}" 2>/dev/null | grep -E -i 'architecture|file format' | head -20) || true
+          else
+            _entry_dumptool_machine=$("${_entry_dumptool}" --file-headers "${_entry_dumptool}" 2>/dev/null | grep -E -i 'Machine:' | head -20) || true
+          fi
+          if [[ -n "${_entry_dumptool_machine}" ]]; then
+            echo "${_entry_dumptool_machine}" | sed 's/^/  [DIAG entry] dumptool machine: /'
+          else
+            echo "  [DIAG entry] dumptool machine: none matched"
+          fi
         else
           echo "  [DIAG entry] no llvm-objdump/objdump/llvm-readobj resolved, skipping DLL import dump"
         fi
       else
         echo "  [DIAG entry] ${_entry_runtime_exe} not found"
       fi
+      if command -v uname >/dev/null 2>&1; then
+        echo "  [DIAG entry] uname -s / uname -m: $(uname -s 2>/dev/null || true) $(uname -m 2>/dev/null || true)"
+      else
+        echo "  [DIAG entry] uname not available"
+      fi
+      echo "  [DIAG entry] PROCESSOR_ARCHITECTURE=${PROCESSOR_ARCHITECTURE:-unset} PROCESSOR_ARCHITEW6432=${PROCESSOR_ARCHITEW6432:-unset}"
+      echo "  [DIAG entry] target_platform=${target_platform:-unset} build_platform=${build_platform:-unset}"
       return ${_world_rc}
     fi
   else
