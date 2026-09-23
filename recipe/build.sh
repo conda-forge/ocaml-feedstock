@@ -1336,6 +1336,79 @@ ${_r30_winsock_objs}"
       echo "  [DIAG imports] crt-strip: no ar available, cannot strip CRT startup shims"
     fi
 
+    # fpreset probe: bounded to the staged archives (never the zig tree), to
+    # identify which one(s) actually define fpreset/_fpreset before the next
+    # link attempt.
+    if [[ -n "${_imports_nm}" && -d "${_imports_stage_dir}" ]]; then
+      _imports_fpreset_found=0
+      for _imports_fpreset_archive in "${_imports_stage_dir}"/*.a; do
+        [[ -f "${_imports_fpreset_archive}" ]] || continue
+        _imports_fpreset_hit=$("${_imports_nm}" --defined-only "${_imports_fpreset_archive}" 2>/dev/null | grep -E ' _?fpreset$') || true
+        if [[ -n "${_imports_fpreset_hit}" ]]; then
+          echo "  [DIAG imports] fpreset: $(basename "${_imports_fpreset_archive}") defines fpreset"
+          _imports_fpreset_found=1
+        fi
+      done
+      if [[ "${_imports_fpreset_found}" -eq 0 ]]; then
+        echo "  [DIAG imports] fpreset: no staged archive defines fpreset"
+      fi
+    fi
+
+    # fpreset member probe: the archive-level probe above only names WHICH
+    # archive defines fpreset; nm -A prints the archive member alongside each
+    # symbol, bounded to the two staged pthread archives, so a future strip
+    # can target the exact member instead of guessing.
+    if [[ -n "${_imports_nm}" && -d "${_imports_stage_dir}" ]]; then
+      for _imports_fpreset_member_lib in libpthread.a libwinpthread.a; do
+        _imports_fpreset_member_archive="${_imports_stage_dir}/${_imports_fpreset_member_lib}"
+        if [[ -f "${_imports_fpreset_member_archive}" ]]; then
+          _imports_fpreset_member_hits=$("${_imports_nm}" -A --defined-only "${_imports_fpreset_member_archive}" 2>/dev/null | grep -E ' _?fpreset$' | head -10) || true
+          if [[ -n "${_imports_fpreset_member_hits}" ]]; then
+            while IFS= read -r _imports_fpreset_member_line; do
+              echo "  [DIAG imports] fpreset member: ${_imports_fpreset_member_line}"
+            done <<< "${_imports_fpreset_member_hits}"
+          else
+            echo "  [DIAG imports] fpreset member: ${_imports_fpreset_member_lib} none"
+          fi
+        else
+          echo "  [DIAG imports] fpreset member: ${_imports_fpreset_member_lib} not staged"
+        fi
+      done
+    fi
+
+    # crt-symbol probe: bounded to the staged archives (never the zig tree),
+    # one nm invocation per archive matching all four symbols in a single
+    # grep -E pass, to show which runtime(s) supply each before the next
+    # link attempt.
+    if [[ -n "${_imports_nm}" && -d "${_imports_stage_dir}" ]]; then
+      _imports_crtsym_malloc=""
+      _imports_crtsym_free=""
+      _imports_crtsym_memcpy=""
+      _imports_crtsym_getmainargs=""
+      for _imports_crtsym_archive in "${_imports_stage_dir}"/*.a; do
+        [[ -f "${_imports_crtsym_archive}" ]] || continue
+        _imports_crtsym_hits=$("${_imports_nm}" --defined-only "${_imports_crtsym_archive}" 2>/dev/null | grep -E ' (malloc|free|memcpy|_getmainargs)$') || true
+        [[ -z "${_imports_crtsym_hits}" ]] && continue
+        _imports_crtsym_name="$(basename "${_imports_crtsym_archive}")"
+        if grep -q ' malloc$' <<< "${_imports_crtsym_hits}"; then
+          _imports_crtsym_malloc="${_imports_crtsym_malloc:+${_imports_crtsym_malloc} }${_imports_crtsym_name}"
+        fi
+        if grep -q ' free$' <<< "${_imports_crtsym_hits}"; then
+          _imports_crtsym_free="${_imports_crtsym_free:+${_imports_crtsym_free} }${_imports_crtsym_name}"
+        fi
+        if grep -q ' memcpy$' <<< "${_imports_crtsym_hits}"; then
+          _imports_crtsym_memcpy="${_imports_crtsym_memcpy:+${_imports_crtsym_memcpy} }${_imports_crtsym_name}"
+        fi
+        if grep -q ' _getmainargs$' <<< "${_imports_crtsym_hits}"; then
+          _imports_crtsym_getmainargs="${_imports_crtsym_getmainargs:+${_imports_crtsym_getmainargs} }${_imports_crtsym_name}"
+        fi
+      done
+      echo "  [DIAG imports] crt-symbol malloc: ${_imports_crtsym_malloc:-none}"
+      echo "  [DIAG imports] crt-symbol free: ${_imports_crtsym_free:-none}"
+      echo "  [DIAG imports] crt-symbol memcpy: ${_imports_crtsym_memcpy:-none}"
+      echo "  [DIAG imports] crt-symbol _getmainargs: ${_imports_crtsym_getmainargs:-none}"
+    fi
+
     # Compiler-rt/builtins: zig's own runtime carries __chkstk, the stack
     # protector and the ubsan handlers, none of which live in a plain mingw
     # import lib. Search the whole zig lib tree, not just the mingw dirs.
@@ -1477,10 +1550,12 @@ C_EOF
     fi
 
     _imports_extra_libflags=""
-    # ucrtbase/ucrt and msvcrt are alternative C runtimes; passing both invites
-    # duplicate symbols, so msvcrt is staged for the search path but not linked
-    # explicitly here.
-    for _imports_deflib in kernel32 ucrtbase ucrt user32 advapi32 shell32 ole32 shlwapi version synchronization uuid ws2_32 winpthread wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
+    # ucrtbase is the C runtime zig's arm64 mingw target links against; msvcrt
+    # is the legacy alternative and the two are never linked together. flexlink
+    # resolves symbols itself over the archives it is given, so exactly one C
+    # runtime must remain in the -l list: ucrtbase stays, msvcrt is excluded
+    # below.
+    for _imports_deflib in kernel32 ucrtbase msvcrt ucrt user32 advapi32 shell32 ole32 shlwapi version synchronization uuid ws2_32 winpthread wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
       _imports_deflib_is_stub=0
       for _imports_stub_check in "${_imports_stub_libs[@]+"${_imports_stub_libs[@]}"}"; do
         if [[ "${_imports_stub_check}" == "${_imports_deflib}" ]]; then
@@ -1490,6 +1565,14 @@ C_EOF
       done
       if [[ "${_imports_deflib_is_stub}" -eq 1 ]]; then
         echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=stub)"
+        continue
+      fi
+      if [[ "${_imports_deflib}" == "winpthread" ]]; then
+        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=duplicate, OCaml MKEXE already passes -lpthread and staged libpthread.a is a byte-identical copy of libwinpthread.a)"
+        continue
+      fi
+      if [[ "${_imports_deflib}" == "msvcrt" ]]; then
+        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=crt-conflict, msvcrt is the alternative C runtime to ucrtbase and the two are never linked together; flexlink resolves symbols itself so exactly one C runtime must remain)"
         continue
       fi
       if [[ -f "${_imports_stage_dir}/lib${_imports_deflib}.a" ]]; then
