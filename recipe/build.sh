@@ -1458,6 +1458,13 @@ int pthread_spin_lock(pthread_spinlock_t *lock);
 int pthread_spin_unlock(pthread_spinlock_t *lock);
 int pthread_spin_destroy(pthread_spinlock_t *lock);
 
+/* the mingw member that defines fpreset is stripped out of the pthread
+   archives to avoid a duplicate definition, and ucrtbase exports only the
+   undecorated name, so the underscored alias libpthread.a still calls is
+   forwarded here. */
+void fpreset(void);
+void _fpreset(void) { fpreset(); }
+
 int __isnan(double x) { return x != x; }
 int __isnanf(float x) { return x != x; }
 int __isnanl(long double x) { return x != x; }
@@ -1499,13 +1506,14 @@ C_EOF
           echo "  [DIAG imports] compat: libconda_arm64_compat.a size=${_imports_compat_size}"
           if [[ -n "${_imports_nm}" ]]; then
             set +e
-            _imports_compat_has_isnan=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __isnan$" | head -1)
-            _imports_compat_has_spin=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " pthread_spin_lock$" | head -1)
+            _imports_compat_has_isnan=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __isnan$" | head -1) || true
+            _imports_compat_has_spin=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " pthread_spin_lock$" | head -1) || true
+            _imports_compat_has_fpreset=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " _fpreset$" | head -1) || true
             set -e
-            if [[ -n "${_imports_compat_has_isnan}" && -n "${_imports_compat_has_spin}" ]]; then
-              echo "  [DIAG imports] compat: verified __isnan and pthread_spin_lock defined"
+            if [[ -n "${_imports_compat_has_isnan}" && -n "${_imports_compat_has_spin}" && -n "${_imports_compat_has_fpreset}" ]]; then
+              echo "  [DIAG imports] compat: verified __isnan, pthread_spin_lock and _fpreset defined"
             else
-              echo "  [DIAG imports] compat: WARNING missing expected symbols (isnan=${_imports_compat_has_isnan:+yes} spin=${_imports_compat_has_spin:+yes})"
+              echo "  [DIAG imports] compat: WARNING missing expected symbols (isnan=${_imports_compat_has_isnan:+yes} spin=${_imports_compat_has_spin:+yes} fpreset=${_imports_compat_has_fpreset:+yes})"
             fi
           fi
         else
