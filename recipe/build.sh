@@ -1701,6 +1701,46 @@ C_EOF
           echo "  [DIAG entry] ${_entry_obj} not found"
         fi
       done
+      # ========================================================================
+      # DIAGNOSTIC (post-failure): runtime/ocamlrun.exe links, but the loader
+      # fails with "cannot open shared object file" and no DLL name, so dump
+      # its import table to name the missing DLL. Tool preference mirrors the
+      # dlltool/ar/nm resolution above (llvm-* first, GNU fallback).
+      # ========================================================================
+      _entry_runtime_exe="runtime/ocamlrun.exe"
+      if [[ -f "${_entry_runtime_exe}" ]]; then
+        _entry_runtime_exe_size=$(wc -c < "${_entry_runtime_exe}" 2>/dev/null) || true
+        echo "  [DIAG entry] ${_entry_runtime_exe} found, size=${_entry_runtime_exe_size:-unknown}"
+        _entry_dumptool=""
+        _entry_dumptool_style=""
+        if command -v llvm-objdump >/dev/null 2>&1; then
+          _entry_dumptool="$(command -v llvm-objdump)"
+          _entry_dumptool_style="objdump"
+        elif command -v objdump >/dev/null 2>&1; then
+          _entry_dumptool="$(command -v objdump)"
+          _entry_dumptool_style="objdump"
+        elif command -v llvm-readobj >/dev/null 2>&1; then
+          _entry_dumptool="$(command -v llvm-readobj)"
+          _entry_dumptool_style="readobj"
+        fi
+        if [[ -n "${_entry_dumptool}" ]]; then
+          echo "  [DIAG entry] dumping DLL imports of ${_entry_runtime_exe} via ${_entry_dumptool_style} (${_entry_dumptool})"
+          if [[ "${_entry_dumptool_style}" == "objdump" ]]; then
+            _entry_dll_imports=$("${_entry_dumptool}" -p "${_entry_runtime_exe}" 2>/dev/null | grep -E 'DLL Name:' | head -40) || true
+          else
+            _entry_dll_imports=$("${_entry_dumptool}" --coff-imports "${_entry_runtime_exe}" 2>/dev/null | grep -E 'Name: .*\.[Dd][Ll][Ll]' | head -40) || true
+          fi
+          if [[ -n "${_entry_dll_imports}" ]]; then
+            echo "${_entry_dll_imports}" | sed 's/^/  [DIAG entry] ocamlrun import: /'
+          else
+            echo "  [DIAG entry] ocamlrun import: none matched"
+          fi
+        else
+          echo "  [DIAG entry] no llvm-objdump/objdump/llvm-readobj resolved, skipping DLL import dump"
+        fi
+      else
+        echo "  [DIAG entry] ${_entry_runtime_exe} not found"
+      fi
       return ${_world_rc}
     fi
   else
