@@ -1485,6 +1485,23 @@ C_EOF
     fi
   fi
 
+  # ============================================================================
+  # DIAGNOSTIC (non-fatal): win-arm64 flexlink compiler name resolution
+  # ============================================================================
+  # flexlink.exe, built as part of "make world" below, shells out to whichever
+  # compiler name MIN64ARMCC baked into version.ml (see
+  # flexdll-add-mingw64arm-support.patch). Confirm here, before that build
+  # runs, which of the candidate names actually resolve on PATH.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    echo "  [DIAG imports] ZIG_CC='${ZIG_CC:-}' CROSS_CC='${CROSS_CC:-}' NATIVE_CC='${NATIVE_CC:-}'"
+    set +e
+    for _diag_cc_name in aarch64-w64-mingw32-zig-cc aarch64-w64-mingw32-zig-cc.exe aarch64-w64-mingw32-gcc; do
+      _diag_cc_resolved=$(command -v "${_diag_cc_name}" 2>/dev/null)
+      echo "  [DIAG imports] ${_diag_cc_name}: ${_diag_cc_resolved:-not on PATH}"
+    done
+    set -e
+  fi
+
   if [[ "${target_platform}" == "win-arm64" ]]; then
     # configured with --disable-native-compiler, so world.opt has nothing to build
     echo "  [3/4] Compiling bytecode compiler"

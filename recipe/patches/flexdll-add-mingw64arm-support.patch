@@ -91,7 +91,7 @@ diff -ruN a/Makefile b/Makefile
  MIN64CC = $(MINGW64_PREFIX)gcc
  
 +MINGW64ARM_PREFIX = aarch64-w64-mingw32-
-+MIN64ARMCC = $(MINGW64ARM_PREFIX)gcc
++MIN64ARMCC ?= $(MINGW64ARM_PREFIX)zig-cc
 +
  CYGWIN64_PREFIX = x86_64-pc-cygwin-
  CYG64CC = $(CYGWIN64_PREFIX)gcc
