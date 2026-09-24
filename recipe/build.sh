@@ -268,7 +268,9 @@ build_native() {
     echo "  Install:       ${OCAML_INSTALL_PREFIX}  <- Non-unix ..."
 
     if [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
-      NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-windres" true)
+      NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-windres" false)
+      # zig spells its wrappers <triplet>-zig-<tool> and exports no var for windres
+      [[ -z "${NATIVE_WINDRES}" ]] && NATIVE_WINDRES=$(find_tool "${CONDA_TOOLCHAIN_BUILD}-zig-windres" true)
       [[ ! -f "${PREFIX}/Library/bin/windres.exe" ]] && cp "${NATIVE_WINDRES}" "${BUILD_PREFIX}/Library/bin/windres.exe"
     else
       NATIVE_WINDRES="rc.exe"
