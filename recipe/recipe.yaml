@@ -1,5 +1,5 @@
 context:
-  build_number: 9
+  build_number: 10
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -79,6 +79,7 @@ outputs:
   - package:
       name: ocaml
     build:
+      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       noarch: generic
       script: echo "OCaml metapackage"
@@ -544,6 +545,7 @@ outputs:
   - package:
       name: ocaml-compiler
     build:
+      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       script: echo "Toolchain meta-package"
     requirements:
