@@ -147,12 +147,13 @@ outputs:
   # METAPACKAGE: ocaml
   # Depends on the platform-specific implementation ocaml_${{ cross_target_platform_ }}
   # Only built when cross_target_platform_ == target_platform (alongside native compiler)
+  # Platform-specific, not noarch: the run dep resolves to one platform's
+  # implementation, so the package belongs in that platform's subdir.
   # ==========================================================================
   - package:
       name: ocaml
     build:
       skip: cross_target_platform_ != target_platform
-      noarch: generic
       string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       script: echo "OCaml metapackage"
     requirements:
