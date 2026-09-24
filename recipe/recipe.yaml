@@ -57,6 +57,13 @@ context:
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and (cross_build_platform == target_platform or cross_build_platform_alt == target_platform) }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   is_standard_layout: ${{ is_native or is_cross_target }}
+  # OCaml 5.4 has no native-code backend for arm64 Windows, so that target is
+  # bytecode-only whatever the toolchain: no ocamlopt, no .opt drivers and no
+  # native runtime or nat libraries.
+  has_native_backend: ${{ cross_target_platform_ != "win-arm64" }}
+  # ocamldoc is configured out on win-arm64: its man-page rule deadlocks under
+  # the arm64 runtime.
+  has_ocamldoc: ${{ cross_target_platform_ != "win-arm64" }}
 
   # ===========================================================================
   # Targets whose cross-compiler is built in this lane instead of coming from a
@@ -398,27 +405,29 @@ outputs:
                 - ocamldep
                 - ocamllex
                 - ocamlobjinfo
-                - ocamlopt
                 - ocamlmklib
                 - ocamlyacc
-                - ocamlc.opt
-                - ocamldep.opt
-                - ocamllex.opt
-                - ocamlobjinfo.opt
-                - ocamlopt.opt
                 - ocamlc.byte
                 - ocamldep.byte
                 - ocamllex.byte
                 - ocamlobjinfo.byte
-                - ocamlopt.byte
                 - ocamlcmt
                 - ocamlcp
                 - ocamlmktop
-                - ocamloptp
                 - ocamlprof
                 - ocamlrun
                 - ocamlrund
-                - if: unix or c_compiler == "vs2022"
+                - if: has_native_backend
+                  then:
+                    - ocamlopt
+                    - ocamlc.opt
+                    - ocamldep.opt
+                    - ocamllex.opt
+                    - ocamlobjinfo.opt
+                    - ocamlopt.opt
+                    - ocamlopt.byte
+                    - ocamloptp
+                - if: unix or c_compiler in ["vs2022", "zig"]
                   then:
                     - ocamlruni
                 - if: not unix and c_compiler == "vs2022"
@@ -428,13 +437,17 @@ outputs:
                   then:
                     - flexlink
                     - flexlink.byte
-                    - flexlink.opt
+                    - if: has_native_backend
+                      then:
+                        - flexlink.opt
                     - conda-ocaml-windres
 
-            # NATIVE only: ocamldoc and ocamldebug are not built when cross-compiling
+            # NATIVE only: not built when cross-compiling
             - if: is_native
               then:
                 - ocamldebug
+            - if: is_native and has_ocamldoc
+              then:
                 - ocamldoc
                 - ocamldoc.opt
 
@@ -489,42 +502,54 @@ outputs:
                 - ${{ library }}lib/ocaml/unix/*
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
+                - if: c_compiler == "zig"
+                  then:
+                    - ${{ library }}bin/conda-ocaml-*.pdb
                 - if: unix
                   then:
                     - ${{ library }}share/man/man1/*
-                - if: is_native
+                - if: is_native and has_ocamldoc
                   then:
                     - ${{ library }}share/man/man3/*
                 - if: unix or c_compiler == "gcc"
                   then:
                     - ${{ library }}lib/ocaml/libasmrun.a
                   else:
-                    - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
-                    - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
-                    - ${{ library }}lib/ocaml/libasmrun.lib
-                    - ${{ library }}lib/ocaml/libasmrund.lib
-                    - ${{ library }}lib/ocaml/libasmruni.lib
                     - ${{ library }}lib/ocaml/libcamlrun.lib
                     - ${{ library }}lib/ocaml/libcamlrund.lib
                     - ${{ library }}lib/ocaml/libcamlruni.lib
                     - ${{ library }}lib/ocaml/libcamlruntime_eventsbyt.lib
-                    - ${{ library }}lib/ocaml/libcamlruntime_eventsnat.lib
                     - ${{ library }}lib/ocaml/libcamlstrbyt.lib
-                    - ${{ library }}lib/ocaml/libcamlstrnat.lib
-                    - ${{ library }}lib/ocaml/libcomprmarsh.lib
                     - ${{ library }}lib/ocaml/libthreads.lib
-                    - ${{ library }}lib/ocaml/libthreadsnat.lib
                     - ${{ library }}lib/ocaml/libunixbyt.lib
-                    - ${{ library }}lib/ocaml/libunixnat.lib
-                    - ${{ library }}lib/ocaml/std_exit.obj
-                    - ${{ library }}lib/ocaml/stdlib.lib
+                    - if: has_native_backend
+                      then:
+                        - ${{ library }}lib/ocaml/libasmrun.lib
+                        - ${{ library }}lib/ocaml/libasmrund.lib
+                        - ${{ library }}lib/ocaml/libasmruni.lib
+                        - ${{ library }}lib/ocaml/libcamlruntime_eventsnat.lib
+                        - ${{ library }}lib/ocaml/libcamlstrnat.lib
+                        - ${{ library }}lib/ocaml/libcomprmarsh.lib
+                        - ${{ library }}lib/ocaml/libthreadsnat.lib
+                        - ${{ library }}lib/ocaml/libunixnat.lib
+                        - ${{ library }}lib/ocaml/std_exit.obj
+                        - ${{ library }}lib/ocaml/stdlib.lib
+                    # flexdll ships a different initer object per toolchain.
+                    - if: c_compiler == "vs2022"
+                      then:
+                        - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
+                        - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
+                    - if: c_compiler == "zig"
+                      then:
+                        - ${{ library }}lib/ocaml/flexdll/flexdll_initer_mingw64arm.obj
+                        - ${{ library }}lib/ocaml/flexdll/flexdll_mingw64arm.obj
                 - if: unix
                   then:
                     - ${{ library }}lib/ocaml/libasmrun_shared.so
                     - ${{ library }}lib/ocaml/libcamlrun_shared.so
 
             # NATIVE: Also includes ocamldoc directory
-            - if: is_native
+            - if: is_native and has_ocamldoc
               then:
                 - ${{ library }}lib/ocaml/ocamldoc/*
 
