@@ -64,6 +64,8 @@ context:
   # ocamldoc is configured out on win-arm64: its man-page rule deadlocks under
   # the arm64 runtime.
   has_ocamldoc: ${{ cross_target_platform_ != "win-arm64" }}
+  # Mode string handed to the test scripts so they skip native-only probes.
+  native_mode: ${{ "native" if has_native_backend else "bytecode" }}
 
   # ===========================================================================
   # Targets whose cross-compiler is built in this lane instead of coming from a
@@ -643,7 +645,7 @@ outputs:
       # ----------------------------------------------------------------------
       - script:
           - if: is_native
-            then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }}
+            then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }} ${{ native_mode }}
             else: echo "Skipping tool version tests"
         files:
           recipe:
@@ -761,7 +763,10 @@ outputs:
               fi
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
               "${QEMU_EXECVE}" "$(command -v ocamlopt${{ xt }})" -version && echo "ocaml-compiler toolchain ready"
-            else: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
+          - if: not is_qemuable and has_native_backend
+            then: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
+          - if: not is_qemuable and not has_native_backend
+            then: ocamlc${{ xt }} -version && echo "ocaml-compiler toolchain ready"
         requirements:
           build:
             - if: is_qemuable
@@ -775,7 +780,7 @@ outputs:
           - if: is_qemuable
             then: |
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-          - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
+          - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }} ${{ native_mode }}
         files:
           recipe:
             - testing/test-compilation.${{ sh }}
@@ -819,7 +824,7 @@ outputs:
           - if: is_qemuable
             then: |
               export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-          - cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
+          - cd testing && ${{ dot }}test-toolchain-vars.${{ sh }} ${{ native_mode }}
         files:
           recipe:
             - testing/test-toolchain-vars.${{ sh }}

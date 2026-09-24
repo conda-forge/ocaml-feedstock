@@ -10,6 +10,9 @@ if "%VERSION%"=="" (
     exit /b 1
 )
 
+set MODE=%2
+if "%MODE%"=="" set MODE=native
+
 echo === OCaml Compilation Tests (non-unix) ===
 
 REM Create test file
@@ -36,6 +39,7 @@ echo   bytecode execution: OK
 del hi.exe
 
 REM 2. Native compilation + execution
+if /i "%MODE%"=="bytecode" goto :no_native_compilation
 echo === Testing native compilation ===
 echo   compiling...
 ocamlopt -o hi.exe hi.ml
@@ -53,6 +57,10 @@ if errorlevel 1 (
 )
 echo   native execution: OK
 del hi.exe
+goto :native_compilation_done
+:no_native_compilation
+echo === Skipping native compilation - no native backend on this target ===
+:native_compilation_done
 
 REM 3. Bytecode compiler via ocamlrun
 echo === Testing bytecode compiler via ocamlrun ===
@@ -92,6 +100,7 @@ if errorlevel 1 (
 echo   bytecode multi-file: OK
 del multi.exe
 
+if /i "%MODE%"=="bytecode" goto :no_native_multifile
 echo   native multi-file...
 ocamlopt -c lib.ml
 if errorlevel 1 (
@@ -114,6 +123,10 @@ if errorlevel 1 (
     exit /b 1
 )
 echo   native multi-file: OK
+goto :native_multifile_done
+:no_native_multifile
+echo   native multi-file: SKIPPED (no native backend on this target)
+:native_multifile_done
 
 REM Cleanup
 del hi.ml lib.ml lib.cmi lib.cmo lib.cmx lib.obj main.ml main.cmi main.cmo main.cmx main.obj multi.exe 2>nul
