@@ -12,5 +12,6 @@ build_platform:
 provider:
   linux_aarch64: default
   osx_arm64: default
+  win_arm64: default
 test: all
 upload_on_branch: main  # Prevents experimental to upload (allows stacked PR merges)
