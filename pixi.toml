@@ -5,11 +5,11 @@
 
 [workspace]
 name = "ocaml-feedstock"
-version = "2026.9.19"  # conda-smithy version used to generate this file
+version = "2026.9.23"  # conda-smithy version used to generate this file
 description = "Pixi configuration for conda-forge/ocaml-feedstock"
 authors = ["@conda-forge/ocaml"]
 channels = ["conda-forge"]
-platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64", "win-arm64"]
 requires-pixi = ">=0.59.0"
 
 [tasks.build-locally]
@@ -172,6 +172,15 @@ description = "Debug ocaml-feedstock with variant win_64_c_compilervs2022cross_t
 [feature.build.tasks."inspect-win_64_c_compilervs2022cross_target_platform_win-64"]
 cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_64_c_compilervs2022cross_target_platform_win-64.yaml"
 description = "List contents of ocaml-feedstock packages built for variant win_64_c_compilervs2022cross_target_platform_win-64"
+[feature.build.tasks."build-win_arm64_cross_target_platform_win-arm64"]
+cmd = "rattler-build build --recipe recipe -m .ci_support/win_arm64_cross_target_platform_win-arm64.yaml --target-platform win-arm64"
+description = "Build ocaml-feedstock with variant win_arm64_cross_target_platform_win-arm64 directly (without setup scripts)"
+[feature.build.tasks."debug-win_arm64_cross_target_platform_win-arm64"]
+cmd = "rattler-build debug setup --recipe recipe -m .ci_support/win_arm64_cross_target_platform_win-arm64.yaml --target-platform win-arm64"
+description = "Debug ocaml-feedstock with variant win_arm64_cross_target_platform_win-arm64 directly (without setup scripts)"
+[feature.build.tasks."inspect-win_arm64_cross_target_platform_win-arm64"]
+cmd = "inspect_artifacts --recipe-dir recipe -m .ci_support/win_arm64_cross_target_platform_win-arm64.yaml"
+description = "List contents of ocaml-feedstock packages built for variant win_arm64_cross_target_platform_win-arm64"
 
 [environments]
 build = ["build"]
