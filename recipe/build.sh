@@ -795,9 +795,93 @@ build_native() {
               set -e
               if [[ -n "${_imports_verify_hit}" ]]; then
                 echo "  [DIAG imports] ${_imports_lib}: verify found ${_imports_expected_sym}"
+              else
+                echo "  [DIAG imports] ${_imports_lib}: copied archive lacks ${_imports_expected_sym}, discarding and trying generation"
+                rm -f "${_imports_out}" 2>/dev/null || true
+                _imports_mechanism=""
               fi
             fi
           fi
+        fi
+      fi
+
+      # Priority 2/3: generate from a .def, or a preprocessed .def.in, only
+      # when no real archive was found.
+      if [[ -z "${_imports_mechanism}" ]]; then
+        _imports_def=""
+        _imports_def_dir=""
+        _imports_def_mechanism=""
+        for _imports_basename in "${_imports_basenames[@]}"; do
+          for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
+            if [[ -f "${_imports_dir}/${_imports_basename}" ]]; then
+              _imports_def="${_imports_dir}/${_imports_basename}"
+              _imports_def_dir="${_imports_dir}"
+              _imports_def_mechanism="def"
+              break 2
+            fi
+          done
+        done
+
+        # .def.in template: mingw ships several import libs only as templates
+        # that need the C preprocessor to expand into a real .def. Uses the
+        # same libarm64-first order as the .def and archive lookups above.
+        if [[ -z "${_imports_def}" ]]; then
+          _imports_def_in=""
+          _imports_def_in_dir=""
+          for _imports_basename in "${_imports_basenames_in[@]}"; do
+            for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
+              if [[ -f "${_imports_dir}/${_imports_basename}" ]]; then
+                _imports_def_in="${_imports_dir}/${_imports_basename}"
+                _imports_def_in_dir="${_imports_dir}"
+                break 2
+              fi
+            done
+          done
+          if [[ -n "${_imports_def_in}" ]]; then
+            echo "  [DIAG imports] ${_imports_lib}: def.in=${_imports_def_in}"
+            _imports_pp_out="${_imports_tmp_dir}/${_imports_lib}.def"
+            set +e
+            "${NATIVE_CC}" -E -x c -P -I "${_imports_definc_dir:-$(dirname "${_imports_def_in}")}" "${_imports_def_in}" -o "${_imports_pp_out}" >/dev/null 2>&1
+            _imports_pp_rc=$?
+            set -e
+            echo "  [DIAG imports] ${_imports_lib}: def.in preprocess exit=${_imports_pp_rc}"
+            if [[ "${_imports_pp_rc}" -eq 0 && -f "${_imports_pp_out}" ]]; then
+              _imports_def="${_imports_pp_out}"
+              _imports_def_dir="${_imports_def_in_dir}"
+              _imports_def_mechanism="def.in"
+            fi
+          fi
+        fi
+
+        if [[ -n "${_imports_def}" && -n "${_imports_dlltool}" ]]; then
+          echo "  [DIAG imports] ${_imports_lib}: def=${_imports_def} (${_imports_def_mechanism}) (from ${_imports_def_dir:-unknown})"
+          # arm64 windows has no stdcall @N decoration, but the .def files
+          # here carry i386 stdcall spelling (WSASocketW@24). Strip a
+          # trailing @<digits> from each export line before dlltool runs, so
+          # the generated archive defines the undecorated name flexlink asks
+          # for. The end-anchored pattern leaves DATA/alias suffixed lines
+          # untouched since @N is not at end of line there.
+          _imports_def_sanitized="${_imports_tmp_dir}/${_imports_lib}.undecorated.def"
+          sed 's/@[0-9][0-9]*[[:space:]]*$//' "${_imports_def}" > "${_imports_def_sanitized}" 2>/dev/null || cp "${_imports_def}" "${_imports_def_sanitized}"
+          echo "  [DIAG imports] ${_imports_lib}: sanitized def=${_imports_def_sanitized}"
+          set +e
+          if [[ "${_imports_dlltool_style}" == "llvm" ]]; then
+            "${_imports_dlltool}" -m arm64 -d "${_imports_def_sanitized}" -l "${_imports_out}" -D "${_imports_lib}.dll" >/dev/null 2>&1
+          else
+            "${_imports_dlltool}" --machine arm64 --def "${_imports_def_sanitized}" --output-lib "${_imports_out}" --dllname "${_imports_lib}.dll" >/dev/null 2>&1
+          fi
+          _imports_rc=$?
+          set -e
+          echo "  [DIAG imports] ${_imports_lib}: dlltool exit=${_imports_rc}"
+          if [[ -f "${_imports_out}" ]]; then
+            _imports_mechanism="${_imports_def_mechanism}"
+          else
+            echo "  [DIAG imports] ${_imports_lib}: output not produced from ${_imports_def_mechanism}"
+          fi
+        elif [[ -n "${_imports_def}" ]]; then
+          echo "  [DIAG imports] ${_imports_lib}: def=${_imports_def} found but no dlltool available"
+        else
+          echo "  [DIAG imports] ${_imports_lib}: no def found"
         fi
       fi
 
@@ -977,6 +1061,13 @@ int pthread_spin_lock(pthread_spinlock_t *lock);
 int pthread_spin_unlock(pthread_spinlock_t *lock);
 int pthread_spin_destroy(pthread_spinlock_t *lock);
 
+/* the mingw member that defines fpreset is stripped out of the pthread
+   archives to avoid a duplicate definition, and ucrtbase exports only the
+   undecorated name, so the underscored alias libpthread.a still calls is
+   forwarded here. */
+void fpreset(void);
+void _fpreset(void) { fpreset(); }
+
 int __isnan(double x) { return x != x; }
 int __isnanf(float x) { return x != x; }
 int __isnanl(long double x) { return x != x; }
@@ -1093,8 +1184,7 @@ C_EOF
   # protector, and large-stack-frame probing; zig ships no clang_rt/compiler_rt
   # archive on this target to satisfy any of them at link time (see builtins:
   # NOT FOUND above), so all three features are disabled and no references to
-  # their helpers are emitted, in the same guarded style as the pthread token
-  # rewrite above.
+  # their helpers are emitted.
   if [[ "${target_platform}" == "win-arm64" ]]; then
     if [[ -f "Makefile.config" ]]; then
       echo "  [DIAG imports] Makefile.config CFLAGS lines (before)"
@@ -1109,7 +1199,43 @@ C_EOF
   fi
 
   # ============================================================================
+  # FIX: win-arm64 zig cannot resolve the -l:libpthread.a token
   # ============================================================================
+  # zig parses the GNU exact-filename form -l:libpthread.a but resolves it
+  # only against explicit -L directories, never its builtin mingw sysroot, so
+  # the token upstream configure bakes into Makefile.config fails at the
+  # first bytecode link. Replace it with whichever of -lpthread /
+  # -lwinpthread this toolchain actually links; if neither does, leave
+  # Makefile.config unchanged and warn.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    if [[ -f "Makefile.config" ]]; then
+      IFS=' ' read -r -a _pthread_cflags <<< "${NATIVE_CFLAGS:-}"
+      IFS=' ' read -r -a _pthread_ldflags <<< "${NATIVE_LDFLAGS:-}"
+      _pthread_src="${LOG_DIR}/pthread_link_test.c"
+      printf 'int main(void) { return 0; }\n' > "${_pthread_src}" || true
+      _pthread_replacement=""
+      for _pthread_candidate in -lpthread -lwinpthread; do
+        _pthread_log="${LOG_DIR}/pthread_link_test${_pthread_candidate}.log"
+        set +e
+        "${NATIVE_CC}" "${_pthread_cflags[@]+"${_pthread_cflags[@]}"}" "${_pthread_src}" "${_pthread_candidate}" -o "${LOG_DIR}/pthread_link_test.exe" "${_pthread_ldflags[@]+"${_pthread_ldflags[@]}"}" > "${_pthread_log}" 2>&1
+        _pthread_rc=$?
+        set -e
+        if [[ ${_pthread_rc} -eq 0 ]]; then
+          _pthread_replacement="${_pthread_candidate}"
+          break
+        fi
+      done
+      if [[ -z "${_pthread_replacement}" ]]; then
+        echo "  [FIX] WARNING: neither -lpthread nor -lwinpthread linked cleanly; leaving -l:libpthread.a in Makefile.config unchanged"
+      else
+        echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
+        sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
+      fi
+    else
+      echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a"
+    fi
+  fi
+
   if [[ "${target_platform}" == "win-arm64" ]]; then
     # configured with --disable-native-compiler, so world.opt has nothing to build
     echo "  [3/4] Compiling bytecode compiler"
