@@ -104,6 +104,7 @@ Current release info
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) |
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) |
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) |
+| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) |
 
 Installing ocaml-compiler
 =========================
@@ -122,7 +123,7 @@ How to use
 <summary>With conda</summary>
 
 ```
-conda install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
+conda install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
 ```
 
 </details>
@@ -131,7 +132,7 @@ conda install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linu
 <summary>With mamba</summary>
 
 ```
-mamba install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
+mamba install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
 ```
 
 </details>
@@ -141,9 +142,9 @@ mamba install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linu
 
 ```
 # for adding to your local project
-pixi add ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
+pixi add ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
 # for installing globally
-pixi global install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64
+pixi global install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
 ```
 
 </details>

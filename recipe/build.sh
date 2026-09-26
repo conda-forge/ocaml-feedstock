@@ -233,6 +233,9 @@ build_native() {
   if [[ -z "${CONDA_TOOLCHAIN_BUILD:-}" ]]; then
     if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
       CONDA_TOOLCHAIN_BUILD="no-pc-toolchain"
+    elif [[ "${target_platform}" == "win-arm64" ]]; then
+      # zig's activation does not export it and the lane is native, so build == target
+      CONDA_TOOLCHAIN_BUILD="${OCAML_TARGET_TRIPLET}"
     else
       echo "ERROR: CONDA_TOOLCHAIN_BUILD not set (compiler activation failed?)"
       exit 1
@@ -398,6 +401,12 @@ build_native() {
         --host="${OCAML_TARGET_TRIPLET}"
       )
     fi
+    if [[ "${target_platform}" == "win-arm64" ]]; then
+      # OCaml has no arm64 Windows native-code backend, so this target is bytecode-only.
+      # ocamldoc man-page generation deadlocks under the freshly built runtime, and the
+      # package already treats ocamldoc as native-only, so disable it here too.
+      CONFIG_ARGS+=(--disable-native-compiler --disable-ocamldoc)
+    fi
   fi
 
   # ============================================================================
@@ -545,9 +554,11 @@ build_native() {
   elif [[ "${target_platform}" != "linux"* ]] && [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
     local config_file="Makefile.config"
 
-    # non-unix: Fix flexlink toolchain detection
-    sed -i 's/^TOOLCHAIN.*/TOOLCHAIN=mingw64/' "$config_file"
-    sed -i 's/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=mingw64/' "$config_file"
+    # non-unix: Fix flexlink toolchain detection; the chain follows the target architecture
+    local flexdll_chain=mingw64
+    [[ "${target_platform}" == "win-arm64" ]] && flexdll_chain=mingw64arm
+    sed -i "s/^TOOLCHAIN.*/TOOLCHAIN=${flexdll_chain}/" "$config_file"
+    sed -i "s/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=${flexdll_chain}/" "$config_file"
 
     # Fix $(addprefix -link ,$(OC_LDFLAGS)) generating garbage when empty
     # Use $(if $(strip ...)) to guard against empty/whitespace-only values
@@ -565,8 +576,697 @@ build_native() {
   # Build
   # ============================================================================
 
-  echo "  [3/4] Compiling native compiler"
-  run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    if [[ ! -f "Makefile.config" ]]; then
+      echo "  [FIX] ERROR: Makefile.config not found, cannot rewrite library tokens"
+    else
+      echo "  [FIX] replacing -lsynchronization with -lapi-ms-win-core-synch-l1-2-0 (arm64 has no synchronization.dll) in Makefile.config"
+      sed -i -e "s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "Makefile.config"
+      grep -n -E '^(BYTECCLIBS|NATIVECCLIBS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
+    fi
+  fi
+
+  # ============================================================================
+  # FIX: win-arm64 flexlink cannot find -lws2_32 (and friends)
+  # ============================================================================
+  # flexlink resolves "-lfoo" itself against its own -L search path, which on
+  # this MINGW64ARM chain only contains the explicit -L flags on its command
+  # line. zig ships no on-disk mingw import libraries at all (zig cc
+  # synthesizes them internally), so BYTECCLIBS/NATIVECCLIBS are left
+  # carrying the plain -lfoo tokens configure generated - ocamlruns.exe is
+  # linked directly by zig cc (not flexlink) from those same variables and
+  # panics on flexlink-only passthrough options. Instead, generate real
+  # import libraries from zig's bundled mingw .def files with dlltool and
+  # point flexlink at them via an extra -L entry.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    echo "  [DIAG imports] zig C driver: NATIVE_CC='${NATIVE_CC:-}'"
+    _imports_search_line=$("${NATIVE_CC}" -print-search-dirs 2>&1 | grep '^libraries:' 2>/dev/null) || true
+    echo "  [DIAG imports] ${_imports_search_line}"
+    _imports_dirlist="${_imports_search_line#libraries:}"
+    _imports_dirlist="${_imports_dirlist# }"
+    _imports_dirlist="${_imports_dirlist#=}"
+
+    _imports_dirs=()
+    IFS=';' read -r -a _imports_raw_dirs <<< "${_imports_dirlist}" || true
+    for _imports_raw_dir in "${_imports_raw_dirs[@]+"${_imports_raw_dirs[@]}"}"; do
+      _imports_norm_dir="${_imports_raw_dir//\\//}"
+      [[ -n "${_imports_norm_dir}" ]] && _imports_dirs+=("${_imports_norm_dir}")
+    done
+
+    # def-include, when present, sits alongside the enumerated dirs rather
+    # than inside them - probe each dir's sibling too, without duplicating
+    # an entry already in the list.
+    _imports_extra_dirs=()
+    for _imports_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
+      _imports_candidate="$(dirname "${_imports_dir}")/def-include"
+      _imports_seen=0
+      for _imports_seen_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}" "${_imports_extra_dirs[@]+"${_imports_extra_dirs[@]}"}"; do
+        [[ "${_imports_seen_dir}" == "${_imports_candidate}" ]] && _imports_seen=1 && break
+      done
+      [[ "${_imports_seen}" -eq 0 ]] && _imports_extra_dirs+=("${_imports_candidate}")
+    done
+    _imports_dirs+=("${_imports_extra_dirs[@]+"${_imports_extra_dirs[@]}"}")
+
+    echo "  [DIAG imports] search dirs (normalized):"
+    for _imports_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
+      if [[ -d "${_imports_dir}" ]]; then
+        echo "  [DIAG imports] dir: ${_imports_dir} (exists)"
+        _imports_total=$(find "${_imports_dir}" -maxdepth 1 -type f 2>/dev/null | wc -l) || true
+        _imports_defs=$(find "${_imports_dir}" -maxdepth 1 -type f -name '*.def' 2>/dev/null | wc -l) || true
+        echo "  [DIAG imports]   total files: ${_imports_total}, *.def files: ${_imports_defs}"
+        find "${_imports_dir}" -maxdepth 1 -type f -name '*.def' 2>/dev/null | xargs -n1 basename 2>/dev/null | head -30 | sed 's/^/  [DIAG imports]   def: /' || true
+        echo "  [DIAG imports]   extension breakdown (top 10 of ${_imports_total} files):"
+        find "${_imports_dir}" -maxdepth 1 -type f 2>/dev/null | sed 's/.*\///; s/^[^.]*$/(noext)/; s/.*\.//' 2>/dev/null | sort 2>/dev/null | uniq -c 2>/dev/null | sort -rn 2>/dev/null | head -10 | sed 's/^/  [DIAG imports]     /' || true
+      else
+        echo "  [DIAG imports] dir: ${_imports_dir} (missing)"
+      fi
+    done
+
+    echo "  [DIAG imports] dlltool availability:"
+    _imports_dlltool=""
+    _imports_dlltool_style=""
+    if command -v dlltool >/dev/null 2>&1; then
+      _imports_dlltool="$(command -v dlltool)"
+      _imports_dlltool_style="binutils"
+      echo "  [DIAG imports]   chosen: dlltool (${_imports_dlltool})"
+    elif command -v llvm-dlltool >/dev/null 2>&1; then
+      _imports_dlltool="$(command -v llvm-dlltool)"
+      _imports_dlltool_style="llvm"
+      echo "  [DIAG imports]   chosen: llvm-dlltool (${_imports_dlltool})"
+    else
+      echo "  [DIAG imports]   chosen: none available, skipping import library generation"
+    fi
+
+    echo "  [DIAG imports] ar availability:"
+    _imports_ar=""
+    if command -v llvm-ar >/dev/null 2>&1; then
+      _imports_ar="$(command -v llvm-ar)"
+      echo "  [DIAG imports]   chosen: llvm-ar (${_imports_ar})"
+    elif command -v ar >/dev/null 2>&1; then
+      _imports_ar="$(command -v ar)"
+      echo "  [DIAG imports]   chosen: ar (${_imports_ar})"
+    else
+      echo "  [DIAG imports]   chosen: none available, compiled/stub archives cannot be created"
+    fi
+
+    echo "  [DIAG imports] nm availability:"
+    _imports_nm=""
+    if command -v llvm-nm >/dev/null 2>&1; then
+      _imports_nm="$(command -v llvm-nm)"
+      echo "  [DIAG imports]   chosen: llvm-nm (${_imports_nm})"
+    elif command -v nm >/dev/null 2>&1; then
+      _imports_nm="$(command -v nm)"
+      echo "  [DIAG imports]   chosen: nm (${_imports_nm})"
+    else
+      echo "  [DIAG imports]   chosen: none available, archive verification skipped"
+    fi
+
+    _imports_definc_dir=""
+    for _imports_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
+      if [[ "$(basename "${_imports_dir}")" == "def-include" && -d "${_imports_dir}" ]]; then
+        _imports_definc_dir="${_imports_dir}"
+        break
+      fi
+    done
+    echo "  [DIAG imports] def-include dir: ${_imports_definc_dir:-not found}"
+
+    _imports_zig_root=""
+    if [[ "${#_imports_dirs[@]}" -gt 0 ]]; then
+      _imports_zig_root="$(dirname "${_imports_dirs[0]}")"
+    fi
+    echo "  [DIAG imports] zig lib tree root for archive/source search: ${_imports_zig_root:-not derived}"
+
+    # zig ships two parallel mingw dirs, lib-common and libarm64, each holding
+    # its own copy of every archive. Archives taken from lib-common came back
+    # missing the expected symbols on this target, so libarm64 is searched
+    # first and every copied archive is verified below before it is accepted.
+    _imports_ordered_search_dirs=()
+    for _imports_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
+      [[ -d "${_imports_dir}" && "${_imports_dir}" == */libarm64 ]] && _imports_ordered_search_dirs+=("${_imports_dir}")
+    done
+    for _imports_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
+      [[ -d "${_imports_dir}" && "${_imports_dir}" == */lib-common ]] && _imports_ordered_search_dirs+=("${_imports_dir}")
+    done
+    for _imports_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
+      if [[ -d "${_imports_dir}" && "${_imports_dir}" != */libarm64 && "${_imports_dir}" != */lib-common ]]; then
+        _imports_ordered_search_dirs+=("${_imports_dir}")
+      fi
+    done
+    echo "  [DIAG imports] archive search order:"
+    for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
+      echo "  [DIAG imports]   ${_imports_dir}"
+    done
+
+    _imports_stage_dir="${BUILD_PREFIX}/Library/lib/ocaml-arm64-imports"
+    _imports_tmp_dir="${_imports_stage_dir}/.tmp"
+    _imports_generated=0
+    _imports_stub_libs=()
+    mkdir -p "${_imports_stage_dir}" "${_imports_tmp_dir}" || true
+    for _imports_lib in kernel32 ucrtbase ucrt msvcrt user32 advapi32 shell32 ole32 ws2_32 uuid version shlwapi api-ms-win-core-synch-l1-2-0 winpthread pthread gcc_eh wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
+      _imports_basenames=("${_imports_lib}.def" "lib${_imports_lib}.def")
+      _imports_basenames_in=("${_imports_lib}.def.in" "lib${_imports_lib}.def.in")
+      if [[ "${_imports_lib}" == "pthread" || "${_imports_lib}" == "winpthread" ]]; then
+        _imports_basenames+=("libwinpthread-1.def" "winpthread.def")
+        _imports_basenames_in+=("libwinpthread-1.def.in" "winpthread.def.in")
+      fi
+
+      _imports_out="${_imports_stage_dir}/lib${_imports_lib}.a"
+      _imports_mechanism=""
+
+      # Priority 1: an already-built archive under the zig lib tree wins over
+      # anything generated - a real archive is far more likely to satisfy
+      # flexlink's symbol resolver than a dlltool stub built from a .def.
+      # Search the arch-correct libarm64 dir before the generic lib-common
+      # dir (see _imports_ordered_search_dirs above), then fall back to a
+      # whole-tree find as a last resort.
+      if [[ -n "${_imports_zig_root}" && -d "${_imports_zig_root}" ]]; then
+        _imports_found_archive=""
+        _imports_found_dir=""
+        set +e
+        for _imports_search_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
+          _imports_hit=$(find "${_imports_search_dir}" -type f \( -iname "lib${_imports_lib}.a" -o -iname "${_imports_lib}.lib" \) 2>/dev/null | head -1)
+          if [[ -n "${_imports_hit}" ]]; then
+            _imports_found_archive="${_imports_hit}"
+            _imports_found_dir="${_imports_search_dir}"
+            break
+          fi
+        done
+        if [[ -z "${_imports_found_archive}" ]]; then
+          _imports_found_archive=$(find "${_imports_zig_root}" -type f \( -iname "lib${_imports_lib}.a" -o -iname "${_imports_lib}.lib" \) 2>/dev/null | head -1)
+          [[ -n "${_imports_found_archive}" ]] && _imports_found_dir="whole-tree fallback"
+        fi
+        set -e
+        if [[ -n "${_imports_found_archive}" ]]; then
+          cp "${_imports_found_archive}" "${_imports_out}" 2>/dev/null || true
+          if [[ -f "${_imports_out}" ]]; then
+            _imports_mechanism="copied"
+            echo "  [DIAG imports] ${_imports_lib}: copied=${_imports_found_archive} (from ${_imports_found_dir})"
+
+            _imports_expected_sym=""
+            case "${_imports_lib}" in
+              # arm64 ws2_32 import lib does not carry WSAStartup; wsock32 supplies that.
+              ws2_32) _imports_expected_sym="WSASocketW" ;;
+              kernel32) _imports_expected_sym="CreateFileW" ;;
+              user32) _imports_expected_sym="MessageBoxW" ;;
+              advapi32) _imports_expected_sym="RegOpenKeyExW" ;;
+              shell32) _imports_expected_sym="SHGetKnownFolderPath" ;;
+              ole32) _imports_expected_sym="CoCreateInstance" ;;
+              shlwapi) _imports_expected_sym="PathFileExistsW" ;;
+              version) _imports_expected_sym="GetFileVersionInfoW" ;;
+              api-ms-win-core-synch-l1-2-0) _imports_expected_sym="WaitOnAddress" ;;
+              winpthread) _imports_expected_sym="pthread_mutex_lock" ;;
+              ucrtbase) _imports_expected_sym="malloc" ;;
+              ucrt) _imports_expected_sym="malloc" ;;
+              msvcrt) _imports_expected_sym="memcpy" ;;
+              uuid) _imports_expected_sym="IID_IUnknown" ;;
+              wsock32) _imports_expected_sym="WSAStartup" ;;
+              # printf is what the yacc link actually needs from mingwex; it
+              # also proves the archive carries the printf family, not just
+              # some symbol that happens to be present.
+              mingwex) _imports_expected_sym="printf" ;;
+              api-ms-win-crt-runtime-l1-1-0) _imports_expected_sym="atexit" ;;
+              api-ms-win-crt-math-l1-1-0) _imports_expected_sym="__isnan" ;;
+            esac
+            if [[ -n "${_imports_nm}" && -n "${_imports_expected_sym}" ]]; then
+              set +e
+              # import libs carry both a bare thunk symbol and an __imp_
+              # prefixed data symbol; accept either spelling as present.
+              _imports_verify_hit=$("${_imports_nm}" --defined-only "${_imports_out}" 2>/dev/null | grep -E " (__imp_)?${_imports_expected_sym}\$" 2>/dev/null | head -1)
+              set -e
+              if [[ -n "${_imports_verify_hit}" ]]; then
+                echo "  [DIAG imports] ${_imports_lib}: verify found ${_imports_expected_sym}"
+              else
+                echo "  [DIAG imports] ${_imports_lib}: copied archive lacks ${_imports_expected_sym}, discarding and trying generation"
+                rm -f "${_imports_out}" 2>/dev/null || true
+                _imports_mechanism=""
+              fi
+            fi
+          fi
+        fi
+      fi
+
+      # Priority 2/3: generate from a .def, or a preprocessed .def.in, only
+      # when no real archive was found.
+      if [[ -z "${_imports_mechanism}" ]]; then
+        _imports_def=""
+        _imports_def_dir=""
+        _imports_def_mechanism=""
+        for _imports_basename in "${_imports_basenames[@]}"; do
+          for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
+            if [[ -f "${_imports_dir}/${_imports_basename}" ]]; then
+              _imports_def="${_imports_dir}/${_imports_basename}"
+              _imports_def_dir="${_imports_dir}"
+              _imports_def_mechanism="def"
+              break 2
+            fi
+          done
+        done
+
+        # .def.in template: mingw ships several import libs only as templates
+        # that need the C preprocessor to expand into a real .def. Uses the
+        # same libarm64-first order as the .def and archive lookups above.
+        if [[ -z "${_imports_def}" ]]; then
+          _imports_def_in=""
+          _imports_def_in_dir=""
+          for _imports_basename in "${_imports_basenames_in[@]}"; do
+            for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
+              if [[ -f "${_imports_dir}/${_imports_basename}" ]]; then
+                _imports_def_in="${_imports_dir}/${_imports_basename}"
+                _imports_def_in_dir="${_imports_dir}"
+                break 2
+              fi
+            done
+          done
+          if [[ -n "${_imports_def_in}" ]]; then
+            echo "  [DIAG imports] ${_imports_lib}: def.in=${_imports_def_in}"
+            _imports_pp_out="${_imports_tmp_dir}/${_imports_lib}.def"
+            set +e
+            "${NATIVE_CC}" -E -x c -P -I "${_imports_definc_dir:-$(dirname "${_imports_def_in}")}" "${_imports_def_in}" -o "${_imports_pp_out}" >/dev/null 2>&1
+            _imports_pp_rc=$?
+            set -e
+            echo "  [DIAG imports] ${_imports_lib}: def.in preprocess exit=${_imports_pp_rc}"
+            if [[ "${_imports_pp_rc}" -eq 0 && -f "${_imports_pp_out}" ]]; then
+              _imports_def="${_imports_pp_out}"
+              _imports_def_dir="${_imports_def_in_dir}"
+              _imports_def_mechanism="def.in"
+            fi
+          fi
+        fi
+
+        if [[ -n "${_imports_def}" && -n "${_imports_dlltool}" ]]; then
+          echo "  [DIAG imports] ${_imports_lib}: def=${_imports_def} (${_imports_def_mechanism}) (from ${_imports_def_dir:-unknown})"
+          # arm64 windows has no stdcall @N decoration, but the .def files
+          # here carry i386 stdcall spelling (WSASocketW@24). Strip a
+          # trailing @<digits> from each export line before dlltool runs, so
+          # the generated archive defines the undecorated name flexlink asks
+          # for. The end-anchored pattern leaves DATA/alias suffixed lines
+          # untouched since @N is not at end of line there.
+          _imports_def_sanitized="${_imports_tmp_dir}/${_imports_lib}.undecorated.def"
+          sed 's/@[0-9][0-9]*[[:space:]]*$//' "${_imports_def}" > "${_imports_def_sanitized}" 2>/dev/null || cp "${_imports_def}" "${_imports_def_sanitized}"
+          echo "  [DIAG imports] ${_imports_lib}: sanitized def=${_imports_def_sanitized}"
+          set +e
+          if [[ "${_imports_dlltool_style}" == "llvm" ]]; then
+            "${_imports_dlltool}" -m arm64 -d "${_imports_def_sanitized}" -l "${_imports_out}" -D "${_imports_lib}.dll" >/dev/null 2>&1
+          else
+            "${_imports_dlltool}" --machine arm64 --def "${_imports_def_sanitized}" --output-lib "${_imports_out}" --dllname "${_imports_lib}.dll" >/dev/null 2>&1
+          fi
+          _imports_rc=$?
+          set -e
+          echo "  [DIAG imports] ${_imports_lib}: dlltool exit=${_imports_rc}"
+          if [[ -f "${_imports_out}" ]]; then
+            _imports_mechanism="${_imports_def_mechanism}"
+          else
+            echo "  [DIAG imports] ${_imports_lib}: output not produced from ${_imports_def_mechanism}"
+          fi
+        elif [[ -n "${_imports_def}" ]]; then
+          echo "  [DIAG imports] ${_imports_lib}: def=${_imports_def} found but no dlltool available"
+        else
+          echo "  [DIAG imports] ${_imports_lib}: no def found"
+        fi
+      fi
+
+      # Priority 4: uuid specifically - mingw keeps it as libsrc/uuid.c, a
+      # plain C source of GUID constants rather than a DLL import.
+      if [[ -z "${_imports_mechanism}" && "${_imports_lib}" == "uuid" && -n "${_imports_zig_root}" && -d "${_imports_zig_root}" && -n "${_imports_ar}" ]]; then
+        _imports_uuid_src=""
+        set +e
+        _imports_uuid_src=$(find "${_imports_zig_root}" -type f -iname "uuid.c" 2>/dev/null | head -1)
+        set -e
+        if [[ -n "${_imports_uuid_src}" ]]; then
+          echo "  [DIAG imports] uuid: source=${_imports_uuid_src}"
+          _imports_uuid_obj="${_imports_tmp_dir}/uuid.o"
+          set +e
+          "${NATIVE_CC}" -c "${_imports_uuid_src}" -o "${_imports_uuid_obj}" >/dev/null 2>&1
+          _imports_cc_rc=$?
+          set -e
+          echo "  [DIAG imports] uuid: compile exit=${_imports_cc_rc}"
+          if [[ "${_imports_cc_rc}" -eq 0 && -f "${_imports_uuid_obj}" ]]; then
+            set +e
+            "${_imports_ar}" rcs "${_imports_out}" "${_imports_uuid_obj}" >/dev/null 2>&1
+            _imports_ar_rc=$?
+            set -e
+            echo "  [DIAG imports] uuid: archive exit=${_imports_ar_rc}"
+            if [[ -f "${_imports_out}" ]]; then
+              _imports_mechanism="compiled"
+            fi
+          fi
+        fi
+      fi
+
+      # Priority 5: an empty stub archive so flexlink can resolve the token.
+      # flexlink only needs the name to be resolvable to proceed past its
+      # own link stage; zig-cc supplies its own runtime and pthread support
+      # at the real link, so an empty stub is a reasonable bet here. If that
+      # assumption is wrong the real link will fail with undefined symbols,
+      # which is a clear, diagnosable signal rather than a silent one.
+      if [[ -z "${_imports_mechanism}" ]]; then
+        if [[ -n "${_imports_ar}" ]]; then
+          set +e
+          "${_imports_ar}" rcs "${_imports_out}" >/dev/null 2>&1
+          _imports_ar_rc=$?
+          set -e
+          if [[ -f "${_imports_out}" ]]; then
+            echo "  [DIAG imports] STUB: lib${_imports_lib}.a created EMPTY - symbols must come from the driver's own defaults"
+            _imports_mechanism="stub"
+            _imports_stub_libs+=("${_imports_lib}")
+          else
+            echo "  [DIAG imports] ${_imports_lib}: stub creation failed (ar exit=${_imports_ar_rc})"
+          fi
+        else
+          echo "  [DIAG imports] ${_imports_lib}: no ar tool available, cannot create stub"
+        fi
+      fi
+
+    done
+
+    # pthread: prefer the real symbols in libwinpthread.a. mingw's plain
+    # libpthread.a is a small forwarding stub with no bodies of its own - if
+    # that is what landed in staging, replace it with libwinpthread.a.
+    _imports_winpthread_out="${_imports_stage_dir}/libwinpthread.a"
+    _imports_pthread_out="${_imports_stage_dir}/libpthread.a"
+    _imports_mingwex_out="${_imports_stage_dir}/libmingwex.a"
+    if [[ -f "${_imports_winpthread_out}" ]]; then
+      _imports_winpthread_size=$(wc -c < "${_imports_winpthread_out}" 2>/dev/null) || true
+      _imports_pthread_size=0
+      if [[ -f "${_imports_pthread_out}" ]]; then
+        _imports_pthread_size=$(wc -c < "${_imports_pthread_out}" 2>/dev/null) || true
+      fi
+      echo "  [DIAG imports] pthread: libwinpthread.a size=${_imports_winpthread_size:-0}, libpthread.a size=${_imports_pthread_size:-0}"
+      if [[ "${_imports_pthread_size:-0}" -lt 8192 ]]; then
+        cp "${_imports_winpthread_out}" "${_imports_pthread_out}" 2>/dev/null || true
+        echo "  [DIAG imports] pthread: libpthread.a is a forwarding stub, replaced with libwinpthread.a contents"
+      else
+        echo "  [DIAG imports] pthread: libpthread.a already >= 8192 bytes, keeping as-is"
+      fi
+    else
+      echo "  [DIAG imports] pthread: libwinpthread.a not staged, cannot backfill libpthread.a"
+    fi
+
+    # Archive-membership probe: confirm libwinpthread.a actually carries CRT
+    # startup objects (ucrtexewin.obj defines wmain and calls wWinMain) rather
+    # than assuming it from the undefined-symbol error alone.
+    if [[ -n "${_imports_ar}" && -f "${_imports_winpthread_out}" ]]; then
+      _imports_winpthread_crt_members=$("${_imports_ar}" t "${_imports_winpthread_out}" 2>/dev/null | grep -E 'crt|exewin|ucrtexe' | head -20) || true
+      if [[ -n "${_imports_winpthread_crt_members}" ]]; then
+        while IFS= read -r _imports_crt_member; do
+          echo "  [DIAG imports] libwinpthread.a member: ${_imports_crt_member}"
+        done <<< "${_imports_winpthread_crt_members}"
+      else
+        echo "  [DIAG imports] libwinpthread.a: none matched crt|exewin|ucrtexe in member names"
+      fi
+    fi
+
+    # Strip the mingw CRT startup shims and the fp reset member from the
+    # staged pthread and mingwex archives. crtexewin.obj/ucrtexewin.obj/
+    # crtexe.obj/ucrtexe.obj each define wmain and call wWinMain, which
+    # nothing in this link provides; fpreset_arm64.obj defines both fpreset
+    # and _fpreset, which ucrtbase already provides. Left in place, each
+    # duplicate entry point collides with the one that should win at link
+    # time.
+    if [[ -n "${_imports_ar}" ]]; then
+      for _imports_crt_archive in "${_imports_winpthread_out}" "${_imports_pthread_out}" "${_imports_mingwex_out}"; do
+        if [[ ! -f "${_imports_crt_archive}" ]]; then
+          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") not staged, skipping"
+          continue
+        fi
+        _imports_crt_shims=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe|fpreset_arm64)\.obj$') || true
+        if [[ -z "${_imports_crt_shims}" ]]; then
+          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") none matched crt startup shim basenames"
+        else
+          _imports_crt_shim_count=$(printf '%s\n' "${_imports_crt_shims}" | grep -c .) || true
+          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") found ${_imports_crt_shim_count} matching member(s)"
+          while IFS= read -r _imports_crt_shim; do
+            [[ -z "${_imports_crt_shim}" ]] && continue
+            echo "  [DIAG imports] crt-strip: deleting ${_imports_crt_shim} from $(basename "${_imports_crt_archive}")"
+            "${_imports_ar}" d "${_imports_crt_archive}" "${_imports_crt_shim}" 2>/dev/null || true
+          done <<< "${_imports_crt_shims}"
+          # empty result here is the success case (no shim members remain), so
+          # an empty match must not be treated as a pipeline failure
+          _imports_crt_shims_after=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe|fpreset_arm64)\.obj$') || true
+          if [[ -z "${_imports_crt_shims_after}" ]]; then
+            echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") verified clean, none matched after deletion"
+          else
+            echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") WARNING still matches after deletion"
+          fi
+        fi
+      done
+    else
+      echo "  [DIAG imports] crt-strip: no ar available, cannot strip CRT startup shims"
+    fi
+
+    # Compiler-rt/builtins: zig's own runtime carries __chkstk, the stack
+    # protector and the ubsan handlers, none of which live in a plain mingw
+    # import lib. Search the whole zig lib tree, not just the mingw dirs.
+    _imports_builtins_found=""
+    if [[ -n "${_imports_zig_root}" && -d "${_imports_zig_root}" ]]; then
+      set +e
+      for _imports_builtins_pattern in "libclang_rt.builtins-aarch64*.a" "libclang_rt.builtins*.a" "libcompiler_rt*.a" "libbuiltins*.a"; do
+        _imports_builtins_found=$(find "${_imports_zig_root}" -type f -iname "${_imports_builtins_pattern}" 2>/dev/null | head -1)
+        [[ -n "${_imports_builtins_found}" ]] && break
+      done
+      set -e
+    fi
+    _imports_builtins_libflag=""
+    if [[ -n "${_imports_builtins_found}" ]]; then
+      _imports_builtins_base="$(basename "${_imports_builtins_found}")"
+      _imports_builtins_out="${_imports_stage_dir}/${_imports_builtins_base}"
+      cp "${_imports_builtins_found}" "${_imports_builtins_out}" 2>/dev/null || true
+      if [[ -f "${_imports_builtins_out}" ]]; then
+        _imports_builtins_size=$(wc -c < "${_imports_builtins_out}" 2>/dev/null) || true
+        echo "  [DIAG imports] builtins: copied=${_imports_builtins_found} size=${_imports_builtins_size}"
+        _imports_builtins_libflag="${_imports_builtins_base#lib}"
+        _imports_builtins_libflag="${_imports_builtins_libflag%.a}"
+      fi
+    else
+      echo "  [DIAG imports] builtins: NOT FOUND"
+    fi
+
+    # zig's arm64 mingw runtime ships neither the __isnan family nor the
+    # pthread spinlock entry points that libwinpthread's own members call
+    # (rwlock.obj, thread.obj, cond.obj); supply both from a small compiled
+    # archive rather than an empty stub.
+    _imports_compat_src="${_imports_tmp_dir}/conda_arm64_compat.c"
+    _imports_compat_obj="${_imports_tmp_dir}/conda_arm64_compat.o"
+    _imports_compat_out="${_imports_stage_dir}/libconda_arm64_compat.a"
+    cat > "${_imports_compat_src}" << 'C_EOF'
+/* zig's arm64 mingw runtime ships neither the __isnan family nor the
+   pthread spinlock entry points that libwinpthread's own members call. */
+
+typedef void *pthread_spinlock_t;
+
+int __isnan(double x);
+int __isnanf(float x);
+int __isnanl(long double x);
+int pthread_spin_lock(pthread_spinlock_t *lock);
+int pthread_spin_unlock(pthread_spinlock_t *lock);
+int pthread_spin_destroy(pthread_spinlock_t *lock);
+
+/* the mingw member that defines fpreset is stripped out of the pthread
+   archives to avoid a duplicate definition, and ucrtbase exports only the
+   undecorated name, so the underscored alias libpthread.a still calls is
+   forwarded here. */
+void fpreset(void);
+void _fpreset(void) { fpreset(); }
+
+int __isnan(double x) { return x != x; }
+int __isnanf(float x) { return x != x; }
+int __isnanl(long double x) { return x != x; }
+
+int pthread_spin_lock(pthread_spinlock_t *lock)
+{
+  while (__atomic_exchange_n((volatile __UINTPTR_TYPE__ *)lock,
+                             (__UINTPTR_TYPE__)1, __ATOMIC_ACQUIRE) != 0) { }
+  return 0;
+}
+
+int pthread_spin_unlock(pthread_spinlock_t *lock)
+{
+  __atomic_store_n((volatile __UINTPTR_TYPE__ *)lock,
+                   (__UINTPTR_TYPE__)0, __ATOMIC_RELEASE);
+  return 0;
+}
+
+int pthread_spin_destroy(pthread_spinlock_t *lock)
+{
+  *lock = 0;
+  return 0;
+}
+C_EOF
+    if [[ -n "${_imports_ar}" ]]; then
+      set +e
+      "${NATIVE_CC}" -c -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe "${_imports_compat_src}" -o "${_imports_compat_obj}" >/dev/null 2>&1
+      _imports_compat_cc_rc=$?
+      set -e
+      echo "  [DIAG imports] compat: compile exit=${_imports_compat_cc_rc}"
+      if [[ "${_imports_compat_cc_rc}" -eq 0 && -f "${_imports_compat_obj}" ]]; then
+        set +e
+        "${_imports_ar}" rcs "${_imports_compat_out}" "${_imports_compat_obj}" >/dev/null 2>&1
+        _imports_compat_ar_rc=$?
+        set -e
+        echo "  [DIAG imports] compat: archive exit=${_imports_compat_ar_rc}"
+        if [[ -f "${_imports_compat_out}" ]]; then
+          _imports_compat_size=$(wc -c < "${_imports_compat_out}" 2>/dev/null) || true
+          echo "  [DIAG imports] compat: libconda_arm64_compat.a size=${_imports_compat_size}"
+          if [[ -n "${_imports_nm}" ]]; then
+            set +e
+            _imports_compat_has_isnan=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __isnan$" | head -1) || true
+            _imports_compat_has_spin=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " pthread_spin_lock$" | head -1) || true
+            _imports_compat_has_fpreset=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " _fpreset$" | head -1) || true
+            set -e
+            if [[ -n "${_imports_compat_has_isnan}" && -n "${_imports_compat_has_spin}" && -n "${_imports_compat_has_fpreset}" ]]; then
+              echo "  [DIAG imports] compat: verified __isnan, pthread_spin_lock and _fpreset defined"
+            else
+              echo "  [DIAG imports] compat: WARNING missing expected symbols (isnan=${_imports_compat_has_isnan:+yes} spin=${_imports_compat_has_spin:+yes} fpreset=${_imports_compat_has_fpreset:+yes})"
+            fi
+          fi
+        else
+          echo "  [DIAG imports] compat: archive not produced"
+        fi
+      else
+        echo "  [DIAG imports] compat: compile failed, libconda_arm64_compat.a not created"
+      fi
+    else
+      echo "  [DIAG imports] compat: no ar tool available, cannot create libconda_arm64_compat.a"
+    fi
+
+    _imports_extra_libflags=""
+    # ucrtbase is the C runtime zig's arm64 mingw target links against; msvcrt
+    # is the legacy alternative and the two are never linked together. flexlink
+    # resolves symbols itself over the archives it is given, so exactly one C
+    # runtime must remain in the -l list: ucrtbase stays, msvcrt is excluded
+    # below.
+    for _imports_deflib in kernel32 ucrtbase msvcrt ucrt user32 advapi32 shell32 ole32 shlwapi version api-ms-win-core-synch-l1-2-0 uuid ws2_32 winpthread wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
+      _imports_deflib_is_stub=0
+      for _imports_stub_check in "${_imports_stub_libs[@]+"${_imports_stub_libs[@]}"}"; do
+        if [[ "${_imports_stub_check}" == "${_imports_deflib}" ]]; then
+          _imports_deflib_is_stub=1
+          break
+        fi
+      done
+      if [[ "${_imports_deflib_is_stub}" -eq 1 ]]; then
+        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=stub)"
+        continue
+      fi
+      if [[ "${_imports_deflib}" == "winpthread" ]]; then
+        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=duplicate, OCaml MKEXE already passes -lpthread and staged libpthread.a is a byte-identical copy of libwinpthread.a)"
+        continue
+      fi
+      if [[ "${_imports_deflib}" == "msvcrt" ]]; then
+        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=crt-conflict, msvcrt is the alternative C runtime to ucrtbase and the two are never linked together; flexlink resolves symbols itself so exactly one C runtime must remain)"
+        continue
+      fi
+      if [[ -f "${_imports_stage_dir}/lib${_imports_deflib}.a" ]]; then
+        _imports_extra_libflags="${_imports_extra_libflags:+${_imports_extra_libflags} }-l${_imports_deflib}"
+      fi
+    done
+    if [[ -n "${_imports_builtins_libflag}" ]]; then
+      _imports_extra_libflags="${_imports_extra_libflags:+${_imports_extra_libflags} }-l${_imports_builtins_libflag}"
+    fi
+    if [[ -f "${_imports_stage_dir}/libconda_arm64_compat.a" ]]; then
+      _imports_extra_libflags="${_imports_extra_libflags:+${_imports_extra_libflags} }-lconda_arm64_compat"
+    fi
+
+    if [[ "${_imports_generated}" -gt 0 || -n "${_imports_extra_libflags}" ]]; then
+      # -v makes flexlink print the lld-link command it builds instead of
+      # hiding it, so the merged -L/-l order and CRT objects become visible.
+      export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-v -L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
+      echo "  [FIX] FLEXLINKFLAGS now: ${FLEXLINKFLAGS}"
+    else
+      echo "  [DIAG imports] no import libraries staged, leaving FLEXLINKFLAGS unchanged"
+    fi
+  fi
+
+  # ============================================================================
+  # FIX: win-arm64 zig has no compiler-rt archive for ubsan/stack-protector/chkstk
+  # ============================================================================
+  # __ubsan_handle_*, __stack_chk_fail/__stack_chk_guard and __chkstk are only
+  # emitted because the C compilation enables UB sanitizing, the stack
+  # protector, and large-stack-frame probing; zig ships no clang_rt/compiler_rt
+  # archive on this target to satisfy any of them at link time (see builtins:
+  # NOT FOUND above), so all three features are disabled and no references to
+  # their helpers are emitted.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    if [[ -f "Makefile.config" ]]; then
+      echo "  [DIAG imports] Makefile.config CFLAGS lines (before)"
+      grep -n -E '^(CFLAGS|OC_CFLAGS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (no CFLAGS/OC_CFLAGS lines found)"
+      sed -i -E 's/^(CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe/' "Makefile.config"
+      sed -i -E 's/^(OC_CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe/' "Makefile.config"
+      echo "  [DIAG imports] Makefile.config CFLAGS lines (after)"
+      grep -n -E '^(CFLAGS|OC_CFLAGS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (no CFLAGS/OC_CFLAGS lines found)"
+    else
+      echo "  [FIX] ERROR: Makefile.config not found, cannot append -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe"
+    fi
+  fi
+
+  # ============================================================================
+  # FIX: win-arm64 zig cannot resolve the -l:libpthread.a token
+  # ============================================================================
+  # zig parses the GNU exact-filename form -l:libpthread.a but resolves it
+  # only against explicit -L directories, never its builtin mingw sysroot, so
+  # the token upstream configure bakes into Makefile.config fails at the
+  # first bytecode link. Replace it with whichever of -lpthread /
+  # -lwinpthread this toolchain actually links; if neither does, leave
+  # Makefile.config unchanged and warn.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    if [[ -f "Makefile.config" ]]; then
+      IFS=' ' read -r -a _pthread_cflags <<< "${NATIVE_CFLAGS:-}"
+      IFS=' ' read -r -a _pthread_ldflags <<< "${NATIVE_LDFLAGS:-}"
+      _pthread_src="${LOG_DIR}/pthread_link_test.c"
+      printf 'int main(void) { return 0; }\n' > "${_pthread_src}" || true
+      _pthread_replacement=""
+      for _pthread_candidate in -lpthread -lwinpthread; do
+        _pthread_log="${LOG_DIR}/pthread_link_test${_pthread_candidate}.log"
+        set +e
+        "${NATIVE_CC}" "${_pthread_cflags[@]+"${_pthread_cflags[@]}"}" "${_pthread_src}" "${_pthread_candidate}" -o "${LOG_DIR}/pthread_link_test.exe" "${_pthread_ldflags[@]+"${_pthread_ldflags[@]}"}" > "${_pthread_log}" 2>&1
+        _pthread_rc=$?
+        set -e
+        if [[ ${_pthread_rc} -eq 0 ]]; then
+          _pthread_replacement="${_pthread_candidate}"
+          break
+        fi
+      done
+      if [[ -z "${_pthread_replacement}" ]]; then
+        echo "  [FIX] WARNING: neither -lpthread nor -lwinpthread linked cleanly; leaving -l:libpthread.a in Makefile.config unchanged"
+      else
+        echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
+        sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
+      fi
+    else
+      echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a"
+    fi
+  fi
+
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    # configured with --disable-native-compiler, so world.opt has nothing to build
+    echo "  [3/4] Compiling bytecode compiler"
+    # V=1 and VERBOSE=1 (OCaml's build system has used both spellings) force
+    # quiet-mode rules like MKEXE to echo their full command lines, so the
+    # actual link command for runtime/ocamlrun.exe becomes visible in the log.
+    #
+    # This lane hangs rather than failing, and run_logged only surfaces its
+    # tail once make returns - a hang gives zero signal. Bound the call with
+    # timeout and run a heartbeat that tails the log every 60s, so a stuck
+    # build still produces a diagnosable failure and shows the last progress.
+    _world_timeout="${OCAML_WORLD_TIMEOUT_S:-1500}"
+    echo "  [DIAG world] bounding make world to ${_world_timeout}s (kill-after 120s)"
+    _world_logfile="${LOG_DIR}/world.log"
+    _world_start=$(date +%s)
+    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world V=1 VERBOSE=1 "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"; then
+      :
+    else
+      _world_rc=$?
+      _world_elapsed=$(( $(date +%s) - _world_start ))
+      if (( _world_elapsed >= _world_timeout - 5 )); then
+        echo "  [DIAG world] make world TIMED OUT after ${_world_timeout}s"
+      else
+        echo "  [DIAG world] make world failed with status ${_world_rc}"
+      fi
+      return ${_world_rc}
+    fi
+  else
+    echo "  [3/4] Compiling native compiler"
+    run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
+  fi
 
   # ============================================================================
   # Tests (Optional)
@@ -635,6 +1335,18 @@ build_native() {
   echo "============================================================"
   echo "  Location: ${OCAML_INSTALL_PREFIX}"
   echo "  Version:  $(${OCAML_INSTALL_PREFIX}/bin/ocamlopt -version 2>/dev/null || echo 'N/A')"
+
+  # ============================================================================
+  # DIAGNOSTIC (non-fatal): win-arm64 installed binary inventory
+  # ============================================================================
+  # recipe/recipe.yaml's package_contents block (strict: true) unconditionally
+  # requires ocamlopt, ocamlopt.opt, ocamlc.opt, ocamldep.opt, ocamllex.opt and
+  # ocamlobjinfo.opt. This lane configures --disable-native-compiler and
+  # builds "make world" (bytecode only, not world.opt), so it cannot produce
+  # those natively-compiled binaries. This block enumerates what actually
+  # landed in the install tree so the package_contents exclusion list can be
+  # written from real data instead of a guess. Nothing here may abort the
+  # build.
 }
 
 # ==============================================================================

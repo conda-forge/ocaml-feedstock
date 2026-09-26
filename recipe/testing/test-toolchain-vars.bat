@@ -2,6 +2,9 @@
 REM Test that CONDA_OCAML_* toolchain variables work correctly on non-unix
 setlocal enabledelayedexpansion
 
+set MODE=%1
+if "%MODE%"=="" set MODE=native
+
 echo === Test: CONDA_OCAML_* Toolchain Variables ===
 echo.
 
@@ -91,10 +94,14 @@ echo PASS: All wrapper files found
 echo.
 
 REM Test 3: Verify ocamlopt -config shows correct toolchain configuration
-echo Test 3: ocamlopt -config shows toolchain configuration
+REM Bytecode-only targets have no ocamlopt, so ocamlc -config is used instead;
+REM it prints the same configuration keys.
+set OCAML_CONFIG_TOOL=ocamlopt
+if /i "%MODE%"=="bytecode" set OCAML_CONFIG_TOOL=ocamlc
+echo Test 3: %OCAML_CONFIG_TOOL% -config shows toolchain configuration
 
-for /f "tokens=*" %%i in ('ocamlopt -config-var c_compiler 2^>nul') do set CONFIG_CC=%%i
-for /f "tokens=*" %%i in ('ocamlopt -config-var asm 2^>nul') do set CONFIG_ASM=%%i
+for /f "tokens=*" %%i in ('%OCAML_CONFIG_TOOL% -config-var c_compiler 2^>nul') do set CONFIG_CC=%%i
+for /f "tokens=*" %%i in ('%OCAML_CONFIG_TOOL% -config-var asm 2^>nul') do set CONFIG_ASM=%%i
 
 echo   c_compiler = %CONFIG_CC%
 echo   asm = %CONFIG_ASM%
@@ -120,6 +127,7 @@ if "%TOOLCHAIN%"=="msvc" (
 echo.
 
 REM Test 4: Compilation works with default toolchain
+if /i "%MODE%"=="bytecode" goto :no_native_test4
 echo Test 4: Compilation works with default CONDA_OCAML_CC
 
 set TESTDIR=%TEMP%\ocaml-toolchain-test-%RANDOM%
@@ -146,6 +154,11 @@ if %errorlevel% neq 0 (
 echo PASS: Compilation works with default toolchain
 popd
 echo.
+goto :native_test4_done
+:no_native_test4
+echo Test 4: SKIPPED (no native backend on this target)
+echo.
+:native_test4_done
 
 REM Test 5: Custom CC can be set (just verify variable changes)
 echo Test 5: Custom CONDA_OCAML_CC can be overridden
