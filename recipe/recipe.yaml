@@ -148,9 +148,9 @@ outputs:
   - package:
       name: ocaml
     build:
+      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       noarch: generic
-      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       script: echo "OCaml metapackage"
     requirements:
       run:
@@ -728,6 +728,7 @@ outputs:
   - package:
       name: ocaml-compiler
     build:
+      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       script: echo "Toolchain meta-package"
     requirements:
