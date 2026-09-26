@@ -96,6 +96,15 @@ CONFIG_ARGS=(
   PKG_CONFIG=false
 )
 
+# zstd (marshal compression) support is optional, gated by OCAML_HAS_ZSTD
+# (see recipe.yaml's has_zstd context key). Off only for linux-s390x today,
+# which has no zstd conda package. Appending here reaches every ./configure
+# call below: build_native(), build_cross_compiler() and build_cross_target()
+# each copy this array into a local CONFIG_ARGS before adding their own args.
+if [[ "${OCAML_HAS_ZSTD:-1}" == "0" ]]; then
+  CONFIG_ARGS+=(--without-zstd)
+fi
+
 # ==============================================================================
 # Fix xlocale.h compatibility (removed in glibc 2.26, merged into locale.h)
 # ==============================================================================
@@ -546,11 +555,13 @@ build_native() {
 
     # These should exist - append to them
     sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
-    sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
-    # Fix BYTECCLIBS for -output-complete-exe (links libcamlrun.a which contains zstd.o)
-    # Use @loader_path for relocatable rpath (survives conda relocation)
-    # Note: Don't use -L${PREFIX}/lib here - conda-ocaml-mkexe wrapper adds it at runtime
-    sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
+    if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
+      sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
+      # Fix BYTECCLIBS for -output-complete-exe (links libcamlrun.a which contains zstd.o)
+      # Use @loader_path for relocatable rpath (survives conda relocation)
+      # Note: Don't use -L${PREFIX}/lib here - conda-ocaml-mkexe wrapper adds it at runtime
+      sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
+    fi
   elif [[ "${target_platform}" != "linux"* ]] && [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
     local config_file="Makefile.config"
 
@@ -1510,14 +1521,21 @@ TOOLWRAPPER
     # ========================================================================
     # The bytecode runtime shared library (libcamlrun_shared.so) needs to link
     # against target-arch zstd. Create a conda env with target-platform zstd.
-    TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
-    echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
-    conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
-    # Get env path from conda info (envs are in $CONDA_PREFIX/envs/ or default location)
-    CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
-    TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
-    TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
-    echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
+    # Skipped entirely when has_zstd is off (OCAML_HAS_ZSTD=0): no target-arch
+    # zstd is installed and TARGET_ZSTD_LIBS stays empty.
+    if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
+      TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
+      echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
+      conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
+      # Get env path from conda info (envs are in $CONDA_PREFIX/envs/ or default location)
+      CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
+      TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
+      TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
+      echo "  TARGET_ZSTD_LIBS: ${TARGET_ZSTD_LIBS}"
+    else
+      TARGET_ZSTD_LIBS=""
+      echo "  Skipping target-arch zstd install (has_zstd is off)"
+    fi
 
     # ========================================================================
     # Clean and configure
@@ -1643,6 +1661,11 @@ TOOLWRAPPER
     # 2. Clean only native runtime files (libasmrun*, amd64.o, *.nd.o)
     # 3. crossopt rebuilds native parts for TARGET (bytecode unchanged)
 
+    # BUILD-arch zstd link flags; empty when has_zstd is off so no -lzstd
+    # token reaches the native (BUILD-machine) link lines below.
+    _BUILD_ZSTD_LIBS=""
+    [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]] && _BUILD_ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+
     echo "  [4/7] Pre-building bytecode runtime and stdlib with native tools..."
     run_logged "runtime-all" "${MAKE[@]}" runtime-all \
       ARCH=amd64 \
@@ -1653,7 +1676,7 @@ TOOLWRAPPER
       SAK_CC="${NATIVE_CC}" \
       SAK_CFLAGS="${NATIVE_CFLAGS}" \
       SAK_LDFLAGS="${NATIVE_LDFLAGS}" \
-      ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd" \
+      ZSTD_LIBS="${_BUILD_ZSTD_LIBS}" \
       -j"${CPU_COUNT}"
 
     # NOTE: stdlib must NOT be pre-built here - doing so yields inconsistent assumptions
@@ -1719,7 +1742,7 @@ TOOLWRAPPER
         V=1
         CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
         LIBDIR="${OCAML_CROSS_LIBDIR}"
-        ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+        ZSTD_LIBS="${_BUILD_ZSTD_LIBS}"
         TARGET_ZSTD_LIBS="${TARGET_ZSTD_LIBS}"
 
         SAK_AR="${NATIVE_AR}"
@@ -2207,6 +2230,11 @@ EOF
   # Apply Makefile.cross patches
   apply_cross_patches
 
+  # zstd link suffix for target-arch libs; empty when has_zstd is off so no
+  # -lzstd token reaches any of the target link lines below.
+  _zstd_lib=""
+  [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]] && _zstd_lib=" -lzstd"
+
   # Shared args for crosscompiledopt and crosscompiledruntime
   CROSS_TARGET_COMMON_ARGS=(
     ARCH="${CROSS_ARCH}"
@@ -2217,7 +2245,7 @@ EOF
     CROSS_CC="${CROSS_CC}"
     CROSS_AR="${CROSS_AR}"
     CROSS_MKLIB="${CROSS_OCAMLMKLIB}"
-    ZSTD_LIBS="-L${PREFIX}/lib -lzstd"
+    ZSTD_LIBS="-L${PREFIX}/lib${_zstd_lib}"
     LIBDIR="${OCAML_INSTALL_PREFIX}/lib/ocaml"
     OCAMLLIB="${OCAMLLIB}"
     CONDA_OCAML_AS="${CROSS_ASM}"
@@ -2292,8 +2320,8 @@ EOF
     if [[ "${target_platform}" == "linux-"* ]]; then
       CROSSCOMPILEDOPT_ARGS+=(
         CPPFLAGS="-D_DEFAULT_SOURCE"
-        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd"
-        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd"
+        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl${_zstd_lib}"
+        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl${_zstd_lib}"
       )
     fi
 
@@ -2333,8 +2361,8 @@ EOF
     else
       CROSSCOMPILEDRUNTIME_ARGS+=(
         CPPFLAGS="-D_DEFAULT_SOURCE"
-        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl -lzstd"
-        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl -lzstd"
+        BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl${_zstd_lib}"
+        NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl${_zstd_lib}"
         SAK_LINK="${NATIVE_CC} \$(OC_LDFLAGS) \$(LDFLAGS) \$(OUTPUTEXE)\$(1) \$(2)"
       )
     fi
