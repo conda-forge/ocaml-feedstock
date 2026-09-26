@@ -17,17 +17,24 @@
 # compiler (so targetting our build machine) of the same version is available in
 # $PATH
 
+# HAS_ZSTD gates all zstd linkage in this file. It defaults from the
+# OCAML_HAS_ZSTD environment variable that recipe.yaml's has_zstd context key
+# sets, and to 1 (zstd enabled) when invoked outside of a recipe build.
+HAS_ZSTD ?= $(or $(OCAML_HAS_ZSTD),1)
+
 # As the cross compiler will be linked with the _build_ version of
 # libcomprmarsh, we cannot rely on the detection of zstd done during `configure`
 # (as it would have detected the _target_ version). So we recover the flags to
 # link with zstd of the non-cross compiler.
 # ZSTD_LIBS can be overridden from command line for cross-compilation (to use HOST libs)
-# If not provided, fall back to native ocamlopt's compression_c_libraries config
-ZSTD_LIBS ?= $(shell ocamlopt -config-var compression_c_libraries)
+# If not provided, fall back to native ocamlopt's compression_c_libraries config.
+# Empty when HAS_ZSTD=0, so no -lzstd is ever emitted for a zstd-free target.
+ZSTD_LIBS ?= $(if $(filter 0,$(HAS_ZSTD)),,$(shell ocamlopt -config-var compression_c_libraries))
 HOST_ZSTD_LIBS=ZSTD_LIBS=$(ZSTD_LIBS)
 
 # TARGET_ZSTD_LIBS is for linking target-arch shared libraries (libcamlrun_shared.so)
-# This points to a conda env with target-arch zstd installed via --subdir
+# This points to a conda env with target-arch zstd installed via --subdir.
+# Empty automatically when ZSTD_LIBS is empty (HAS_ZSTD=0).
 TARGET_ZSTD_LIBS ?= $(ZSTD_LIBS)
 
 # The build system adds various include directories which pertain to the current
@@ -230,6 +237,8 @@ endif
 	# into BYTECCLIBS, so BYTECCLIBS must carry the -L too. Prepend rather than
 	# replace: BYTECCLIBS also carries libs the target glibc needs that the
 	# build glibc does not.
+	# When HAS_ZSTD=0, TARGET_ZSTD_LIBS is already empty (see its definition
+	# above), so this link degrades to plain BYTECCLIBS/LDFLAGS with no -lzstd.
 	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) $(CROSS_SHARED_LIB_VARS) BYTECCLIBS='$(TARGET_ZSTD_LIBS) $(BYTECCLIBS)' LDFLAGS="$(TARGET_ZSTD_LIBS) $(LDFLAGS)" $(OLDS)
 	# Build native compilers (BUILD platform binaries) using CAMLOPT from PATH
 	# NOTE: Do NOT clean compilerlibs here - they were built at line 194-195 with matching

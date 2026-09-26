@@ -83,6 +83,13 @@ context:
   bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x", "win-arm64"] }}
 
   # ===========================================================================
+  # zstd (marshal compression) support. Off only for linux-s390x, which has no
+  # zstd conda package. Drives OCAML_HAS_ZSTD (build.sh) and gates the zstd
+  # requirement below, so both agree with the single flag here.
+  # ===========================================================================
+  has_zstd: ${{ cross_target_platform_ not in ["linux-s390x"] }}
+
+  # ===========================================================================
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
   qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
@@ -192,6 +199,7 @@ outputs:
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
           OCAML_BOOTSTRAP_IN_LANE: "${{ 1 if bootstrap_in_lane else 0 }}"
+          OCAML_HAS_ZSTD: "${{ 1 if has_zstd else 0 }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
       dynamic_linking:
         missing_dso_allowlist:
@@ -302,7 +310,8 @@ outputs:
         # --- CROSS-TARGET: Bootstrap compiler for cross-compilation ---
         - if: is_cross_target
           then:
-            - zstd
+            - if: has_zstd
+              then: zstd
             - if: build_number == 0
               then:
                 - ocaml_${{ build_platform }} >=5.4
@@ -329,10 +338,12 @@ outputs:
             - llvm-tools ${{ c_compiler_version }}*
 
       host:
-        - zstd
+        - if: has_zstd
+          then: zstd
 
       run:
-        - zstd
+        - if: has_zstd
+          then: zstd
         # OCaml needs a C compiler at runtime - ocamlopt, conda-ocaml-mkexe,
         # conda-ocaml-mkdll all invoke the C compiler. Must use the activating
         # metapackages (not _impl) because _impl doesn't put tools in PATH.
