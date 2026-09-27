@@ -30,6 +30,7 @@ get_target_arch() {
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
     riscv64-*) echo "riscv" ;;
+    s390x-*) echo "s390x" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
   esac
@@ -255,6 +256,14 @@ TESTEOF
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
+      s390x)
+        if echo "$_file_output" | grep -qi "IBM S/390\|S/390\|s390"; then
+          echo "    [OK] Produces s390x binaries"
+        else
+          echo "    [FAIL] ERROR: Expected s390x, got: $_file_output"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        fi
+        ;;
       *)
         # An unrecognised CROSS_ARCH is exactly the botched-wiring case this
         # test exists to catch - silence here would read as a pass.
@@ -351,6 +360,14 @@ TESTEOF
               riscv)
                 if echo "${rtlib_arch}" | grep -qi "risc-v"; then
                   echo "    [OK] ${rtname}: RISC-V"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              s390x)
+                if echo "${rtlib_arch}" | grep -qi "s390\|S/390"; then
+                  echo "    [OK] ${rtname}: s390x"
                 else
                   echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
                   TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -485,6 +502,10 @@ CONSEOF
         ;;
       powerpc64le-conda-linux-gnu)
         EXPECTED_PREFIX="powerpc64le"
+        WRONG_PREFIX="x86_64"
+        ;;
+      s390x-conda-linux-gnu)
+        EXPECTED_PREFIX="s390x"
         WRONG_PREFIX="x86_64"
         ;;
       arm64-apple-darwin*)
@@ -876,6 +897,11 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
       QEMU_CMD=$(get_qemu_cmd "linux-riscv64")
       QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux RISCV64 (riscv64)"
+      ;;
+    s390x-conda-linux-gnu)
+      QEMU_CMD=$(get_qemu_cmd "linux-s390x")
+      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
+      ARCH_NAME="Linux S390X"
       ;;
     arm64-apple-darwin*)
       QEMU_CMD=""

@@ -22,6 +22,7 @@ context:
       "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"             else
       "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"             else
       "riscv64-conda-linux-gnu"     if cross_target_platform_ == "linux-riscv64"             else
+      "s390x-conda-linux-gnu"       if cross_target_platform_ == "linux-s390x"               else
       "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                    else
       "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                 else
       "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc" else
@@ -34,11 +35,11 @@ context:
   # target builds nowhere.
   cross_build_platform: >-
     ${{
-      "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64"]        else
-      "linux-64"      if cross_target_platform_ in ["linux-64", "linux-aarch64"]             else
-      "osx-arm64"     if cross_target_platform_ == "osx-64"                                  else
-      "osx-64"        if cross_target_platform_ == "osx-arm64"                               else
-      "win-64"        if cross_target_platform_ == "win-64"                                  else
+      "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] else
+      "linux-64"      if cross_target_platform_ in ["linux-64", "linux-aarch64"]                     else
+      "osx-arm64"     if cross_target_platform_ == "osx-64"                                          else
+      "osx-64"        if cross_target_platform_ == "osx-arm64"                                       else
+      "win-64"        if cross_target_platform_ == "win-64"                                          else
       ""
     }}
   # Second build machine for the targets whose cross-compiler is published for
@@ -49,6 +50,7 @@ context:
     ${{ "linux-64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64"] else "" }}
 
   cross_stdlib_version: ${{ "2.39" if cross_target_platform_ == "linux-riscv64" else c_stdlib_version | default("2.17") }}
+  cross_c_compiler_version: ${{ "14" if cross_target_platform_ == "linux-s390x" else c_compiler_version | default("") }}
 
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
@@ -93,7 +95,7 @@ context:
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
   qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
-  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le", "linux-riscv64"]) and (cross_target_platform_ != build_platform) }}
+  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le", "linux-riscv64", "linux-s390x"]) and (cross_target_platform_ != build_platform) }}
   qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=12"]') if is_qemuable else '' }}
 
 recipe:
@@ -109,6 +111,8 @@ source:
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
+      # s390x native codegen needs indirect PLT stubs routed through the GOT.
+      - patches/s390x-got-indirect-plt.patch
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
@@ -301,11 +305,11 @@ outputs:
                 - ocaml_${{ build_platform }} ${{ version }}.*
             - if: linux
               then:
-                - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
+                - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
                 - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
               else:
-                - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
+                - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
 
         # --- CROSS-TARGET: Bootstrap compiler for cross-compilation ---
         - if: is_cross_target
@@ -373,10 +377,10 @@ outputs:
           then:
             - if: linux
               then:
-                - gcc_impl_${{ cross_target_platform_ }} >=${{ c_compiler_version }}
+                - gcc_impl_${{ cross_target_platform_ }} >=${{ cross_c_compiler_version }}
                 - binutils_impl_${{ cross_target_platform_ }}
               else:
-                - clang_impl_${{ cross_target_platform_ }} >=${{ c_compiler_version }}
+                - clang_impl_${{ cross_target_platform_ }} >=${{ cross_c_compiler_version }}
                 - lld >=${{ c_compiler_version }}
                 - llvm-tools >=${{ c_compiler_version }}
 
