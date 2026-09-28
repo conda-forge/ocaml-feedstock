@@ -1,7 +1,7 @@
 c_compiler:
 - gcc
 c_compiler_version:
-- 14
+- '15'
 c_stdlib:
 - sysroot
 c_stdlib_version:
@@ -11,10 +11,10 @@ channel_sources:
 channel_targets:
 - conda-forge experimental
 cross_target_platform_:
-- linux-ppc64le
+- linux-s390x
 docker_image:
 - quay.io/condaforge/linux-anvil-aarch64:alma10
 target_platform:
-- linux-ppc64le
-zstd:
-- '1.5'
+- linux-s390x
+build_platform:
+- linux-aarch64
