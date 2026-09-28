@@ -18,14 +18,14 @@ context:
   # Derive triplet from cross_target_platform_
   target_triplet: >-
     ${{
-      "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                  else
-      "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"             else
-      "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"             else
-      "riscv64-conda-linux-gnu"     if cross_target_platform_ == "linux-riscv64"             else
-      "s390x-conda-linux-gnu"       if cross_target_platform_ == "linux-s390x"               else
-      "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                    else
-      "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc" else
+      "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                          else
+      "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"                     else
+      "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"                     else
+      "riscv64-conda-linux-gnu"     if cross_target_platform_ == "linux-riscv64"                     else
+      "s390x-conda-linux-gnu"       if cross_target_platform_ == "linux-s390x"                       else
+      "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                            else
+      "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                         else
+      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc"    else
       "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else
       "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and c_compiler == "zig" else
       "unknown"
@@ -36,7 +36,7 @@ context:
   cross_build_platform: >-
     ${{
       "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] else
-      "linux-64"      if cross_target_platform_ in ["linux-64", "linux-aarch64"]                     else
+      "linux-64"      if cross_target_platform_ in ["linux-aarch64"]                                 else
       "osx-arm64"     if cross_target_platform_ == "osx-64"                                          else
       "osx-64"        if cross_target_platform_ == "osx-arm64"                                       else
       "win-64"        if cross_target_platform_ == "win-64"                                          else
@@ -47,7 +47,7 @@ context:
   # two-host test lives in is_cross_compiler, where the expression is inline and
   # keeps its boolean type.
   cross_build_platform_alt: >-
-    ${{ "linux-64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64"] else "" }}
+    ${{ "linux-64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] else "" }}
 
   cross_stdlib_version: ${{ "2.39" if cross_target_platform_ == "linux-riscv64" else c_stdlib_version | default("2.17") }}
   cross_c_compiler_version: ${{ "14" if cross_target_platform_ == "linux-s390x" else c_compiler_version | default("") }}
@@ -82,7 +82,7 @@ context:
   # label only, so the cross-target lanes cannot resolve one from the main
   # channel yet.
   # ===========================================================================
-  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x", "win-arm64"] }}
+  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-s390x"] }}
 
   # ===========================================================================
   # zstd (marshal compression) support. Off only for linux-s390x, which has no
@@ -204,6 +204,9 @@ outputs:
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
           OCAML_BOOTSTRAP_IN_LANE: "${{ 1 if bootstrap_in_lane else 0 }}"
           OCAML_HAS_ZSTD: "${{ 1 if has_zstd else 0 }}"
+          # Executes some target binaries on the build machine (e.g. tools/ocamlobjinfo.opt)
+          # under qemu-user. Empty on lanes where is_qemuable is false, so inert there.
+          OCAML_QEMU: "${{ ('qemu-execve-' ~ qemu_arch) if is_qemuable else '' }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
       dynamic_linking:
         missing_dso_allowlist:
@@ -308,6 +311,10 @@ outputs:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
                 - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
+                # crossopt emulates target binaries on the build machine; empty
+                # on lanes where is_qemuable is false, so inert there.
+                - if: is_qemuable
+                  then: ${{ qemu_pkg }}
               else:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
 

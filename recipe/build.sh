@@ -1790,6 +1790,22 @@ TOOLWRAPPER
 
     echo "  [5/7] Building and installing cross-compiler..."
 
+    # crossopt execs a target-arch ocamlc on the build machine (the
+    # otherlibs/unix .cmi step), which needs qemu-user when the target arch
+    # differs from the build arch. Without QEMU_LD_PREFIX pointed at the
+    # target sysroot, qemu searches the host /lib and fails to find the
+    # target's own loader. Exported outside the subshell below so it is
+    # still set for the POST-INSTALL check_unix_crc call after it closes.
+    if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
+      _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
+      if [[ -d "${_qemu_sysroot}" ]]; then
+        export QEMU_LD_PREFIX="${_qemu_sysroot}"
+        echo "  [qemu] QEMU_LD_PREFIX=${QEMU_LD_PREFIX}"
+      else
+        echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving QEMU_LD_PREFIX unset"
+      fi
+    fi
+
     (
       # Export CONDA_OCAML_* for cross-compilation and add cross-tools to PATH
       _setup_crossopt_env
@@ -2393,6 +2409,20 @@ EOF
 
   echo "  [3/5] Building crosscompiledopt ==="
 
+  # Same rationale as the crossopt leg in build_cross_compiler(): this step
+  # execs a target-arch binary on the build machine and needs qemu-user
+  # pointed at the target sysroot when the target arch differs from the
+  # build arch.
+  if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
+    _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
+    if [[ -d "${_qemu_sysroot}" ]]; then
+      export QEMU_LD_PREFIX="${_qemu_sysroot}"
+      echo "  [qemu] QEMU_LD_PREFIX=${QEMU_LD_PREFIX}"
+    else
+      echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving QEMU_LD_PREFIX unset"
+    fi
+  fi
+
   (
     CROSSCOMPILEDOPT_ARGS=(
       "${CROSS_TARGET_COMMON_ARGS[@]}"
@@ -2406,6 +2436,15 @@ EOF
         NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl${_zstd_lib}"
         BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl${_zstd_lib}"
       )
+    fi
+
+    # Same zstd-free condition as the crossopt leg above: this stage
+    # packages the target binaries, so its otherlibrariesopt and
+    # ocamltoolsopt steps must also route stdlib .cmi writes through the
+    # in-tree ocamlc rather than the zstd-enabled PATH ocamlc.
+    if [[ "${OCAML_HAS_ZSTD:-1}" == "0" ]]; then
+      CROSSCOMPILEDOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
+      echo "  zstd-free target: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
     fi
 
     # Diagnostic: confirm the host prefix actually carries libzstd, and in

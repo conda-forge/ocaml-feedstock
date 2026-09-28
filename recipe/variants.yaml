@@ -7,6 +7,11 @@ c_compiler:
     then:
       - zig
 
+c_compiler_version:
+  - if: build_platform == "linux-ppc64le"
+    then:
+      - 14
+
 cross_target_platform_:
   - linux-64
   - linux-aarch64

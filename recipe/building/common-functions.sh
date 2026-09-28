@@ -1035,9 +1035,19 @@ check_unix_crc() {
   local threads_cmxa="$3"
   local label="$4"
 
+  # ocamlobjinfo is a TARGET binary on cross lanes, so it only runs under
+  # emulation. Prefer an explicit qemu-execve (OCAML_QEMU) over binfmt_misc,
+  # which dispatches to whatever interpreter is registered for the image.
+  # OCAML_QEMU is empty on native lanes, where _runner stays empty and the
+  # binary is exec'd directly as before.
+  local -a _runner=()
+  if [[ -n "${OCAML_QEMU:-}" ]] && command -v "${OCAML_QEMU}" >/dev/null 2>&1; then
+    _runner=("${OCAML_QEMU}")
+  fi
+
   # Extract Unix implementation CRC from unix.cmxa
   local unix_out
-  if ! unix_out=$("${ocamlobjinfo_path}" "${unix_cmxa}"); then
+  if ! unix_out=$("${_runner[@]}" "${ocamlobjinfo_path}" "${unix_cmxa}"); then
     echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${unix_cmxa}"
     exit 1
   fi
@@ -1048,7 +1058,7 @@ check_unix_crc() {
   # Extract what threads.cmxa expects from Unix (implementation CRC)
   # Must scope to "Implementations imported" section to avoid matching interface CRCs
   local threads_out
-  if ! threads_out=$("${ocamlobjinfo_path}" "${threads_cmxa}"); then
+  if ! threads_out=$("${_runner[@]}" "${ocamlobjinfo_path}" "${threads_cmxa}"); then
     echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${threads_cmxa}"
     exit 1
   fi
