@@ -8,7 +8,7 @@ c_compiler:
       - zig
 
 c_compiler_version:
-  - if: build_platform == "linux-ppc64le"
+  - if: s390x
     then:
       - 14
 

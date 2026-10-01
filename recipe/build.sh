@@ -1792,17 +1792,17 @@ TOOLWRAPPER
 
     # crossopt execs a target-arch ocamlc on the build machine (the
     # otherlibs/unix .cmi step), which needs qemu-user when the target arch
-    # differs from the build arch. Without QEMU_LD_PREFIX pointed at the
-    # target sysroot, qemu searches the host /lib and fails to find the
-    # target's own loader. Exported outside the subshell below so it is
-    # still set for the POST-INSTALL check_unix_crc call after it closes.
+    # differs from the build arch. run-target.sh wraps only such binaries and
+    # sets QEMU_LD_PREFIX (from OCAML_QEMU_SYSROOT) for that one command, so
+    # qemu finds the target's own loader. Exported outside the subshell below
+    # so it is still set for the POST-INSTALL check_unix_crc call.
     if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
       _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
       if [[ -d "${_qemu_sysroot}" ]]; then
-        export QEMU_LD_PREFIX="${_qemu_sysroot}"
-        echo "  [qemu] QEMU_LD_PREFIX=${QEMU_LD_PREFIX}"
+        export OCAML_QEMU_SYSROOT="${_qemu_sysroot}"
+        echo "  [qemu] OCAML_QEMU_SYSROOT=${OCAML_QEMU_SYSROOT}"
       else
-        echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving QEMU_LD_PREFIX unset"
+        echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving OCAML_QEMU_SYSROOT unset"
       fi
     fi
 
@@ -1818,6 +1818,7 @@ TOOLWRAPPER
         "${CROSS_TOOLCHAIN_ARGS[@]}"
         CAMLOPT=ocamlopt
         V=1
+        "RUN_TARGET=bash ${RECIPE_DIR}/building/run-target.sh"
         CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
         LIBDIR="${OCAML_CROSS_LIBDIR}"
         ZSTD_LIBS="${_BUILD_ZSTD_LIBS}"
@@ -2412,20 +2413,21 @@ EOF
   # Same rationale as the crossopt leg in build_cross_compiler(): this step
   # execs a target-arch binary on the build machine and needs qemu-user
   # pointed at the target sysroot when the target arch differs from the
-  # build arch.
+  # build arch; run-target.sh reads OCAML_QEMU_SYSROOT for that.
   if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
     _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
     if [[ -d "${_qemu_sysroot}" ]]; then
-      export QEMU_LD_PREFIX="${_qemu_sysroot}"
-      echo "  [qemu] QEMU_LD_PREFIX=${QEMU_LD_PREFIX}"
+      export OCAML_QEMU_SYSROOT="${_qemu_sysroot}"
+      echo "  [qemu] OCAML_QEMU_SYSROOT=${OCAML_QEMU_SYSROOT}"
     else
-      echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving QEMU_LD_PREFIX unset"
+      echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving OCAML_QEMU_SYSROOT unset"
     fi
   fi
 
   (
     CROSSCOMPILEDOPT_ARGS=(
       "${CROSS_TARGET_COMMON_ARGS[@]}"
+      "RUN_TARGET=bash ${RECIPE_DIR}/building/run-target.sh"
       LDFLAGS="${CROSS_LDFLAGS}"
       SAK_LDFLAGS="${NATIVE_LDFLAGS}"
     )

@@ -1035,15 +1035,10 @@ check_unix_crc() {
   local threads_cmxa="$3"
   local label="$4"
 
-  # ocamlobjinfo is a TARGET binary on cross lanes, so it only runs under
-  # emulation. Prefer an explicit qemu-execve (OCAML_QEMU) over binfmt_misc,
-  # which dispatches to whatever interpreter is registered for the image.
-  # OCAML_QEMU is empty on native lanes, where _runner stays empty and the
-  # binary is exec'd directly as before.
-  local -a _runner=()
-  if [[ -n "${OCAML_QEMU:-}" ]] && command -v "${OCAML_QEMU}" >/dev/null 2>&1; then
-    _runner=("${OCAML_QEMU}")
-  fi
+  # ocamlobjinfo may be a TARGET binary (cross lanes) or a build-arch one;
+  # run-target.sh wraps it in qemu only when its ELF machine differs from
+  # the build machine's.
+  local -a _runner=(bash "${RECIPE_DIR}/building/run-target.sh")
 
   # Extract Unix implementation CRC from unix.cmxa
   local unix_out
