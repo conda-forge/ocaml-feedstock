@@ -113,6 +113,9 @@ source:
       - patches/fix-camlatomic-include-order.patch
       # s390x native codegen needs indirect PLT stubs routed through the GOT.
       - patches/s390x-got-indirect-plt.patch
+      # Request marshal compression only when the runtime supports it (no zstd
+      # on linux-s390x), so output_value never asks an unsupported runtime.
+      - patches/compression-only-when-supported.patch
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
@@ -323,6 +326,9 @@ outputs:
           then:
             - if: has_zstd
               then: zstd
+            # run-target.sh emulates target binaries during crossopt
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
             - if: build_number == 0
               then:
                 - ocaml_${{ build_platform }} >=5.4
