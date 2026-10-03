@@ -26,6 +26,6 @@ cross_target_platform_:
 channel_sources:
   - conda-forge/label/ocaml_experimental,conda-forge/label/zig_dev,conda-forge
 
-# Uploads from this branch go to the experimental label, not main.
+# Uploads from this branch go to the ocaml_experimental label, not main.
 channel_targets:
-  - conda-forge experimental
+  - conda-forge ocaml_experimental
