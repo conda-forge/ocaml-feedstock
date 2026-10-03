@@ -15,4 +15,4 @@ provider:
   osx_arm64: default
   win_arm64: default
 test: all
-upload_on_branch: main  # Set to experimental to publish merges to the ocaml_experimental label
+upload_on_branch: experimental  # Publishes merges to the ocaml_experimental label

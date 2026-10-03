@@ -1,6 +1,6 @@
 context:
-  # Offset by 100 from main so label builds never share a filename with main builds
-  build_number: 110
+  # At least main + 100 so label builds never share a filename with main builds
+  build_number: 111
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -371,7 +371,13 @@ outputs:
               then:
                 - ${{ compiler("m2w64_c") }}
               else:
-                - ${{ compiler("c") }}
+                # Linux takes a floor, not compiler("c")'s exact major: the s390x
+                # toolchain stops at gcc 14 and must co-install with this package.
+                - if: linux
+                  then:
+                    - ${{ c_compiler }}_${{ target_platform }} >=14
+                  else:
+                    - ${{ compiler("c") }}
             - if: osx
               then:
                 - lld >=${{ c_compiler_version }}

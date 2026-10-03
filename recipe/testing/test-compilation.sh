@@ -365,6 +365,34 @@ else
 fi
 rm -f stub_test.c stub_test.o dllstub_test.so libstub_test.a mklib_err.txt
 
+# 9b. C stub reading value headers (Tag_val)
+# Catches an installed caml/m.h whose ARCH_BIG_ENDIAN does not match the target
+echo "=== Testing C stub value headers ==="
+cat > stub_tag_test.c << 'EOF'
+#include <caml/mlvalues.h>
+CAMLprim value stub_str_len(value s) {
+  if (Tag_val(s) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(s));
+}
+EOF
+cat > stub_tag_test.ml << 'EOF'
+external str_len : string -> int = "stub_str_len"
+let () = if str_len "hello" = 5 then print_endline "OK" else exit 1
+EOF
+
+echo -n "  compiling C stub..."
+${cc_cmd} -c -I "${PREFIX}/lib/ocaml" -fPIC stub_tag_test.c -o stub_tag_test.o 2>&1 && echo " OK" || { echo " FAIL (C compilation)"; exit 1; }
+
+echo -n "  linking and running: "
+if run_target ocamlopt -o stub_tag_test.exe stub_tag_test.o stub_tag_test.ml 2>stub_tag_err.txt; then
+  run_target ./stub_tag_test.exe | grep -q "^OK" && echo "OK" || { echo "FAIL (str_len mismatch)"; exit 1; }
+else
+  echo "FAIL"
+  head -20 stub_tag_err.txt
+  exit 1
+fi
+rm -f stub_tag_test.c stub_tag_test.o stub_tag_test.ml stub_tag_test.cm* stub_tag_test.exe stub_tag_err.txt
+
 # Cleanup
 rm -f hi hi.ml lib.ml lib.cmi lib.cmo lib.cmx lib.o main.ml main.cmi main.cmo main.cmx main.o multi tmp/hi
 rmdir tmp 2>/dev/null || true
