@@ -78,12 +78,12 @@ context:
   # MAINTAINED LIST: prune a target once its cross-compiler is published on
   # conda-forge FOR THIS LANE'S BUILD PLATFORM. Nothing self-corrects, so a
   # stale entry means that lane keeps building its own cross-compiler forever
-  # with no signal that it is doing so. linux-ppc64le and linux-riscv64 stay
-  # listed because their cross-compilers are published to the experimental
-  # label only, so the cross-target lanes cannot resolve one from the main
-  # channel yet.
+  # with no signal that it is doing so. linux-s390x stays listed because its
+  # gcc 14 toolchain cannot share an environment with the gcc 15 build-platform
+  # ocaml its published cross-compiler requires; variants.yaml keeps that lane
+  # off the ocaml_experimental label for the same reason.
   # ===========================================================================
-  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] }}
+  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-s390x"] }}
 
   # ===========================================================================
   # zstd (marshal compression) support. Off only for linux-s390x, which has no
