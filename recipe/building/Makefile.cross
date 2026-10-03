@@ -158,21 +158,13 @@ CROSS_COMPILER_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
 # ocamlrun, and the .cmi it writes carry the COMPRESSED marshal magic
 # 0x8495A6BD. A target built --without-zstd cannot decompress that and
 # fails with "Corrupted compiled interface". When this knob is 1, the pins
-# below (STDLIB_CMI_OVERRIDES, NATIVE_L1A_PIN, NATIVE_OTHERLIBS_CAMLC_PIN,
+# below (NATIVE_L1A_PIN, NATIVE_CAMLC_PIN, NATIVE_OTHERLIBS_CAMLC_PIN,
 # CROSS_CAMLC_PIN) redirect CAMLC to explicit in-tree binaries, prefixed
 # with the in-tree runtime/ocamlrun where the target is a bytecode image,
 # and NATIVE_L1A_PIN links the BUILD-arch compilers with a zstd-free stub,
 # so every .cmi they write is plain. Defaults off; build.sh sets it
 # to 1 for targets configured --without-zstd.
 STDLIB_CMI_PIN_INTREE ?= 0
-ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
-STDLIB_CMI_OVERRIDES = CAMLC=$(abspath $(ROOTDIR))/ocamlc$(EXE)
-else
-STDLIB_CMI_OVERRIDES =
-endif
-# STDLIB_CMI_OVERRIDES is not read directly by the crossopt recipe below -
-# its zstd-free stdlib rebuild block builds its own CAMLC value inline.
-# unverified, keep: kept defined in case another consumer relies on it.
 
 # CROSS_COMPILERLIBS_OVERRIDES: CAMLC must match the compiler that actually
 # wrote stdlib.cmi. When STDLIB_CMI_PIN_INTREE=1, the crossopt recipe's
