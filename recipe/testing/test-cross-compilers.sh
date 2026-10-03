@@ -743,7 +743,7 @@ SYSCALLEOF
   STUB_BIN="${STUB_DIR}/stub_tag_test"
   mkdir -p "${STUB_DIR}"
 
-  cat > "${STUB_DIR}/stub_tag.c" << 'STUBCEOF'
+  cat > "${STUB_DIR}/stub_tag_c.c" << 'STUBCEOF'
 #include <caml/mlvalues.h>
 CAMLprim value stub_str_len(value s) {
   if (Tag_val(s) != String_tag) return Val_int(-1);
@@ -755,7 +755,7 @@ external str_len : string -> int = "stub_str_len"
 let () = if str_len "hello" = 5 then print_endline "STUB_OK" else exit 1
 STUBMLEOF
 
-  if (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag.c stub_tag.ml) 2>/dev/null; then
+  if (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>/dev/null; then
     echo "    [OK] C stub compilation successful"
 
     if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
@@ -770,7 +770,7 @@ STUBMLEOF
     fi
   else
     echo "    [FAIL] ERROR: C stub compilation failed"
-    (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag.c stub_tag.ml) 2>&1 | tail -5 | sed 's/^/      /'
+    (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>&1 | tail -5 | sed 's/^/      /'
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
 
