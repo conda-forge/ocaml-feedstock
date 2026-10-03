@@ -169,13 +169,18 @@ fi
 
 # Export CONDA_OCAML_* cross-compilation env and add cross-tools to PATH.
 # Used by both crossopt and installcross subshells in build_cross_compiler().
-# NOTE: CONDA_OCAML_MKEXE intentionally NOT set - use native linker.
+# CONDA_OCAML_MKEXE below gets the NATIVE linker, not a CROSS_* value: the
+# bytecode tools built in this leg (e.g. ocamlc.opt) run on THIS host, not
+# the target. It must be exported explicitly rather than left unset, because
+# an activated build dependency can export its own baked CONDA_OCAML_MKEXE
+# and an unset var here would just inherit that leaked value.
 _setup_crossopt_env() {
   export CONDA_OCAML_AS="${CROSS_ASM}"
   export CONDA_OCAML_CC="${CROSS_CC}"
   export CONDA_OCAML_AR="${CROSS_AR}"
   export CONDA_OCAML_RANLIB="${CROSS_RANLIB}"
   export CONDA_OCAML_MKDLL="${CROSS_MKDLL}"
+  export CONDA_OCAML_MKEXE="${NATIVE_MKEXE:-}"
   # The cross ocamlopt archives via the SHIPPED wrapper <triplet>-ocaml-ar, whose
   # name is baked into its Config module. That wrapper comes from the PREVIOUS
   # published build of this package and its line 4 is
@@ -219,6 +224,23 @@ export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB##*/}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL}"
 EOF
+}
+
+# Append -DARCH_BIG_ENDIAN=1 to a CFLAGS string when the cross target is
+# big-endian (linux-s390x), otherwise echo the string unchanged. Idempotent -
+# calling it twice does not duplicate the flag.
+# Usage: CROSS_CFLAGS="$(add_big_endian_define "${CROSS_PLATFORM}" "${CROSS_CFLAGS:-}")"
+add_big_endian_define() {
+  local _platform="$1" _flags="${2:-}"
+  case "${_platform}" in
+    linux-s390x) ;;
+    *) printf '%s' "${_flags}"; return 0 ;;
+  esac
+  if [[ "${_flags}" == *-DARCH_BIG_ENDIAN=1* ]]; then
+    printf '%s' "${_flags}"
+  else
+    printf '%s' "${_flags% } -DARCH_BIG_ENDIAN=1"
+  fi
 }
 
 # ==============================================================================
@@ -1452,6 +1474,16 @@ build_cross_compiler() {
     setup_toolchain "CROSS" "${target}"
     setup_cflags_ldflags "CROSS" "${build_platform}" "${CROSS_PLATFORM}"
 
+    # linux-s390x is big-endian; autoconf's runtime/caml/m.h.in ships with
+    # ARCH_BIG_ENDIAN #undef'd because this tree configures --host= for the
+    # x86_64 build machine that runs the resulting cross-compiler binary,
+    # not for the target it produces code for. Without this define,
+    # Tag_val reads the wrong byte of a tagged value and every
+    # natively-compiled target binary SIGSEGVs at si_addr=NULL. Injected via
+    # CROSS_CFLAGS (not by patching m.h) because m.h is shared with the
+    # host-side SAK build, which must stay little-endian/native.
+    CROSS_CFLAGS="$(add_big_endian_define "${CROSS_PLATFORM}" "${CROSS_CFLAGS:-}")"
+
     # Platform-specific settings for cross-compiler
     # NEEDS_DL: glibc 2.17 requires explicit -ldl for dlopen/dlclose/dlsym
     # This is used by apply_cross_patches() to add -ldl to Makefile.config
@@ -1708,11 +1740,13 @@ TOOLWRAPPER
     # ========================================================================
 
     # Shared cross-toolchain args for crossopt and installcross
+    # OCaml's runtime/%.o: runtime/%.S rule expands $(ASPP) $(OC_ASPPFLAGS) only;
+    # ASPPFLAGS is never referenced, so arch-specific assembler flags must ride on ASPP.
     CROSS_TOOLCHAIN_ARGS=(
       ARCH="${CROSS_ARCH}"
       AR="${CROSS_AR}"
       AS="${CROSS_AS}"
-      ASPP="${CROSS_CC} -c"
+      ASPP="${CROSS_CC} -c ${CROSS_ASPPFLAGS:-}"
       CC="${CROSS_CC}"
       CFLAGS="${CROSS_CFLAGS}"
       CROSS_AR="${CROSS_AR}"
@@ -1726,7 +1760,51 @@ TOOLWRAPPER
       STRIP="${CROSS_STRIP}"
     )
 
+    # libtool bug: with --host=x86_64 --target=s390x, _LT_SYS_DYNAMIC_LINKER
+    # keys its -m emulation off $target and probes with the x86_64 linker,
+    # so the shared-lib check reports a false negative. s390x does support
+    # shared libraries; repair all three of the resulting Makefile.config
+    # sentinels. SUPPORTS_SHARED_LIBRARIES gates whether
+    # libcamlrun_shared.so/libasmrun_shared.so are built and installed at
+    # all - patching MKDLL/MKMAINDLL alone would fix the link command but
+    # not the missing target. MKDLL/MKMAINDLL are set to $(CC) -shared
+    # (the unexpanded make variable, not a hardcoded compiler path) because
+    # Makefile.cross builds shared libraries with more than one CC
+    # (the host x86_64 compiler for the cross-compiler's own runtime, the
+    # cross compiler for the target-arch runtime) and a hardcoded path
+    # would break whichever invocation it does not match.
+    if [[ "${CROSS_PLATFORM}" == "linux-s390x" ]]; then
+      if grep -q '^SUPPORTS_SHARED_LIBRARIES=false' "Makefile.config"; then
+        sed -i "s|^SUPPORTS_SHARED_LIBRARIES=false|SUPPORTS_SHARED_LIBRARIES=true|" "Makefile.config"
+        echo "  [s390x-sharedlib-fix] SUPPORTS_SHARED_LIBRARIES -> true (libtool probe false negative)"
+      fi
+      if grep -q '^MKDLL=shared-libs-not-available' "Makefile.config"; then
+        sed -i 's|^MKDLL=shared-libs-not-available|MKDLL=$(CC) -shared|' "Makefile.config"
+        echo '  [s390x-sharedlib-fix] MKDLL -> $(CC) -shared'
+      fi
+      if grep -q '^MKMAINDLL=shared-libs-not-available' "Makefile.config"; then
+        sed -i 's|^MKMAINDLL=shared-libs-not-available|MKMAINDLL=$(CC) -shared|' "Makefile.config"
+        echo '  [s390x-sharedlib-fix] MKMAINDLL -> $(CC) -shared'
+      fi
+    fi
+
     echo "  [5/7] Building and installing cross-compiler..."
+
+    # crossopt execs a target-arch ocamlc on the build machine (the
+    # otherlibs/unix .cmi step), which needs qemu-user when the target arch
+    # differs from the build arch. run-target.sh wraps only such binaries and
+    # sets QEMU_LD_PREFIX (from OCAML_QEMU_SYSROOT) for that one command, so
+    # qemu finds the target's own loader. Exported outside the subshell below
+    # so it is still set for the POST-INSTALL check_unix_crc call.
+    if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
+      _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
+      if [[ -d "${_qemu_sysroot}" ]]; then
+        export OCAML_QEMU_SYSROOT="${_qemu_sysroot}"
+        echo "  [qemu] OCAML_QEMU_SYSROOT=${OCAML_QEMU_SYSROOT}"
+      else
+        echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving OCAML_QEMU_SYSROOT unset"
+      fi
+    fi
 
     (
       # Export CONDA_OCAML_* for cross-compilation and add cross-tools to PATH
@@ -1740,6 +1818,7 @@ TOOLWRAPPER
         "${CROSS_TOOLCHAIN_ARGS[@]}"
         CAMLOPT=ocamlopt
         V=1
+        "RUN_TARGET=bash ${RECIPE_DIR}/building/run-target.sh"
         CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
         LIBDIR="${OCAML_CROSS_LIBDIR}"
         ZSTD_LIBS="${_BUILD_ZSTD_LIBS}"
@@ -1755,6 +1834,22 @@ TOOLWRAPPER
         NATIVE_CC="${NATIVE_CC}"
         NATIVE_STDLIB="${NATIVE_STDLIB}"
       )
+
+      # A --without-zstd runtime (see the OCAML_HAS_ZSTD handling near the
+      # top of this script and the HAS_ZSTD block in Makefile.cross) cannot
+      # decompress a compressed marshal payload. The bare CAMLC=ocamlc in
+      # Makefile.cross's CROSS_OVERRIDES resolves via PATH to a
+      # zstd-ENABLED ocamlc, which writes stdlib and compilerlibs .cmi files
+      # with the COMPRESSED marshal magic 0x8495A6BD; that zstd-free
+      # runtime then rejects them with "Corrupted compiled interface".
+      # STDLIB_CMI_PIN_INTREE=1 redirects those writes to the in-tree
+      # ocamlc instead, which is built --without-zstd for this same reason.
+      # Gated on whether the target itself has no zstd, not on one platform
+      # name, since that is the actual condition that requires the pin.
+      if [[ "${OCAML_HAS_ZSTD:-1}" == "0" ]]; then
+        CROSSOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
+        echo "  zstd-free target: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
+      fi
 
       # Which ocamlc actually drives crossopt, and against which stdlib
       echo "    bootstrap ocamlc:  $(command -v ocamlc || echo NOT-ON-PATH)"
@@ -1954,6 +2049,7 @@ EOF
           aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
           power) _expected="PowerPC|ppc64" ;;
           riscv) _expected="RISC-V|RISCV|riscv" ;;
+          s390x) _expected="IBM S/390|S/390|s390" ;;
           amd64) _expected="x86_64|amd64" ;;
           *) _expected="${CROSS_ARCH}" ;;
         esac
@@ -2274,8 +2370,12 @@ EOF
   # which on macOS lives only as a stub inside the SDK.
   # NOT basenamed with ##*/ - these are full command lines, and ##*/ would
   # strip everything up to the last slash, including the -isysroot path.
-  # Only set on this leg: _setup_crossopt_env() deliberately leaves MKEXE
-  # unset so the crossopt leg keeps using the native linker (see its comment).
+  # This leg exports CONDA_OCAML_${_tgt_id}_MKEXE, the target-ID-scoped
+  # variable read only by the shipped <triplet>-ocaml-mkexe wrapper. It is a
+  # separate variable from the unscoped CONDA_OCAML_MKEXE that
+  # _setup_crossopt_env() sets explicitly to the native linker for the
+  # crossopt leg's generic conda-ocaml-mkexe wrapper, so this override is
+  # needed here regardless of what that leg sets.
   if [[ -n "${CROSS_MKEXE:-}" ]]; then
     _mkexe_val="${CROSS_MKEXE}"
     # gcc ignores LIBRARY_PATH when configured as a cross compiler, so the
@@ -2310,9 +2410,24 @@ EOF
 
   echo "  [3/5] Building crosscompiledopt ==="
 
+  # Same rationale as the crossopt leg in build_cross_compiler(): this step
+  # execs a target-arch binary on the build machine and needs qemu-user
+  # pointed at the target sysroot when the target arch differs from the
+  # build arch; run-target.sh reads OCAML_QEMU_SYSROOT for that.
+  if [[ "${CROSS_PLATFORM}" != "${build_platform:-}" && -n "${OCAML_TARGET_TRIPLET:-}" ]]; then
+    _qemu_sysroot="${BUILD_PREFIX}/${OCAML_TARGET_TRIPLET}/sysroot"
+    if [[ -d "${_qemu_sysroot}" ]]; then
+      export OCAML_QEMU_SYSROOT="${_qemu_sysroot}"
+      echo "  [qemu] OCAML_QEMU_SYSROOT=${OCAML_QEMU_SYSROOT}"
+    else
+      echo "  [qemu] target sysroot not found at ${_qemu_sysroot}; leaving OCAML_QEMU_SYSROOT unset"
+    fi
+  fi
+
   (
     CROSSCOMPILEDOPT_ARGS=(
       "${CROSS_TARGET_COMMON_ARGS[@]}"
+      "RUN_TARGET=bash ${RECIPE_DIR}/building/run-target.sh"
       LDFLAGS="${CROSS_LDFLAGS}"
       SAK_LDFLAGS="${NATIVE_LDFLAGS}"
     )
@@ -2323,6 +2438,15 @@ EOF
         NATIVECCLIBS="-L${PREFIX}/lib -lm -ldl${_zstd_lib}"
         BYTECCLIBS="-L${PREFIX}/lib -lm -lpthread -ldl${_zstd_lib}"
       )
+    fi
+
+    # Same zstd-free condition as the crossopt leg above: this stage
+    # packages the target binaries, so its otherlibrariesopt and
+    # ocamltoolsopt steps must also route stdlib .cmi writes through the
+    # in-tree ocamlc rather than the zstd-enabled PATH ocamlc.
+    if [[ "${OCAML_HAS_ZSTD:-1}" == "0" ]]; then
+      CROSSCOMPILEDOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
+      echo "  zstd-free target: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
     fi
 
     # Diagnostic: confirm the host prefix actually carries libzstd, and in
@@ -2475,6 +2599,20 @@ EOF
     clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
   fi
 
+fi
+
+# toplevel/byte/*.cmi are deleted by GNU make as chained-implicit-rule intermediates
+# (upstream Makefile:400-402 pattern rule, never .PRECIOUS/.SECONDARY), but `make install`
+# (upstream Makefile:2717-2719) globs them. Makefile.cross restores them from the toplevel/
+# root copies just before install. Exported (not passed as a make arg) because there are two
+# installcross call sites and one of them takes no arguments. Deliberately a dedicated flag
+# rather than reusing STDLIB_CMI_PIN_INTREE, which would also flip the CAMLC/CAMLOPT pins
+# across the entire install phase.
+# Guarded on OCAML_TARGET_PLATFORM, not target_platform: on a cross lane
+# target_platform is the BUILD host, while OCAML_TARGET_PLATFORM is the target,
+# so target_platform would miss the s390x cross lane entirely.
+if [[ "${OCAML_TARGET_PLATFORM}" == "linux-s390x" ]]; then
+  export OCAML_TOPLEVEL_BYTE_CMI_RESTORE=1
 fi
 
 # ==============================================================================
