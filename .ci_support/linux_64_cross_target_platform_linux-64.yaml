@@ -9,7 +9,7 @@ c_stdlib_version:
 channel_sources:
 - conda-forge/label/ocaml_experimental,conda-forge/label/zig_dev,conda-forge
 channel_targets:
-- conda-forge experimental
+- conda-forge ocaml_experimental
 cross_target_platform_:
 - linux-64
 docker_image:

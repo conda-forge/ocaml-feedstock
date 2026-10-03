@@ -5,7 +5,7 @@ c_stdlib:
 channel_sources:
 - conda-forge/label/ocaml_experimental,conda-forge/label/zig_dev,conda-forge
 channel_targets:
-- conda-forge experimental
+- conda-forge ocaml_experimental
 cross_target_platform_:
 - win-64
 m2w64_c_compiler:
