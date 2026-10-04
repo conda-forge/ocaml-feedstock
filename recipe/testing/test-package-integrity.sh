@@ -4,7 +4,7 @@
 #
 # Usage:
 #   test-package-integrity.sh                    # Native build (can execute binaries)
-#   test-package-integrity.sh cross-target       # Cross-target build (executes under QEMU_EXECVE when set)
+#   test-package-integrity.sh cross-target       # Cross-target build (executes under OCAML_QEMU when set)
 #   test-package-integrity.sh cross <target>     # Cross-compiler build
 
 set -euo pipefail
@@ -199,12 +199,12 @@ else
   OCAML_RUN=(ocamlc.opt)
   CAN_EXECUTE=true
   if [[ "${MODE}" == "cross-target" ]]; then
-    if [[ -n "${QEMU_EXECVE:-}" ]]; then
-      OCAML_RUN=("${QEMU_EXECVE}" "${PREFIX}/bin/ocamlc.opt")
-      echo "Cross-target build: running ocamlc.opt under ${QEMU_EXECVE}"
+    if [[ -n "${OCAML_QEMU:-}" ]]; then
+      OCAML_RUN=("${OCAML_QEMU}" "${PREFIX}/bin/ocamlc.opt")
+      echo "Cross-target build: running ocamlc.opt under ${OCAML_QEMU}"
     else
       CAN_EXECUTE=false
-      echo "Cross-target build: skipping execution-based tests (QEMU_EXECVE not set)"
+      echo "Cross-target build: skipping execution-based tests (OCAML_QEMU not set)"
     fi
   fi
 

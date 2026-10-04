@@ -51,19 +51,6 @@ get_target_id() {
   esac
 }
 
-# Get the qemu-execve command for a conda platform
-# Usage: get_qemu_cmd "linux-aarch64" -> "qemu-execve-aarch64"
-get_qemu_cmd() {
-  local arch="${1/linux-64/x86_64}"
-  echo "qemu-execve-${arch#linux-}"
-}
-
-# Get the QEMU_LD_PREFIX sysroot for a target triplet
-# Usage: get_qemu_prefix "aarch64-conda-linux-gnu" -> "${PREFIX}/aarch64-conda-linux-gnu/sysroot"
-get_qemu_prefix() {
-  echo "${PREFIX}/$1/sysroot"
-}
-
 # ==============================================================================
 # Comprehensive Cross-Compiler Validation
 # ==============================================================================
@@ -74,8 +61,8 @@ get_qemu_prefix() {
 test_cross_compiler() {
   local target="$1"
   local arch_name="$2"
-  local qemu_cmd="${3:-}"
-  local qemu_prefix="${4:-}"
+  local qemu_execve=""
+  [[ "${target}" == *-apple-darwin* ]] || qemu_execve="qemu-execve-${target%%-*}"
 
   echo ""
   echo "  ========================================================================"
@@ -122,6 +109,11 @@ test_cross_compiler() {
   fi
 
   TEST_ERRORS=0
+
+  if [[ -n "$qemu_execve" && -z "${QEMU_LD_PREFIX:-}" ]]; then
+    echo "    [FAIL] ERROR: QEMU_LD_PREFIX not set by ${qemu_execve} activation (target sysroot missing)"
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
 
   # ---------------------------------------------------------------------------
   # Test 1: Version check
@@ -273,21 +265,17 @@ TESTEOF
     esac
 
     # Execution test with QEMU if available
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      if QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
+      if "${qemu_execve}" "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
         echo "    [OK] Execution successful (QEMU)"
       else
-        echo "    ~ Execution SKIPPED (QEMU execution failed - expected on some platforms)"
+        echo "    [FAIL] ERROR: execution under QEMU failed"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
-    elif [[ -n "$qemu_cmd" ]]; then
-      # A qemu command was declared for this target but is not runnable - a
-      # botched dispatch entry must not pass silently as a skip.
-      echo "    [FAIL] ERROR: declared qemu command '${qemu_cmd}' not found or not runnable"
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: execution test: ${qemu_execve} not found on PATH"
       TEST_ERRORS=$((TEST_ERRORS + 1))
-    elif [[ "${target}" != *-apple-darwin* ]]; then
-      # Non-fatal: linux target without a usable emulator
-      echo "    ~ Execution SKIPPED (${qemu_cmd:-qemu-execve-*} not found)"
     fi
 
     rm -f "${TEST_BIN}" "${TEST_BIN}.o" "${TEST_BIN}.cmx" "${TEST_BIN}.cmi"
@@ -668,9 +656,9 @@ MAINEOF
     echo "    [OK] Multi-file compilation successful"
 
     # Verify with QEMU if available
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      QEMU_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${MULTIFILE_BIN}" 2>&1 || true)
+      QEMU_OUTPUT=$("${qemu_execve}" "${MULTIFILE_BIN}" 2>&1 || true)
       if echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_CORRECT"; then
         echo "    [OK] Computation correct under QEMU"
       elif echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_WRONG"; then
@@ -678,11 +666,16 @@ MAINEOF
         echo "      Output: ${QEMU_OUTPUT}"
         TEST_ERRORS=$((TEST_ERRORS + 1))
       elif echo "${QEMU_OUTPUT}" | grep -q "Hello"; then
-        echo "    ~ Partial execution (computation test inconclusive)"
+        echo "    [FAIL] ERROR: Partial execution (computation test inconclusive)"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       else
-        echo "    ~ QEMU execution failed (may be platform limitation)"
+        echo "    [FAIL] ERROR: QEMU execution failed"
         echo "      Output: ${QEMU_OUTPUT}" | head -3 | sed 's/^/      /'
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: multi-file program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   else
     TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -715,16 +708,22 @@ SYSCALLEOF
   if "${CROSS_OCAMLOPT}" -o "${SYSCALL_BIN}" unix.cmxa "${SYSCALL_TEST}" 2>/dev/null; then
     echo "    [OK] Unix syscall compilation successful"
 
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
-      SYSCALL_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${SYSCALL_BIN}" 2>&1 || true)
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
+      SYSCALL_OUTPUT=$("${qemu_execve}" "${SYSCALL_BIN}" 2>&1 || true)
       if echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_OK"; then
         echo "    [OK] Unix syscalls work correctly under QEMU"
       elif echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_SUSPICIOUS"; then
-        echo "    [WARN] Unix syscalls return suspicious values"
+        echo "    [FAIL] ERROR: Unix syscalls return suspicious values"
         echo "      Output: ${SYSCALL_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       else
-        echo "    ~ QEMU syscall test inconclusive"
+        echo "    [FAIL] ERROR: QEMU syscall test inconclusive"
+        echo "      Output: ${SYSCALL_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: Unix syscall program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   else
     echo "    [FAIL] ERROR: Unix syscall compilation failed"
@@ -767,8 +766,8 @@ STUBMLEOF
   if (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>/dev/null; then
     echo "    [OK] C stub compilation successful"
 
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
-      STUB_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${STUB_BIN}" 2>&1 || true)
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
+      STUB_OUTPUT=$("${qemu_execve}" "${STUB_BIN}" 2>&1 || true)
       if echo "${STUB_OUTPUT}" | grep -q "STUB_OK"; then
         echo "    [OK] C stub reads value headers correctly under QEMU"
       else
@@ -776,6 +775,9 @@ STUBMLEOF
         echo "      Output: ${STUB_OUTPUT}"
         TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: C stub program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   else
     echo "    [FAIL] ERROR: C stub compilation failed"
@@ -935,46 +937,28 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
   # Determine QEMU settings based on target
   case "${TARGET_TRIPLE}" in
     aarch64-conda-linux-gnu)
-      QEMU_CMD=$(get_qemu_cmd "linux-aarch64")
-      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux ARM64 (aarch64)"
       ;;
     powerpc64le-conda-linux-gnu)
-      QEMU_CMD=$(get_qemu_cmd "linux-ppc64le")
-      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux PPC64LE"
       ;;
     riscv64-conda-linux-gnu)
-      QEMU_CMD=$(get_qemu_cmd "linux-riscv64")
-      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux RISCV64 (riscv64)"
       ;;
     s390x-conda-linux-gnu)
-      QEMU_CMD=$(get_qemu_cmd "linux-s390x")
-      QEMU_PREFIX=$(get_qemu_prefix "${TARGET_TRIPLE}")
       ARCH_NAME="Linux S390X"
       ;;
     arm64-apple-darwin*)
-      QEMU_CMD=""
-      QEMU_PREFIX=""
       ARCH_NAME="macOS ARM64"
       ;;
     *)
       echo "Warning: Unknown target triple ${TARGET_TRIPLE}, testing anyway..."
-      QEMU_CMD=""
-      QEMU_PREFIX=""
       ARCH_NAME="${TARGET_TRIPLE}"
       ;;
   esac
 
-  # Environment values win over derived ones; macOS targets never use QEMU
-  if [[ "${TARGET_TRIPLE}" != *-apple-darwin* ]]; then
-    QEMU_CMD="${QEMU_EXECVE:-${QEMU_CMD}}"
-    QEMU_PREFIX="${QEMU_LD_PREFIX:-${QEMU_PREFIX}}"
-  fi
-
   # Test the specified target
-  if test_cross_compiler "${TARGET_TRIPLE}" "${ARCH_NAME}" "${QEMU_CMD}" "${QEMU_PREFIX}"; then
+  if test_cross_compiler "${TARGET_TRIPLE}" "${ARCH_NAME}"; then
     :
   else
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))

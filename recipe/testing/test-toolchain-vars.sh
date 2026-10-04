@@ -8,10 +8,11 @@ set -euo pipefail
 # only, so a #! file (OCaml bytecode) needs its interpreter resolved here the
 # way binfmt_script would, and the interpreter handed to qemu instead.
 run_target() {
-  if [[ -n "${QEMU_EXECVE:-}" ]]; then
-    if [[ -n "${QEMU_LD_PREFIX:-}" && ! -d "${QEMU_LD_PREFIX}" ]]; then
-      echo "[WARN] QEMU_LD_PREFIX does not exist: ${QEMU_LD_PREFIX}" >&2
-      echo "[WARN] qemu will fall back to /lib and may fail confusingly" >&2
+  if [[ -n "${OCAML_QEMU:-}" ]]; then
+    command -v "${OCAML_QEMU}" >/dev/null 2>&1 || { echo "[FAIL] ${OCAML_QEMU} not found on PATH" >&2; return 127; }
+    if [[ -z "${QEMU_LD_PREFIX:-}" || ! -d "${QEMU_LD_PREFIX}" ]]; then
+      echo "[FAIL] QEMU_LD_PREFIX not set to an existing sysroot by ${OCAML_QEMU} activation" >&2
+      return 1
     fi
     # A bare command name is resolved here so both qemu and the #! check below
     # get a real path.
@@ -48,17 +49,17 @@ run_target() {
         line2=$(sed -n '2p' "$script")
         if [[ "${line2}" == exec*ocamlrun* ]]; then
           echo "[qemu] sh launcher ${script} -> $(dirname "$script")/ocamlrun" >&2
-          "${QEMU_EXECVE}" "$(dirname "$script")/ocamlrun" "$script" "$@"
+          "${OCAML_QEMU}" "$(dirname "$script")/ocamlrun" "$script" "$@"
           return
         fi
         echo "[FAIL] ${script}: native interpreter ${interp} cannot run target binaries under emulation" >&2
         return 126
       fi
       echo "[qemu] shebang ${script} -> ${interp}" >&2
-      "${QEMU_EXECVE}" "$interp" "$script" "$@"
+      "${OCAML_QEMU}" "$interp" "$script" "$@"
       return
     fi
-    "${QEMU_EXECVE}" "$@"
+    "${OCAML_QEMU}" "$@"
   else
     "$@"
   fi
@@ -68,12 +69,12 @@ run_target() {
 # a ppc64le tool themselves. They word-split CONDA_OCAML_* unquoted, so the
 # emulator is put in front of each target tool.
 qemu_wrap_toolchain() {
-  [[ -n "${QEMU_EXECVE:-}" ]] || return 0
+  [[ -n "${OCAML_QEMU:-}" ]] || return 0
   local _v _name _val _tool _rest _path
   for _v in CC AS LD AR RANLIB MKEXE MKDLL; do
     _name=CONDA_OCAML_${_v}
     _val=${!_name:-}
-    [[ -n "${_val}" && "${_val}" != "${QEMU_EXECVE} "* ]] || continue
+    [[ -n "${_val}" && "${_val}" != "${OCAML_QEMU} "* ]] || continue
     _tool=${_val%% *}
     _rest=
     [[ "${_val}" == *" "* ]] && _rest=" ${_val#* }"
@@ -85,7 +86,7 @@ qemu_wrap_toolchain() {
     # Only target tools under $PREFIX need the emulator; a native script such
     # as a test's logging wrapper is left as it is.
     [[ "${_path}" == "${PREFIX:-/nonexistent}/"* ]] || continue
-    export "${_name}=${QEMU_EXECVE} ${_path}${_rest}"
+    export "${_name}=${OCAML_QEMU} ${_path}${_rest}"
   done
 }
 qemu_wrap_toolchain

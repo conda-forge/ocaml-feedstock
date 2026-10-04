@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Run a command, wrapping it in qemu-user only when its ELF machine differs
-# from the build machine's. QEMU_LD_PREFIX is set for that one command only.
+# Run a command; a foreign-arch ELF runs only under the literal qemu-execve-<arch>
+# named by OCAML_QEMU, never directly. QEMU_LD_PREFIX is set for that one command only.
 # Usage: bash run-target.sh <binary> [args...]
-# Env: OCAML_QEMU (interpreter), OCAML_QEMU_SYSROOT (target sysroot).
+# Env: OCAML_QEMU (qemu-execve-<arch>), OCAML_QEMU_SYSROOT (target sysroot).
 set -euo pipefail
 
 # Prints "<EI_DATA> <e_machine>" for an ELF file; fails for anything else.
@@ -31,26 +31,16 @@ set -- "$bin" "$@"
 build=$(elf_machine "${BASH}" 2>/dev/null) || exec "$@"
 [[ "${target#* }" != "${build#* }" ]] || exec "$@"
 
-qemu=""
-if [[ -n "${OCAML_QEMU:-}" ]]; then
-  qemu=$(command -v "${OCAML_QEMU}" 2>/dev/null || true)
+if [[ -z "${OCAML_QEMU:-}" ]]; then
+  echo "run-target.sh: ${bin} is a foreign ELF (e_machine ${target#* }) but OCAML_QEMU is empty" >&2
+  exit 126
 fi
-if [[ -z "$qemu" ]]; then
-  case "${target#* }" in
-    22) arch=s390x ;;
-    21) arch=ppc64le ;;
-    183) arch=aarch64 ;;
-    243) arch=riscv64 ;;
-    62) arch=x86_64 ;;
-    *) arch="" ;;
-  esac
-  if [[ -n "$arch" ]]; then
-    qemu=$(command -v "qemu-execve-${arch}" 2>/dev/null || true)
-  fi
+if ! command -v "${OCAML_QEMU}" >/dev/null 2>&1; then
+  echo "run-target.sh: ${OCAML_QEMU} not found on PATH" >&2
+  exit 127
 fi
-[[ -n "$qemu" ]] || exec "$@"
 
 if [[ -n "${OCAML_QEMU_SYSROOT:-}" && -d "${OCAML_QEMU_SYSROOT}" ]]; then
-  QEMU_LD_PREFIX="${OCAML_QEMU_SYSROOT}" exec "$qemu" "$@"
+  QEMU_LD_PREFIX="${OCAML_QEMU_SYSROOT}" exec "${OCAML_QEMU}" "$@"
 fi
-exec "$qemu" "$@"
+exec "${OCAML_QEMU}" "$@"

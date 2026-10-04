@@ -631,7 +631,7 @@ outputs:
       - script:
           - if: is_qemuable
             then: |
-              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
           - if: is_native
             then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
           - if: is_cross_target
@@ -707,7 +707,7 @@ outputs:
           # Target binaries need user-mode emulation when the host arch differs
           - if: is_qemuable
             then: |
-              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
           - if: is_native and unix
             then: cd testing && ./test-compiler-wrappers.sh
           - if: is_cross_target
@@ -740,7 +740,7 @@ outputs:
           # Emulator for running target binaries on the build platform
           - if: is_qemuable
             then: |
-              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
           - if: is_cross_compiler
             then: |
               cd testing
@@ -787,13 +787,9 @@ outputs:
       - script:
           - if: is_qemuable
             then: |
-              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }})}"
-              if [ -z "${QEMU_EXECVE}" ]; then
-                echo "[FAIL] qemu-execve-${{ qemu_arch }} not found on PATH" >&2
-                exit 1
-              fi
-              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
-              "${QEMU_EXECVE}" "$(command -v ocamlopt${{ xt }})" -version && echo "ocaml-compiler toolchain ready"
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+              command -v "${OCAML_QEMU}" >/dev/null || { echo "[FAIL] ${OCAML_QEMU} not found on PATH" >&2; exit 1; }
+              qemu-execve-${{ qemu_arch }} "$(command -v ocamlopt${{ xt }})" -version && echo "ocaml-compiler toolchain ready"
           - if: not is_qemuable and has_native_backend
             then: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
           - if: not is_qemuable and not has_native_backend
@@ -810,7 +806,7 @@ outputs:
           # Target binaries need user-mode emulation when the host arch differs
           - if: is_qemuable
             then: |
-              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
           - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }} ${{ native_mode }}
         files:
           recipe:
@@ -830,12 +826,8 @@ outputs:
           # Target binaries need user-mode emulation when the host arch differs
           - if: is_qemuable
             then: |
-              export QEMU_EXECVE="${QEMU_EXECVE:-$(command -v qemu-execve-${{ qemu_arch }})}"
-              if [ -z "${QEMU_EXECVE}" ]; then
-                echo "[FAIL] qemu-execve-${{ qemu_arch }} not found on PATH" >&2
-                exit 1
-              fi
-              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+              command -v "${OCAML_QEMU}" >/dev/null || { echo "[FAIL] ${OCAML_QEMU} not found on PATH" >&2; exit 1; }
           - if: unix
             then: cd testing && ./test-compiler-libs-link.sh ${{ version }}
             else: echo "Skipping compiler-libs link test (needs unix)"
@@ -854,7 +846,7 @@ outputs:
           # Target binaries need user-mode emulation when the host arch differs
           - if: is_qemuable
             then: |
-              export QEMU_LD_PREFIX="${PREFIX}/${{ target_triplet }}/sysroot"
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
           - cd testing && ${{ dot }}test-toolchain-vars.${{ sh }} ${{ native_mode }}
         files:
           recipe:
