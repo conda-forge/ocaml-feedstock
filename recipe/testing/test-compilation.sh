@@ -374,10 +374,19 @@ CAMLprim value stub_str_len(value s) {
   if (Tag_val(s) != String_tag) return Val_int(-1);
   return Val_int((int) caml_string_length(s));
 }
+CAMLprim value stub_cwd_len(value v_cwd) {
+  if (Is_long(v_cwd) || Tag_val(v_cwd) != 0) return Val_int(-2);
+  if (Tag_val(Field(v_cwd, 0)) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(Field(v_cwd, 0)));
+}
 EOF
 cat > stub_tag_test.ml << 'EOF'
+type cwd = Inherit | Path of string
 external str_len : string -> int = "stub_str_len"
-let () = if str_len "hello" = 5 then print_endline "OK" else exit 1
+external cwd_len : cwd -> int = "stub_cwd_len"
+let _ = Inherit
+let () =
+  if str_len "hello" = 5 && cwd_len (Path "hello") = 5 then print_endline "OK" else exit 1
 EOF
 
 echo -n "  compiling C stub..."
