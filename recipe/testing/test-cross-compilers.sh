@@ -735,6 +735,57 @@ SYSCALLEOF
   rm -f "${SYSCALL_TEST}" "${SYSCALL_BIN}" "${SYSCALL_BIN}."*
 
   # ---------------------------------------------------------------------------
+  # Test 14: C stub reading value headers (catches ARCH_BIG_ENDIAN mismatch
+  # between the installed caml/m.h and the target)
+  # ---------------------------------------------------------------------------
+  echo "  [14/14] C stub value header test..."
+  STUB_DIR="/tmp/test_stub_tag_${TARGET_ID}"
+  STUB_BIN="${STUB_DIR}/stub_tag_test"
+  mkdir -p "${STUB_DIR}"
+
+  cat > "${STUB_DIR}/stub_tag_c.c" << 'STUBCEOF'
+#include <caml/mlvalues.h>
+CAMLprim value stub_str_len(value s) {
+  if (Tag_val(s) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(s));
+}
+CAMLprim value stub_cwd_len(value v_cwd) {
+  if (Is_long(v_cwd) || Tag_val(v_cwd) != 0) return Val_int(-2);
+  if (Tag_val(Field(v_cwd, 0)) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(Field(v_cwd, 0)));
+}
+STUBCEOF
+  cat > "${STUB_DIR}/stub_tag.ml" << 'STUBMLEOF'
+type cwd = Inherit | Path of string
+external str_len : string -> int = "stub_str_len"
+external cwd_len : cwd -> int = "stub_cwd_len"
+let _ = Inherit
+let () =
+  if str_len "hello" = 5 && cwd_len (Path "hello") = 5 then print_endline "STUB_OK" else exit 1
+STUBMLEOF
+
+  if (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>/dev/null; then
+    echo "    [OK] C stub compilation successful"
+
+    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
+      STUB_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" "${qemu_cmd}" "${STUB_BIN}" 2>&1 || true)
+      if echo "${STUB_OUTPUT}" | grep -q "STUB_OK"; then
+        echo "    [OK] C stub reads value headers correctly under QEMU"
+      else
+        echo "    [FAIL] ERROR: C stub str_len check failed under QEMU"
+        echo "      Output: ${STUB_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
+      fi
+    fi
+  else
+    echo "    [FAIL] ERROR: C stub compilation failed"
+    (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>&1 | tail -5 | sed 's/^/      /'
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
+  rm -rf "${STUB_DIR}"
+
+  # ---------------------------------------------------------------------------
   # Summary
   # ---------------------------------------------------------------------------
   if [[ ${TEST_ERRORS} -gt 0 ]]; then

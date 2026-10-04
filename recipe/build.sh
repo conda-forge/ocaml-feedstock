@@ -243,6 +243,22 @@ add_big_endian_define() {
   fi
 }
 
+# Define ARCH_BIG_ENDIAN in an INSTALLED caml/m.h for a big-endian target.
+# The build only passes it in CFLAGS, but downstream C stubs read the
+# installed header, and without it Tag_val/Is_string use the little-endian
+# header layout. Idempotent; fails if the header form is not recognised.
+fix_installed_big_endian_header() {
+  local _platform="$1" _mh="$2"
+  case "${_platform}" in
+    linux-s390x) ;;
+    *) return 0 ;;
+  esac
+  [[ -f "${_mh}" ]] || { echo "ERROR: ${_mh} not found"; return 1; }
+  grep -q '^#define ARCH_BIG_ENDIAN' "${_mh}" && return 0
+  sed -i -e 's|^/\* #undef ARCH_BIG_ENDIAN \*/$|#define ARCH_BIG_ENDIAN 1|' -e 's|^#undef ARCH_BIG_ENDIAN$|#define ARCH_BIG_ENDIAN 1|' "${_mh}"
+  grep -q '^#define ARCH_BIG_ENDIAN' "${_mh}" || { echo "ERROR: could not define ARCH_BIG_ENDIAN in ${_mh}"; return 1; }
+}
+
 # ==============================================================================
 # BUILD FUNCTIONS
 # ==============================================================================
@@ -1888,6 +1904,8 @@ TOOLWRAPPER
       run_logged "installcross" "${MAKE[@]}" installcross "${INSTALL_ARGS[@]}"
     )
 
+    fix_installed_big_endian_header "${CROSS_PLATFORM}" "${OCAML_CROSS_LIBDIR}/caml/m.h" || exit 1
+
     # Verify rpath for macOS cross-compiler binaries
     # OCaml embeds @rpath/libzstd.1.dylib - rpath should be set via BYTECCLIBS during build
     # Cross-compiler binaries are in ${PREFIX}/lib/ocaml-cross-compilers/${target}/bin/
@@ -2519,6 +2537,8 @@ STRIPDEBUG
   rm -f tools/stripdebug.ml tools/stripdebug.cmi tools/stripdebug.cmo
 
   run_logged "installcross" "${MAKE[@]}" installcross
+
+  fix_installed_big_endian_header "${CROSS_PLATFORM}" "${OCAML_INSTALL_PREFIX}/lib/ocaml/caml/m.h" || exit 1
 
   # ============================================================================
   # Post-install fixes
