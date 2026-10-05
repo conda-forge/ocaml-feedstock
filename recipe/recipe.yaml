@@ -136,9 +136,6 @@ source:
       patches:
         # Adds the mingw64arm chain and build target to flexdll.
         - patches/flexdll-add-mingw64arm-support.patch
-        # TEMPORARY DIAGNOSTIC: CRT-free stderr markers in the DLL entry stub
-        # and the load/relocate path. Remove once the stub-dll load is understood.
-        - patches/flexdll-diag-stderr-markers.patch
         # Modern windres rejects the FLEXDLL_FULL_VERSION macro expansion in
         # version.rc VALUE entries.
         - patches/flexdll-version-rc-windres-syntax-fix.patch
@@ -302,7 +299,7 @@ outputs:
         # zig_win-arm64 is pinned to a deliberately chosen snapshot build.
         - if: cross_target_platform_ == "win-arm64"
           then:
-            - zig_win-arm64 0.17.* *_2234_*
+            - zig_win-arm64 0.17.* *_2320_*
 
         # --- CROSS-COMPILER: Target platform toolchain ---
         # Guard (cross_target_platform_ != build_platform) prevents self-referenced cycle detection

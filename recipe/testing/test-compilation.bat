@@ -137,9 +137,6 @@ echo let () = print_endline (if Str.string_match (Str.regexp "a+") "aaa" 0 then 
 set /a STUB_FAILS=0
 set "STUB_LIST="
 
-REM FLEXDLL_DIAG enables the temporary flexdll stderr markers (flexdll-diag-stderr-markers.patch)
-set "FLEXDLL_DIAG=1"
-
 REM FLEXDLL_RELOCATE=0: initer skips relocation but runs the CRT DLL entry; isolates CRT/DllMain init
 echo   LoadLibrary dllcamlstrbyt.dll...
 set "FLEXDLL_RELOCATE=0"
@@ -202,25 +199,6 @@ if "%T_OK%"=="0" (
     set "STUB_LIST=!STUB_LIST! str.cma-toplevel"
 ) else (
     echo   str.cma toplevel: OK
-)
-
-REM FLEXDLL_DIAG_SKIP_CRT: flexdll initer returns before the mingw CRT DLL entry; isolates the CRT entry hang
-echo   ocaml with str.cma, CRT DLL entry skipped...
-set "FLEXDLL_DIAG_SKIP_CRT=1"
-%RWT% 120 ocaml -I +str str.cma str_t.ml > t_out.txt 2>&1
-set "T_RC=%errorlevel%"
-set "FLEXDLL_DIAG_SKIP_CRT="
-type t_out.txt
-set "T_OK=1"
-if not "%T_RC%"=="0" set "T_OK=0"
-findstr /C:"str ok" t_out.txt >nul
-if errorlevel 1 set "T_OK=0"
-if "%T_OK%"=="0" (
-    echo   str.cma toplevel skip-crt: FAILED
-    set /a STUB_FAILS+=1
-    set "STUB_LIST=!STUB_LIST! str.cma-toplevel-skip-crt"
-) else (
-    echo   str.cma toplevel skip-crt: OK
 )
 
 echo let () = Printf.printf "unix ok %%b\n" (Unix.getpid () ^> 0)> unix_t.ml
@@ -288,8 +266,6 @@ if "%T_OK%"=="0" (
 ) else (
     echo   ocamlc -output-complete-exe: OK
 )
-
-set "FLEXDLL_DIAG="
 
 if not "%STUB_FAILS%"=="0" (
     echo === %STUB_FAILS% stub/custom-link test^(s^) FAILED:%STUB_LIST% ===

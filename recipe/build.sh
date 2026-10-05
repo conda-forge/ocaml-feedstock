@@ -1292,6 +1292,17 @@ C_EOF
     fi
   fi
 
+  # The build-time -L to the host prefix must not be compiled into the installed compiler.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    _cfg_ml="utils/config.generated.ml"
+    _cfg_link_vars=(mkexe mkdll mkmaindll bytecomp_c_libraries native_c_libraries compression_c_libraries)
+    for _cvar in "${_cfg_link_vars[@]}"; do
+      sed -i -E "/^let ${_cvar} = /s#-L[^ |\"]+ *##g" "${_cfg_ml}"
+    done
+    echo "  [FIX] config.generated.ml lines still containing -L:"
+    grep -n -E '^let .*-L' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
+  fi
+
   if [[ "${target_platform}" == "win-arm64" ]]; then
     # configured with --disable-native-compiler, so world.opt has nothing to build
     echo "  [3/4] Compiling bytecode compiler"
@@ -1322,64 +1333,6 @@ C_EOF
   else
     echo "  [3/4] Compiling native compiler"
     run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
-  fi
-
-  # win-arm64: dump the stub DLL CRT entry so an unfilled branch is visible.
-  # Diagnostic only; nothing in this block may fail the build.
-  if [[ "${target_platform}" == "win-arm64" ]]; then
-    (
-      set +e
-      _crt_p() { sed 's/^/  [DIAG crtentry] /'; }
-      _crt_find() {
-        local _t="$1" _d _p
-        _p="$(command -v "${_t}" 2>/dev/null)"
-        for _d in "${BUILD_PREFIX:-}/Library/bin" "${BUILD_PREFIX:-}/bin"; do
-          [[ -z "${_p}" && -x "${_d}/${_t}" ]] && _p="${_d}/${_t}"
-          [[ -z "${_p}" && -x "${_d}/${_t}.exe" ]] && _p="${_d}/${_t}.exe"
-        done
-        printf '%s' "${_p}"
-      }
-      _crt_objdump="$(_crt_find llvm-objdump)"
-      _crt_nm="$(_crt_find llvm-nm)"
-      echo "llvm-objdump=${_crt_objdump:-none} llvm-nm=${_crt_nm:-none}" | _crt_p
-      _crt_work="${LOG_DIR:-.}/crtentry"
-      mkdir -p "${_crt_work}"
-
-      # Print objdump/nm lines whose absolute address lies in the CRT entry window.
-      _crt_win_awk='{ a=$1; sub(/:$/, "", a); a=tolower(a); while (length(a) < 16) a = "0" a
-        if (a >= lo && a <= hi) print }'
-      _crt_window() {
-        local _dll="$1" _base _lo _hi
-        _base="$("${_crt_objdump}" -p "${_dll}" 2>/dev/null | awk '/^ImageBase/ {print $2; exit}')"
-        _base="${_base#0x}"
-        [[ -n "${_base}" ]] || { echo "${_dll}: no ImageBase" | _crt_p; return; }
-        _lo="$(printf '%016x' $(( 0x${_base} + 0x1000 )))"
-        _hi="$(printf '%016x' $(( 0x${_base} + 0x1140 )))"
-        echo "${_dll}: ImageBase=${_base} window=${_lo}..${_hi}" | _crt_p
-        "${_crt_objdump}" -d "${_dll}" 2>/dev/null | awk -v lo="${_lo}" -v hi="${_hi}" "/^ *[0-9a-fA-F]+:/ ${_crt_win_awk}" | head -90 | _crt_p
-        if "${_crt_objdump}" -d "${_dll}" 2>/dev/null | awk -v lo="${_lo}" -v hi="${_hi}" "/^ *[0-9a-fA-F]+:/ ${_crt_win_awk}" | grep -qE '94000000|00 00 00 94'; then
-          echo "${_dll}: self-branch (94000000) PRESENT in window" | _crt_p
-        else
-          echo "${_dll}: self-branch (94000000) absent in window" | _crt_p
-        fi
-        if [[ -n "${_crt_nm}" ]]; then
-          { "${_crt_nm}" "${_dll}" 2>/dev/null | grep PSEUDO_RELOC
-            "${_crt_nm}" "${_dll}" 2>/dev/null | awk -v lo="${_lo}" -v hi="${_hi}" "${_crt_win_awk}"; } | head -40 | _crt_p
-        fi
-      }
-
-      if [[ -n "${_crt_objdump}" ]]; then
-        for _crt_dll in otherlibs/str/dllcamlstrbyt.dll otherlibs/unix/dllunixbyt.dll; do
-          if [[ ! -f "${_crt_dll}" ]]; then
-            echo "${_crt_dll}: not found" | _crt_p
-            continue
-          fi
-          echo "${_crt_dll}: import table" | _crt_p
-          "${_crt_objdump}" -p "${_crt_dll}" 2>/dev/null | awk '/^The Import Tables:/ {f=1; next} f && /^[A-Z].*:$/ {exit} f' | head -80 | _crt_p
-          _crt_window "${_crt_dll}"
-        done
-      fi
-    ) || true
   fi
 
   # ============================================================================
