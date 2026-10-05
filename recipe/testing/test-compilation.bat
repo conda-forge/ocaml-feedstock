@@ -141,10 +141,10 @@ REM FLEXDLL_DIAG enables the temporary flexdll stderr markers (flexdll-diag-stde
 set "FLEXDLL_DIAG=1"
 
 REM FLEXDLL_RELOCATE=0: initer skips relocation but runs the CRT DLL entry; isolates CRT/DllMain init
-echo   LoadLibrary dllcamlstr.dll...
+echo   LoadLibrary dllcamlstrbyt.dll...
 set "FLEXDLL_RELOCATE=0"
 for /f "delims=" %%i in ('ocamlc -where') do set "OCAMLWHERE=%%i"
-set "STR_DLL=!OCAMLWHERE!\stublibs\dllcamlstr.dll"
+set "STR_DLL=!OCAMLWHERE!\stublibs\dllcamlstrbyt.dll"
 echo   dll: !STR_DLL!
 set "T_OK=1"
 if not exist "!STR_DLL!" (
@@ -158,11 +158,11 @@ if not exist "!STR_DLL!" (
     if errorlevel 1 set "T_OK=0"
 )
 if "%T_OK%"=="0" (
-    echo   LoadLibrary dllcamlstr.dll: FAILED
+    echo   LoadLibrary dllcamlstrbyt.dll: FAILED
     set /a STUB_FAILS+=1
-    set "STUB_LIST=!STUB_LIST! LoadLibrary-dllcamlstr"
+    set "STUB_LIST=!STUB_LIST! LoadLibrary-dllcamlstrbyt"
 ) else (
-    echo   LoadLibrary dllcamlstr.dll: OK
+    echo   LoadLibrary dllcamlstrbyt.dll: OK
 )
 set "FLEXDLL_RELOCATE="
 
@@ -202,6 +202,25 @@ if "%T_OK%"=="0" (
     set "STUB_LIST=!STUB_LIST! str.cma-toplevel"
 ) else (
     echo   str.cma toplevel: OK
+)
+
+REM FLEXDLL_DIAG_SKIP_CRT: flexdll initer returns before the mingw CRT DLL entry; isolates the CRT entry hang
+echo   ocaml with str.cma, CRT DLL entry skipped...
+set "FLEXDLL_DIAG_SKIP_CRT=1"
+%RWT% 120 ocaml -I +str str.cma str_t.ml > t_out.txt 2>&1
+set "T_RC=%errorlevel%"
+set "FLEXDLL_DIAG_SKIP_CRT="
+type t_out.txt
+set "T_OK=1"
+if not "%T_RC%"=="0" set "T_OK=0"
+findstr /C:"str ok" t_out.txt >nul
+if errorlevel 1 set "T_OK=0"
+if "%T_OK%"=="0" (
+    echo   str.cma toplevel skip-crt: FAILED
+    set /a STUB_FAILS+=1
+    set "STUB_LIST=!STUB_LIST! str.cma-toplevel-skip-crt"
+) else (
+    echo   str.cma toplevel skip-crt: OK
 )
 
 echo let () = Printf.printf "unix ok %%b\n" (Unix.getpid () ^> 0)> unix_t.ml

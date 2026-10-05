@@ -629,11 +629,12 @@ build_native() {
     if [[ ! -f "Makefile.config" ]]; then
       echo "  [FIX] ERROR: Makefile.config not found, cannot rewrite library tokens"
     else
-      echo "  [FIX] replacing -lsynchronization with -lapi-ms-win-core-synch-l1-2-0 (arm64 has no synchronization.dll) in Makefile.config"
+      echo "  [FIX] replacing -lsynchronization with -lapi-ms-win-core-synch-l1-2-0 (arm64 has no synchronization.dll) in Makefile.config and config.generated.ml"
       sed -i -e "s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "Makefile.config"
       # Config.bytecomp_c_libraries/native_c_libraries are compiled in, keep them equal to Makefile.config
-      sed -i -E "/^let (bytecomp|native)_c_libraries/s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "${config_file}"
+      sed -i -E "/^let (bytecomp|native)_c_libraries/s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "utils/config.generated.ml"
       grep -n -E '^(BYTECCLIBS|NATIVECCLIBS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
+      grep -n -E '^let (bytecomp|native)_c_libraries' "utils/config.generated.ml" 2>/dev/null | sed 's/^/  [FIX]   /' || true
     fi
   fi
 
@@ -1281,9 +1282,10 @@ C_EOF
       if [[ -z "${_pthread_replacement}" ]]; then
         echo "  [FIX] WARNING: neither -lpthread nor -lwinpthread linked cleanly; leaving -l:libpthread.a in Makefile.config unchanged"
       else
-        echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
+        echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config and config.generated.ml"
         sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
-        sed -i -E "/^let (bytecomp|native)_c_libraries/s/-l:libpthread\.a/${_pthread_replacement}/g" "${config_file}"
+        sed -i -E "/^let (bytecomp|native)_c_libraries/s/-l:libpthread\.a/${_pthread_replacement}/g" "utils/config.generated.ml"
+        grep -n -E '^let (bytecomp|native)_c_libraries' "utils/config.generated.ml" 2>/dev/null | sed 's/^/  [FIX]   /' || true
       fi
     else
       echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a"
@@ -1322,6 +1324,64 @@ C_EOF
     run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
   fi
 
+  # win-arm64: dump the stub DLL CRT entry so an unfilled branch is visible.
+  # Diagnostic only; nothing in this block may fail the build.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    (
+      set +e
+      _crt_p() { sed 's/^/  [DIAG crtentry] /'; }
+      _crt_find() {
+        local _t="$1" _d _p
+        _p="$(command -v "${_t}" 2>/dev/null)"
+        for _d in "${BUILD_PREFIX:-}/Library/bin" "${BUILD_PREFIX:-}/bin"; do
+          [[ -z "${_p}" && -x "${_d}/${_t}" ]] && _p="${_d}/${_t}"
+          [[ -z "${_p}" && -x "${_d}/${_t}.exe" ]] && _p="${_d}/${_t}.exe"
+        done
+        printf '%s' "${_p}"
+      }
+      _crt_objdump="$(_crt_find llvm-objdump)"
+      _crt_nm="$(_crt_find llvm-nm)"
+      echo "llvm-objdump=${_crt_objdump:-none} llvm-nm=${_crt_nm:-none}" | _crt_p
+      _crt_work="${LOG_DIR:-.}/crtentry"
+      mkdir -p "${_crt_work}"
+
+      # Print objdump/nm lines whose absolute address lies in the CRT entry window.
+      _crt_win_awk='{ a=$1; sub(/:$/, "", a); a=tolower(a); while (length(a) < 16) a = "0" a
+        if (a >= lo && a <= hi) print }'
+      _crt_window() {
+        local _dll="$1" _base _lo _hi
+        _base="$("${_crt_objdump}" -p "${_dll}" 2>/dev/null | awk '/^ImageBase/ {print $2; exit}')"
+        _base="${_base#0x}"
+        [[ -n "${_base}" ]] || { echo "${_dll}: no ImageBase" | _crt_p; return; }
+        _lo="$(printf '%016x' $(( 0x${_base} + 0x1000 )))"
+        _hi="$(printf '%016x' $(( 0x${_base} + 0x1140 )))"
+        echo "${_dll}: ImageBase=${_base} window=${_lo}..${_hi}" | _crt_p
+        "${_crt_objdump}" -d "${_dll}" 2>/dev/null | awk -v lo="${_lo}" -v hi="${_hi}" "/^ *[0-9a-fA-F]+:/ ${_crt_win_awk}" | head -90 | _crt_p
+        if "${_crt_objdump}" -d "${_dll}" 2>/dev/null | awk -v lo="${_lo}" -v hi="${_hi}" "/^ *[0-9a-fA-F]+:/ ${_crt_win_awk}" | grep -qE '94000000|00 00 00 94'; then
+          echo "${_dll}: self-branch (94000000) PRESENT in window" | _crt_p
+        else
+          echo "${_dll}: self-branch (94000000) absent in window" | _crt_p
+        fi
+        if [[ -n "${_crt_nm}" ]]; then
+          { "${_crt_nm}" "${_dll}" 2>/dev/null | grep PSEUDO_RELOC
+            "${_crt_nm}" "${_dll}" 2>/dev/null | awk -v lo="${_lo}" -v hi="${_hi}" "${_crt_win_awk}"; } | head -40 | _crt_p
+        fi
+      }
+
+      if [[ -n "${_crt_objdump}" ]]; then
+        for _crt_dll in otherlibs/str/dllcamlstrbyt.dll otherlibs/unix/dllunixbyt.dll; do
+          if [[ ! -f "${_crt_dll}" ]]; then
+            echo "${_crt_dll}: not found" | _crt_p
+            continue
+          fi
+          echo "${_crt_dll}: import table" | _crt_p
+          "${_crt_objdump}" -p "${_crt_dll}" 2>/dev/null | awk '/^The Import Tables:/ {f=1; next} f && /^[A-Z].*:$/ {exit} f' | head -80 | _crt_p
+          _crt_window "${_crt_dll}"
+        done
+      fi
+    ) || true
+  fi
+
   # ============================================================================
   # Tests (Optional)
   # ============================================================================
@@ -1350,6 +1410,31 @@ C_EOF
     for _flexlink_lib in "${_flexlink_libs[@]}"; do
       cp "${_imports_stage_dir}/lib${_flexlink_lib#-l}.a" "${_flexdll_dest}/"
     done
+    # c_libraries are resolved by flexlink from this directory at -custom /
+    # -output-complete-exe link time
+    _cl_cfg="${SRC_DIR}/utils/config.generated.ml"
+    _cl_line=""
+    if [[ -f "${_cl_cfg}" ]]; then
+      _cl_line="$(sed -n -E 's/^let (bytecomp|native)_c_libraries = \{\|(.*)\|\}.*/\2/p' "${_cl_cfg}" || true)"
+    else
+      echo "  WARNING: ${_cl_cfg} not found, c_libraries not shipped"
+    fi
+    [[ -n "${_cl_line}" ]] || echo "  WARNING: no c_libraries found in ${_cl_cfg}"
+    _cl_shipped=""
+    # The script runs with IFS=$'\n\t', so split the space-separated list explicitly
+    IFS=' ' read -r -a _cl_toks <<< "$(printf '%s' "${_cl_line}" | tr '\n' ' ')"
+    for _cl_tok in ${_cl_toks[@]+"${_cl_toks[@]}"}; do
+      [[ "${_cl_tok}" == -l?* && "${_cl_tok}" != -l:* ]] || continue
+      _cl_name="${_cl_tok#-l}"
+      [[ -f "${_flexdll_dest}/lib${_cl_name}.a" ]] && continue
+      if [[ -f "${_imports_stage_dir}/lib${_cl_name}.a" ]]; then
+        cp "${_imports_stage_dir}/lib${_cl_name}.a" "${_flexdll_dest}/"
+        _cl_shipped="${_cl_shipped} lib${_cl_name}.a"
+      else
+        echo "  WARNING: ${_imports_stage_dir}/lib${_cl_name}.a not found, not shipped"
+      fi
+    done
+    echo "  - Shipped c_libraries archives to ${_flexdll_dest}:${_cl_shipped:- none}"
   fi
 
   # Clean hardcoded -L paths from installed Makefile.config

@@ -238,22 +238,27 @@ diff -ruN a/reloc.ml b/reloc.ml
              0x0001 (* rel32 *)
  
          | `x64, 0x05 (* IMAGE_REL_AMD64_REL32_1 *) when not !no_rel_relocs->
-@@ -473,6 +477,10 @@
+@@ -473,6 +477,19 @@
                            0x0b (* IMAGE_REL_{I386|AMD64}_SECREL*) ) ->
              0x0100 (* debug relocs: ignore *)
  
 +        | `arm64, (0x0d (* IMAGE_REL_ARM64_SECTION *) |
-+                   0x08 (* IMAGE_REL_ARM64_SECREL *) |
-+                   0x03 (* IMAGE_REL_ARM64_BRANCH26 *) |
-+                   0x04 (* IMAGE_REL_ARM64_PAGEBASE_REL21 *) |
-+                   0x06 (* IMAGE_REL_ARM64_PAGEOFFSET_12A *) |
-+                   0x07 (* IMAGE_REL_ARM64_PAGEOFFSET_12L *)) ->
++                   0x08 (* IMAGE_REL_ARM64_SECREL *)) ->
 +            0x0100 (* debug relocs: ignore *)
++
++        | `arm64, ((0x03 (* IMAGE_REL_ARM64_BRANCH26 *) |
++                    0x04 (* IMAGE_REL_ARM64_PAGEBASE_REL21 *) |
++                    0x06 (* IMAGE_REL_ARM64_PAGEOFFSET_12A *) |
++                    0x07 (* IMAGE_REL_ARM64_PAGEOFFSET_12L *)) as k) ->
++            Printf.eprintf
++              "flexlink: warning: arm64 relocation kind 0x%x against %s cannot be fixed at load time\n%!"
++              k rel.symbol.sym_name;
++            0x0100
 +
          | _, k ->
              let msg =
                Printf.sprintf "Unsupported relocation kind %04x for %s in %s"
-@@ -553,7 +561,7 @@
+@@ -553,7 +570,7 @@
  (* Create a table for import symbols __imp_XXX *)
 
  let add_import_table obj imports =
@@ -262,7 +267,7 @@ diff -ruN a/reloc.ml b/reloc.ml
    let sect = Section.create ".imptbl" 0xc0300040l in
    obj.sections <- sect :: obj.sections;
    sect.data <- `String (Bytes.make (ptr_size * List.length imports) '\000');
-@@ -665,7 +673,7 @@
+@@ -665,7 +682,7 @@
  let dll_exports fn = match !toolchain with
    | `MSVC | `MSVC64 | `LIGHTLD ->
        failwith "Creation of import library not supported for this toolchain"
@@ -271,7 +276,7 @@ diff -ruN a/reloc.ml b/reloc.ml
        let dmp = temp_file "dyndll" ".dmp" in
        if cmd_verbose (Printf.sprintf "%s -p %s > %s" !objdump fn dmp) <> 0
        then failwith "Error while extracting exports from a DLL";
-@@ -694,19 +702,22 @@
+@@ -694,19 +711,22 @@
     Collect such cases in "imported".
  *)
  let needed imported defined resolve_alias resolve_alternate obj =
@@ -307,16 +312,30 @@ diff -ruN a/reloc.ml b/reloc.ml
    let normalize_imp name =
      match check_prefix "__imp_" name with
      | Some s when not (StrSet.mem name defined) ->
-@@ -866,7 +877,7 @@
+@@ -866,7 +886,7 @@
      if main_pgm then add_def (usym "static_symtable")
      else add_def (usym "reloctbl");
- 
+
 -    if !machine = `x64 then add_def "__ImageBase"
 +    if !machine = `x64 || !machine = `arm64 then add_def "__ImageBase"
      else add_def "___ImageBase";
- 
+
      !defined, !from_imports, (Hashtbl.find aliases), (Hashtbl.find alternates)
-@@ -1160,7 +1171,7 @@
+@@ -913,7 +933,12 @@
+       (fun s ->
+          match check_prefix "__imp_" s with
+          | Some _ -> false
+-         | None -> s <> "environ"  (* special hack for Cygwin64 *)
++         | None ->
++           (* the C driver's DLL startup object defines DllMainCRTStartup;
++              flexlink does not scan that object for this chain, so the
++              final link resolves it *)
++           s <> "environ"  (* special hack for Cygwin64 *)
++           && not (s = "DllMainCRTStartup" && !toolchain = `MINGW64ARM)
+       )
+       undefs
+   in
+@@ -1160,7 +1185,7 @@
            let s =
              match !machine with
              | `x86 -> "FlexDLLiniter@12"
@@ -325,7 +344,7 @@ diff -ruN a/reloc.ml b/reloc.ml
            in
            Printf.sprintf "/entry:%s " s
            )
-@@ -1192,7 +1203,7 @@
+@@ -1192,7 +1217,7 @@
            files
            def_file
            extra_args
@@ -334,7 +353,7 @@ diff -ruN a/reloc.ml b/reloc.ml
          let def_file =
            if main_pgm then ""
            else
-@@ -1245,6 +1256,7 @@
+@@ -1245,6 +1270,7 @@
              match !machine with
              | `x86 -> "default.manifest"
              | `x64 -> "default_amd64.manifest"
@@ -342,7 +361,7 @@ diff -ruN a/reloc.ml b/reloc.ml
            in
            Filename.concat flexdir default_manifest
        in
-@@ -1433,6 +1445,10 @@
+@@ -1433,6 +1459,10 @@
        mingw_libs Version.mingw_prefix
    | `MINGW64 ->
        mingw_libs Version.mingw64_prefix
@@ -353,7 +372,7 @@ diff -ruN a/reloc.ml b/reloc.ml
    | `GNAT | `GNAT64 ->
     (* This is a plain copy of the mingw version, but we do not change the
        prefix and use "gnatls" to compute the include dir. *)
-@@ -1491,7 +1507,7 @@
+@@ -1491,7 +1521,7 @@
              (Filename.quote tmp_obj)
              (mk_dirs_opt "-I")
              file
@@ -362,7 +381,7 @@ diff -ruN a/reloc.ml b/reloc.ml
            Printf.sprintf
              "%s -c -o %s %s %s"
              (cc !toolchain)
-@@ -1541,6 +1557,7 @@
+@@ -1541,6 +1571,7 @@
    | `MSVC64 -> "msvc64.obj"
    | `CYGWIN64 -> "cygwin64.o"
    | `MINGW64 -> "mingw64.o"

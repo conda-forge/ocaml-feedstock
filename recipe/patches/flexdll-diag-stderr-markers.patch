@@ -110,7 +110,7 @@
  
 --- a/flexdll_initer.c
 +++ b/flexdll_initer.c
-@@ -20,13 +20,53 @@
+@@ -20,13 +20,64 @@
  
  extern int reloctbl;
  
@@ -145,6 +145,17 @@
 +  fd_dbg(tag); fd_dbg(buf); fd_dbg("\r\n");
 +}
 +
++/* Non-zero when FLEXDLL_DIAG_SKIP_CRT is set: the CRT entry point is then
++   not called at all (diagnostic isolation of a CRT startup failure). */
++static int fd_skip_crt(void) {
++  static int on = -1;
++  if (on < 0) {
++    char b[2];
++    on = GetEnvironmentVariableA("FLEXDLL_DIAG_SKIP_CRT", b, sizeof(b)) > 0;
++  }
++  return on;
++}
++
  static int flexdll_init(void) {
    int (*sym)(void *) = 0;
 -  char *s = getenv("FLEXDLL_RELOCATE");
@@ -166,8 +177,43 @@
    return FALSE;
  }
  
-@@ -46,8 +86,15 @@
+@@ -44,10 +95,58 @@
  
+ BOOL WINAPI entry(HINSTANCE, DWORD, LPVOID);
+ 
++#if defined(__MINGW32__) && defined(__aarch64__)
++/* TEMPORARY DIAGNOSTIC: state of the mingw CRT startup, printed before the
++   CRT entry point runs. Win32 calls only, silent unless FLEXDLL_DIAG is set. */
++extern void *volatile __native_startup_lock;
++extern volatile int __native_startup_state;
++
++static void fd_dbg_module_of(const char *tag, const void *p) {
++  HMODULE h = NULL;
++  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
++                          | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                          (LPCSTR) p, &h))
++    h = NULL;
++  fd_dbg_hex(tag, (UINT_PTR) h);
++}
++
++static void fd_dbg_crt_state(HINSTANCE hinst) {
++  fd_dbg_hex("FDDBG crt: hinst ", (UINT_PTR) hinst);
++  fd_dbg_hex("FDDBG crt: entry fn ", (UINT_PTR) &entry);
++  fd_dbg_module_of("FDDBG crt: entry module ", (const void *) &entry);
++  fd_dbg_hex("FDDBG crt: startup_lock addr ", (UINT_PTR) &__native_startup_lock);
++  fd_dbg_module_of("FDDBG crt: startup_lock module ",
++                   (const void *) &__native_startup_lock);
++  fd_dbg_hex("FDDBG crt: startup_lock value ",
++             (UINT_PTR) __native_startup_lock);
++  fd_dbg_hex("FDDBG crt: startup_state addr ",
++             (UINT_PTR) &__native_startup_state);
++  fd_dbg_module_of("FDDBG crt: startup_state module ",
++                   (const void *) &__native_startup_state);
++  fd_dbg_hex("FDDBG crt: startup_state value ",
++             (UINT_PTR) (unsigned int) __native_startup_state);
++}
++#endif
++
  BOOL WINAPI FlexDLLiniter(HINSTANCE hinstDLL, DWORD fdwReason,
  			  LPVOID lpReserved) {
 -  if (fdwReason == DLL_PROCESS_ATTACH && !flexdll_init())
@@ -177,8 +223,16 @@
 +    fd_dbg("FDDBG initer: flexdll_init failed\r\n");
      return FALSE;
 +  }
++
++#if defined(__MINGW32__) && defined(__aarch64__)
++  if (fdwReason == DLL_PROCESS_ATTACH) fd_dbg_crt_state(hinstDLL);
++#endif
  
 -  return entry(hinstDLL, fdwReason, lpReserved);
++  if (fd_skip_crt()) {
++    fd_dbg("FDDBG initer: skipping CRT entry (FLEXDLL_DIAG_SKIP_CRT)\r\n");
++    return TRUE;
++  }
 +  fd_dbg("FDDBG initer: calling CRT entry\r\n");
 +  res = entry(hinstDLL, fdwReason, lpReserved);
 +  fd_dbg_hex("FDDBG initer: CRT entry returned ", (UINT_PTR) res);
