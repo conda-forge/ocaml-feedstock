@@ -629,9 +629,12 @@ build_native() {
     if [[ ! -f "Makefile.config" ]]; then
       echo "  [FIX] ERROR: Makefile.config not found, cannot rewrite library tokens"
     else
-      echo "  [FIX] replacing -lsynchronization with -lapi-ms-win-core-synch-l1-2-0 (arm64 has no synchronization.dll) in Makefile.config"
+      echo "  [FIX] replacing -lsynchronization with -lapi-ms-win-core-synch-l1-2-0 (arm64 has no synchronization.dll) in Makefile.config and config.generated.ml"
       sed -i -e "s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "Makefile.config"
+      # Config.bytecomp_c_libraries/native_c_libraries are compiled in, keep them equal to Makefile.config
+      sed -i -E "/^let (bytecomp|native)_c_libraries/s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "utils/config.generated.ml"
       grep -n -E '^(BYTECCLIBS|NATIVECCLIBS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
+      grep -n -E '^let (bytecomp|native)_c_libraries' "utils/config.generated.ml" 2>/dev/null | sed 's/^/  [FIX]   /' || true
     fi
   fi
 
@@ -1220,6 +1223,8 @@ C_EOF
       # hiding it, so the merged -L/-l order and CRT objects become visible.
       export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-v -L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
       echo "  [FIX] FLEXLINKFLAGS now: ${FLEXLINKFLAGS}"
+      # Install step ships these archives and activate.bat reuses the -l list.
+      printf '%s\n' "${_imports_extra_libflags}" > "${SRC_DIR}/_win_arm64_flexlink_libs.txt"
     else
       echo "  [DIAG imports] no import libraries staged, leaving FLEXLINKFLAGS unchanged"
     fi
@@ -1277,12 +1282,28 @@ C_EOF
       if [[ -z "${_pthread_replacement}" ]]; then
         echo "  [FIX] WARNING: neither -lpthread nor -lwinpthread linked cleanly; leaving -l:libpthread.a in Makefile.config unchanged"
       else
-        echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
+        echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config and config.generated.ml"
         sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
+        sed -i -E "/^let (bytecomp|native)_c_libraries/s/-l:libpthread\.a/${_pthread_replacement}/g" "utils/config.generated.ml"
+        grep -n -E '^let (bytecomp|native)_c_libraries' "utils/config.generated.ml" 2>/dev/null | sed 's/^/  [FIX]   /' || true
       fi
     else
       echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a"
     fi
+  fi
+
+  # The build-time -L to the host prefix must not be compiled into the installed compiler.
+  if [[ "${target_platform}" == "win-arm64" ]]; then
+    _cfg_ml="utils/config.generated.ml"
+    _cfg_link_vars=(mkexe mkdll mkmaindll bytecomp_c_libraries native_c_libraries compression_c_libraries)
+    echo "  [FIX] config.generated.ml link settings before -L strip:"
+    grep -n -E '^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
+    for _cvar in "${_cfg_link_vars[@]}"; do
+      # flexlink passes "-link <opt>" to the C linker; drop the pair, or a dangling -link swallows the next argument
+      sed -i -E "/^let ${_cvar} = /s#(-link +)?-L[^ |\"]+ *##g" "${_cfg_ml}"
+    done
+    echo "  [FIX] config.generated.ml link settings after -L strip:"
+    grep -n -E '^let .*-L|^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
   fi
 
   if [[ "${target_platform}" == "win-arm64" ]]; then
@@ -1335,6 +1356,42 @@ C_EOF
 
   # Install (INSTALLING=1 and VPATH= help prevent stale file issues if Makefile.cross is included)
   run_logged "install" "${MAKE[@]}" install INSTALLING=1 VPATH=
+
+  # Ship the flexlink import libraries so ocamlc -custom / -output-complete-exe
+  # can resolve -lws2_32 etc. outside the build environment
+  if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
+    _flexdll_dest="${OCAML_INSTALL_PREFIX}/lib/ocaml/flexdll"
+    mkdir -p "${_flexdll_dest}"
+    IFS=' ' read -r -a _flexlink_libs <<< "$(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
+    for _flexlink_lib in "${_flexlink_libs[@]}"; do
+      cp "${_imports_stage_dir}/lib${_flexlink_lib#-l}.a" "${_flexdll_dest}/"
+    done
+    # c_libraries are resolved by flexlink from this directory at -custom /
+    # -output-complete-exe link time
+    _cl_cfg="${SRC_DIR}/utils/config.generated.ml"
+    _cl_line=""
+    if [[ -f "${_cl_cfg}" ]]; then
+      _cl_line="$(sed -n -E 's/^let (bytecomp|native)_c_libraries = \{\|(.*)\|\}.*/\2/p' "${_cl_cfg}" || true)"
+    else
+      echo "  WARNING: ${_cl_cfg} not found, c_libraries not shipped"
+    fi
+    [[ -n "${_cl_line}" ]] || echo "  WARNING: no c_libraries found in ${_cl_cfg}"
+    _cl_shipped=""
+    # The script runs with IFS=$'\n\t', so split the space-separated list explicitly
+    IFS=' ' read -r -a _cl_toks <<< "$(printf '%s' "${_cl_line}" | tr '\n' ' ')"
+    for _cl_tok in ${_cl_toks[@]+"${_cl_toks[@]}"}; do
+      [[ "${_cl_tok}" == -l?* && "${_cl_tok}" != -l:* ]] || continue
+      _cl_name="${_cl_tok#-l}"
+      [[ -f "${_flexdll_dest}/lib${_cl_name}.a" ]] && continue
+      if [[ -f "${_imports_stage_dir}/lib${_cl_name}.a" ]]; then
+        cp "${_imports_stage_dir}/lib${_cl_name}.a" "${_flexdll_dest}/"
+        _cl_shipped="${_cl_shipped} lib${_cl_name}.a"
+      else
+        echo "  WARNING: ${_imports_stage_dir}/lib${_cl_name}.a not found, not shipped"
+      fi
+    done
+    echo "  - Shipped c_libraries archives to ${_flexdll_dest}:${_cl_shipped:- none}"
+  fi
 
   # Clean hardcoded -L paths from installed Makefile.config
   # During build we added -L${BUILD_PREFIX}/lib or -L${PREFIX}/lib to find zstd
@@ -2887,6 +2944,12 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       sed -i "s|@MKEXE@|$(_basename_cmd "${CONDA_OCAML_MKEXE}")|g" "${_SCRIPT}"
       sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
       sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"
+      # win-arm64 only: flexlink import dir and -l list; blank on every other lane
+      _flexlink_extra=""
+      if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
+        _flexlink_extra="-L%CONDA_PREFIX%/Library/lib/ocaml/flexdll $(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
+      fi
+      sed -i "s|@FLEXLINK_EXTRA@|${_flexlink_extra}|g" "${_SCRIPT}"
     done
   )
 fi

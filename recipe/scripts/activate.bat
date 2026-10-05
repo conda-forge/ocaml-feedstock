@@ -8,6 +8,17 @@
 )
 @set "OCAMLLIB=%OCAML_PREFIX%\lib\ocaml"
 
+@REM flexlink import libraries (win-arm64 only; @FLEXLINK_EXTRA@ is blank elsewhere)
+@set "_OCAML_FLEXLINK_EXTRA=@FLEXLINK_EXTRA@"
+@if defined _OCAML_FLEXLINK_EXTRA (
+     @set "_OCAML_FLEXLINK_ACTIVE=1"
+     @if defined FLEXLINKFLAGS (
+          @set "_OCAML_FLEXLINKFLAGS_BACKUP=%FLEXLINKFLAGS%"
+     )
+     @set "FLEXLINKFLAGS=%FLEXLINKFLAGS% %_OCAML_FLEXLINK_EXTRA%"
+)
+@set "_OCAML_FLEXLINK_EXTRA="
+
 @set "PATH=%OCAMLLIB%\stublibs;%PATH%"
 @set "CAML_LD_LIBRARY_PATH=%OCAMLLIB%\stublibs"
 
