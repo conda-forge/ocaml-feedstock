@@ -1296,11 +1296,14 @@ C_EOF
   if [[ "${target_platform}" == "win-arm64" ]]; then
     _cfg_ml="utils/config.generated.ml"
     _cfg_link_vars=(mkexe mkdll mkmaindll bytecomp_c_libraries native_c_libraries compression_c_libraries)
+    echo "  [FIX] config.generated.ml link settings before -L strip:"
+    grep -n -E '^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
     for _cvar in "${_cfg_link_vars[@]}"; do
-      sed -i -E "/^let ${_cvar} = /s#-L[^ |\"]+ *##g" "${_cfg_ml}"
+      # flexlink passes "-link <opt>" to the C linker; drop the pair, or a dangling -link swallows the next argument
+      sed -i -E "/^let ${_cvar} = /s#(-link +)?-L[^ |\"]+ *##g" "${_cfg_ml}"
     done
-    echo "  [FIX] config.generated.ml lines still containing -L:"
-    grep -n -E '^let .*-L' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
+    echo "  [FIX] config.generated.ml link settings after -L strip:"
+    grep -n -E '^let .*-L|^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
   fi
 
   if [[ "${target_platform}" == "win-arm64" ]]; then
