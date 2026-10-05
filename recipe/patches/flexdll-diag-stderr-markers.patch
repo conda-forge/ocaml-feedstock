@@ -1,0 +1,186 @@
+--- a/flexdll.c
++++ b/flexdll.c
+@@ -59,6 +59,35 @@
+ 
+ static HANDLE units_mutex = INVALID_HANDLE_VALUE;
+ 
++/* TEMPORARY DIAGNOSTIC: CRT-free stderr markers (Win32 calls only), silent
++   unless the FLEXDLL_DIAG environment variable is set. */
++static int fd_dbg_on(void) {
++  static int on = -1;
++  if (on < 0) {
++    char b[2];
++    on = GetEnvironmentVariableA("FLEXDLL_DIAG", b, sizeof(b)) > 0;
++  }
++  return on;
++}
++
++static void fd_dbg(const char *s) {
++  DWORD n = 0, w;
++  HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
++  if (!fd_dbg_on()) return;
++  while (s[n]) n++;
++  if (h != NULL && h != INVALID_HANDLE_VALUE) WriteFile(h, s, n, &w, NULL);
++}
++
++static void fd_dbg_hex(const char *tag, UINT_PTR v) {
++  char buf[19];
++  int i;
++  buf[0] = '0'; buf[1] = 'x';
++  for (i = 0; i < 16; i++)
++    buf[2 + i] = "0123456789abcdef"[(v >> (60 - 4 * i)) & 0xf];
++  buf[18] = 0;
++  fd_dbg(tag); fd_dbg(buf); fd_dbg("\r\n");
++}
++
+ /* Error reporting */
+ /* The latest error must be kept in some variable so that flexdll_dlerror can
+  * report it but this causes data races (and possible segmentation faults) in
+@@ -273,17 +302,24 @@
+   char *page_start, *page_end;
+   char *prev_page_start = (char*)1, *prev_page_end = (char*)1;
+ 
++  fd_dbg_hex("FDDBG relocate: enter tbl ", (UINT_PTR) tbl);
+   if (!tbl) return;
+ 
+   if (0 == page_size) {
+     GetSystemInfo (&si);
+     page_size = si.dwPageSize;
+   }
++  fd_dbg_hex("FDDBG relocate: page_size ", (UINT_PTR) page_size);
+ 
+   for (ptr = tbl->entries; ptr->kind; ptr++) {
+     if (ptr->kind & RELOC_DONE) continue;
+ 
++    fd_dbg("FDDBG relocate: resolving ");
++    fd_dbg(ptr->name ? ptr->name : "(null)");
++    fd_dbg_hex(" kind ", (UINT_PTR) ptr->kind);
+     s = (UINT_PTR) f(data,ptr->name);
++    fd_dbg_hex("FDDBG relocate: resolved to ", (UINT_PTR) s);
++    fd_dbg_hex("FDDBG relocate: target addr ", (UINT_PTR) ptr->addr);
+     if (!s) {
+       err->code = 2;
+       cannot_resolve_msg(ptr->name, err);
+@@ -400,9 +436,11 @@
+       fprintf(stderr, "flexdll: unknown relocation kind");
+       exit(2);
+     }
++    fd_dbg("FDDBG relocate: entry applied\r\n");
+     ptr->kind |= RELOC_DONE;
+   }
+  restore:
++  fd_dbg("FDDBG relocate: restore\r\n");
+   /* Restore page permission */
+   if (prev_page_start != (char*)1) {
+     if (0 == VirtualProtect(prev_page_start, prev_page_end-prev_page_start+page_size, prev_protect, &prev_protect)) {
+@@ -495,11 +533,14 @@
+ 
+ int flexdll_relocate(void *tbl) {
+   err_t * err;
++  fd_dbg_hex("FDDBG flexdll_relocate: enter tbl ", (UINT_PTR) tbl);
+   err = get_tls_error(TLS_ERROR_RESET);
++  fd_dbg_hex("FDDBG flexdll_relocate: tls error ", (UINT_PTR) err);
+   if(err == NULL) return 0;
+ 
+   if (!tbl) { printf("No master relocation table\n"); return 0; }
+   relocate_master(find_symbol_global, NULL, tbl, err);
++  fd_dbg_hex("FDDBG flexdll_relocate: err code ", (UINT_PTR) err->code);
+   if (err->code) return 0;
+   return 1;
+ }
+@@ -554,7 +595,9 @@
+       return NULL;
+   }
+ 
++  fd_dbg_hex("FDDBG dlopen: calling ll_dlopen exec ", (UINT_PTR) exec);
+   handle = ll_dlopen(file, exec);
++  fd_dbg_hex("FDDBG dlopen: ll_dlopen returned ", (UINT_PTR) handle);
+   if (!handle) { if (!err->code) err->code = 1; ReleaseMutex(units_mutex); return NULL; }
+ 
+   unit = units;
+@@ -573,7 +616,9 @@
+   if (exec) {
+     /* Relocation has already been done if the flexdll's DLL entry point
+        is used */
++    fd_dbg_hex("FDDBG dlopen: reloctbl sym ", (UINT_PTR) ll_dlsym(handle, "reloctbl"));
+     flexdll_relocate(ll_dlsym(handle, "reloctbl"));
++    fd_dbg_hex("FDDBG dlopen: relocate done, err code ", (UINT_PTR) err->code);
+     if (err->code) { flexdll_dlclose(unit); ReleaseMutex(units_mutex); return NULL; }
+   }
+ 
+--- a/flexdll_initer.c
++++ b/flexdll_initer.c
+@@ -20,13 +20,53 @@
+ 
+ extern int reloctbl;
+ 
++/* TEMPORARY DIAGNOSTIC: CRT-free stderr markers, silent unless the
++   FLEXDLL_DIAG environment variable is set. This runs as the DLL entry
++   point, possibly before the CRT is initialised, so only Win32 calls are
++   used here. */
++static int fd_dbg_on(void) {
++  static int on = -1;
++  if (on < 0) {
++    char b[2];
++    on = GetEnvironmentVariableA("FLEXDLL_DIAG", b, sizeof(b)) > 0;
++  }
++  return on;
++}
++
++static void fd_dbg(const char *s) {
++  DWORD n = 0, w;
++  HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
++  if (!fd_dbg_on()) return;
++  while (s[n]) n++;
++  if (h != NULL && h != INVALID_HANDLE_VALUE) WriteFile(h, s, n, &w, NULL);
++}
++
++static void fd_dbg_hex(const char *tag, UINT_PTR v) {
++  char buf[19];
++  int i;
++  buf[0] = '0'; buf[1] = 'x';
++  for (i = 0; i < 16; i++)
++    buf[2 + i] = "0123456789abcdef"[(v >> (60 - 4 * i)) & 0xf];
++  buf[18] = 0;
++  fd_dbg(tag); fd_dbg(buf); fd_dbg("\r\n");
++}
++
+ static int flexdll_init(void) {
+   int (*sym)(void *) = 0;
+-  char *s = getenv("FLEXDLL_RELOCATE");
++  char *s;
++  int r;
++  fd_dbg("FDDBG initer: flexdll_init enter\r\n");
++  s = getenv("FLEXDLL_RELOCATE");
++  fd_dbg_hex("FDDBG initer: getenv returned ", (UINT_PTR) s);
+   if (!s) { fprintf(stderr, "Cannot find FLEXDLL_RELOCATE\n"); return FALSE; }
+   sscanf(s,"%p",(void **) &sym);
++  fd_dbg_hex("FDDBG initer: relocate fn ", (UINT_PTR) sym);
++  fd_dbg_hex("FDDBG initer: reloctbl at ", (UINT_PTR) &reloctbl);
+   /* sym = 0 means "loaded not for execution" */
+-  if (!sym || sym(&reloctbl)) return TRUE;
++  if (!sym) { fd_dbg("FDDBG initer: no relocate fn, skip\r\n"); return TRUE; }
++  r = sym(&reloctbl);
++  fd_dbg_hex("FDDBG initer: relocate returned ", (UINT_PTR) r);
++  if (r) return TRUE;
+   return FALSE;
+ }
+ 
+@@ -46,8 +86,15 @@
+ 
+ BOOL WINAPI FlexDLLiniter(HINSTANCE hinstDLL, DWORD fdwReason,
+ 			  LPVOID lpReserved) {
+-  if (fdwReason == DLL_PROCESS_ATTACH && !flexdll_init())
++  BOOL res;
++  fd_dbg_hex("FDDBG initer: FlexDLLiniter reason ", (UINT_PTR) fdwReason);
++  if (fdwReason == DLL_PROCESS_ATTACH && !flexdll_init()) {
++    fd_dbg("FDDBG initer: flexdll_init failed\r\n");
+     return FALSE;
++  }
+ 
+-  return entry(hinstDLL, fdwReason, lpReserved);
++  fd_dbg("FDDBG initer: calling CRT entry\r\n");
++  res = entry(hinstDLL, fdwReason, lpReserved);
++  fd_dbg_hex("FDDBG initer: CRT entry returned ", (UINT_PTR) res);
++  return res;
+ }
