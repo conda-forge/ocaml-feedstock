@@ -128,7 +128,84 @@ goto :native_multifile_done
 echo   native multi-file: SKIPPED (no native backend on this target)
 :native_multifile_done
 
+REM 5. Bytecode toplevel loading C-stub libraries, and custom/complete-exe linking
+REM Each step is bounded by run-with-timeout.ps1 so a hang fails fast instead of stalling CI
+set "RWT=powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-with-timeout.ps1""
+echo === Testing toplevel with C stub libraries and custom linking ===
+
+echo let () = print_endline (if Str.string_match (Str.regexp "a+") "aaa" 0 then "str ok" else "str bad")> str_t.ml
+echo   ocaml with str.cma...
+%RWT% 120 ocaml -I +str str.cma str_t.ml > t_out.txt 2>&1
+set "T_RC=%errorlevel%"
+type t_out.txt
+if not "%T_RC%"=="0" (
+    echo   str.cma toplevel: FAILED
+    exit /b 1
+)
+findstr /C:"str ok" t_out.txt >nul
+if errorlevel 1 (
+    echo   str.cma toplevel: FAILED
+    exit /b 1
+)
+echo   str.cma toplevel: OK
+
+echo let () = Printf.printf "unix ok %%b\n" (Unix.getpid () ^> 0)> unix_t.ml
+echo   ocaml with unix.cma...
+%RWT% 120 ocaml -I +unix unix.cma unix_t.ml > t_out.txt 2>&1
+set "T_RC=%errorlevel%"
+type t_out.txt
+if not "%T_RC%"=="0" (
+    echo   unix.cma toplevel: FAILED
+    exit /b 1
+)
+findstr /C:"unix ok true" t_out.txt >nul
+if errorlevel 1 (
+    echo   unix.cma toplevel: FAILED
+    exit /b 1
+)
+echo   unix.cma toplevel: OK
+
+echo let () = let pid = Unix.create_process "ocamlc" [^|"ocamlc"; "-version"^|] Unix.stdin Unix.stdout Unix.stderr in match Unix.waitpid [] pid with (_, Unix.WEXITED n) -^> exit n ^| _ -^> exit (1)> spawn_t.ml
+echo   ocaml spawning ocamlc...
+%RWT% 120 ocaml -I +unix unix.cma spawn_t.ml > t_out.txt 2>&1
+set "T_RC=%errorlevel%"
+type t_out.txt
+if not "%T_RC%"=="0" (
+    echo   spawn ocamlc: FAILED
+    exit /b 1
+)
+echo   spawn ocamlc: OK
+
+echo   ocamlc -custom...
+%RWT% 300 ocamlc -custom -o hello_custom.exe hi.ml
+if errorlevel 1 (
+    echo   ocamlc -custom: FAILED
+    exit /b 1
+)
+%RWT% 300 .\hello_custom.exe > t_out.txt 2>&1
+findstr /C:"Hello World" t_out.txt >nul
+if errorlevel 1 (
+    echo   ocamlc -custom execution: FAILED
+    exit /b 1
+)
+echo   ocamlc -custom: OK
+
+echo   ocamlc -output-complete-exe...
+%RWT% 300 ocamlc -output-complete-exe -o hello_complete.exe hi.ml
+if errorlevel 1 (
+    echo   ocamlc -output-complete-exe: FAILED
+    exit /b 1
+)
+%RWT% 300 .\hello_complete.exe > t_out.txt 2>&1
+findstr /C:"Hello World" t_out.txt >nul
+if errorlevel 1 (
+    echo   ocamlc -output-complete-exe execution: FAILED
+    exit /b 1
+)
+echo   ocamlc -output-complete-exe: OK
+
 REM Cleanup
 del hi.ml lib.ml lib.cmi lib.cmo lib.cmx lib.obj main.ml main.cmi main.cmo main.cmx main.obj multi.exe 2>nul
+del str_t.ml str_t.cmi str_t.cmo unix_t.ml unix_t.cmi unix_t.cmo spawn_t.ml spawn_t.cmi spawn_t.cmo hello_custom.exe hello_complete.exe t_out.txt 2>nul
 
 echo === All compilation tests passed ===

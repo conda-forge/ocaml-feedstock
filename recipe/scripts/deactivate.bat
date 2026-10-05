@@ -5,6 +5,16 @@
     @set "OCAMLLIB="
 )
 
+@if defined _OCAML_FLEXLINK_ACTIVE (
+    @if defined _OCAML_FLEXLINKFLAGS_BACKUP (
+        @set "FLEXLINKFLAGS=%_OCAML_FLEXLINKFLAGS_BACKUP%"
+        @set "_OCAML_FLEXLINKFLAGS_BACKUP="
+    ) else (
+        @set "FLEXLINKFLAGS="
+    )
+    @set "_OCAML_FLEXLINK_ACTIVE="
+)
+
 @if defined _OCAML_PREFIX_BACKUP (
     @set "OCAML_PREFIX=%_OCAML_PREFIX_BACKUP%"
     @set "_OCAML_PREFIX_BACKUP="

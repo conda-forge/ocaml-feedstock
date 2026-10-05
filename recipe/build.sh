@@ -631,6 +631,8 @@ build_native() {
     else
       echo "  [FIX] replacing -lsynchronization with -lapi-ms-win-core-synch-l1-2-0 (arm64 has no synchronization.dll) in Makefile.config"
       sed -i -e "s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "Makefile.config"
+      # Config.bytecomp_c_libraries/native_c_libraries are compiled in, keep them equal to Makefile.config
+      sed -i -E "/^let (bytecomp|native)_c_libraries/s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "${config_file}"
       grep -n -E '^(BYTECCLIBS|NATIVECCLIBS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
     fi
   fi
@@ -1220,6 +1222,8 @@ C_EOF
       # hiding it, so the merged -L/-l order and CRT objects become visible.
       export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-v -L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
       echo "  [FIX] FLEXLINKFLAGS now: ${FLEXLINKFLAGS}"
+      # Install step ships these archives and activate.bat reuses the -l list.
+      printf '%s\n' "${_imports_extra_libflags}" > "${SRC_DIR}/_win_arm64_flexlink_libs.txt"
     else
       echo "  [DIAG imports] no import libraries staged, leaving FLEXLINKFLAGS unchanged"
     fi
@@ -1279,6 +1283,7 @@ C_EOF
       else
         echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config"
         sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
+        sed -i -E "/^let (bytecomp|native)_c_libraries/s/-l:libpthread\.a/${_pthread_replacement}/g" "${config_file}"
       fi
     else
       echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a"
@@ -1335,6 +1340,17 @@ C_EOF
 
   # Install (INSTALLING=1 and VPATH= help prevent stale file issues if Makefile.cross is included)
   run_logged "install" "${MAKE[@]}" install INSTALLING=1 VPATH=
+
+  # Ship the flexlink import libraries so ocamlc -custom / -output-complete-exe
+  # can resolve -lws2_32 etc. outside the build environment
+  if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
+    _flexdll_dest="${OCAML_INSTALL_PREFIX}/lib/ocaml/flexdll"
+    mkdir -p "${_flexdll_dest}"
+    IFS=' ' read -r -a _flexlink_libs <<< "$(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
+    for _flexlink_lib in "${_flexlink_libs[@]}"; do
+      cp "${_imports_stage_dir}/lib${_flexlink_lib#-l}.a" "${_flexdll_dest}/"
+    done
+  fi
 
   # Clean hardcoded -L paths from installed Makefile.config
   # During build we added -L${BUILD_PREFIX}/lib or -L${PREFIX}/lib to find zstd
@@ -2887,6 +2903,12 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       sed -i "s|@MKEXE@|$(_basename_cmd "${CONDA_OCAML_MKEXE}")|g" "${_SCRIPT}"
       sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
       sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"
+      # win-arm64 only: flexlink import dir and -l list; blank on every other lane
+      _flexlink_extra=""
+      if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
+        _flexlink_extra="-L%CONDA_PREFIX%/Library/lib/ocaml/flexdll $(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
+      fi
+      sed -i "s|@FLEXLINK_EXTRA@|${_flexlink_extra}|g" "${_SCRIPT}"
     done
   )
 fi

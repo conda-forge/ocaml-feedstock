@@ -1,6 +1,6 @@
 context:
   # At least main + 100 so label builds never share a filename with main builds
-  build_number: 111
+  build_number: 112
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -575,6 +575,7 @@ outputs:
                       then:
                         - ${{ library }}lib/ocaml/flexdll/flexdll_initer_mingw64arm.obj
                         - ${{ library }}lib/ocaml/flexdll/flexdll_mingw64arm.obj
+                        - ${{ library }}lib/ocaml/flexdll/lib*.a
                 - if: unix
                   then:
                     - ${{ library }}lib/ocaml/libasmrun_shared.so
@@ -811,6 +812,8 @@ outputs:
         files:
           recipe:
             - testing/test-compilation.${{ sh }}
+            - if: not unix
+              then: testing/run-with-timeout.ps1
         requirements:
           build:
             - if: is_qemuable
