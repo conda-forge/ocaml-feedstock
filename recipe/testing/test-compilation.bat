@@ -267,35 +267,38 @@ if "%T_OK%"=="0" (
     echo   ocamlc -output-complete-exe: OK
 )
 
-REM User C stubs compiled by ocamlc must see the UNICODE defines (dune spawn_stubs.c relies on them)
-echo   ocamlc -c TCHAR stub...
-> tstub.c echo #include ^<windows.h^>
->> tstub.c echo int tstub_probe(WCHAR *cmd) {
->> tstub.c echo   TCHAR buf[MAX_PATH];
->> tstub.c echo   STARTUPINFO si; PROCESS_INFORMATION pi;
->> tstub.c echo   GetModuleFileName(NULL, buf, MAX_PATH);
->> tstub.c echo   return CreateProcess(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, ^&si, ^&pi) ? 1 : 0;
->> tstub.c echo }
-set "T_OK=1"
-del tstub.obj tstub.o 2>nul
-%RWT% 300 ocamlc -c tstub.c > t_out.txt 2>&1
-if errorlevel 1 set "T_OK=0"
-type t_out.txt
-REM win-64 follows upstream, which keeps UNICODE out of ocamlc_cppflags; win-arm64 (clang-based zig) needs it because incompatible pointer types are errors there
-if /i "%target_platform%"=="win-arm64" (
-    ocamlc -config > cfg_out.txt 2>&1
+REM User C stubs compiled by ocamlc must see the UNICODE defines (dune spawn_stubs.c relies on them).
+REM win-64 keeps upstream cppflags (no UNICODE), so this test is aarch64-only; the target comes from ocamlc -config.
+ocamlc -config > cfg_out.txt 2>&1
+findstr /B /C:"target:" cfg_out.txt | findstr /I /C:"aarch64" >nul
+if errorlevel 1 (
+    echo   ocamlc -c TCHAR stub: SKIPPED ^(win-64 keeps upstream cppflags^)
+) else (
+    echo   ocamlc -c TCHAR stub...
+    > tstub.c echo #include ^<windows.h^>
+    >> tstub.c echo int tstub_probe^(WCHAR *cmd^) {
+    >> tstub.c echo   TCHAR buf[MAX_PATH];
+    >> tstub.c echo   STARTUPINFO si; PROCESS_INFORMATION pi;
+    >> tstub.c echo   GetModuleFileName^(NULL, buf, MAX_PATH^);
+    >> tstub.c echo   return CreateProcess^(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, ^&si, ^&pi^) ? 1 : 0;
+    >> tstub.c echo }
+    set "T_OK=1"
+    del tstub.obj tstub.o 2>nul
+    %RWT% 300 ocamlc -c tstub.c > t_out.txt 2>&1
+    if errorlevel 1 set "T_OK=0"
+    type t_out.txt
     findstr /B /C:"ocamlc_cppflags:" cfg_out.txt | findstr /C:"-DUNICODE" >nul
     if errorlevel 1 (
         findstr /B /C:"ocamlc_cppflags:" cfg_out.txt
         set "T_OK=0"
     )
-)
-if "%T_OK%"=="0" (
-    echo   ocamlc -c TCHAR stub: FAILED
-    set /a STUB_FAILS+=1
-    set "STUB_LIST=!STUB_LIST! ocamlc--c-tchar-stub"
-) else (
-    echo   ocamlc -c TCHAR stub: OK
+    if "!T_OK!"=="0" (
+        echo   ocamlc -c TCHAR stub: FAILED
+        set /a STUB_FAILS+=1
+        set "STUB_LIST=!STUB_LIST! ocamlc--c-tchar-stub"
+    ) else (
+        echo   ocamlc -c TCHAR stub: OK
+    )
 )
 
 REM A stub with a stack frame over 4 KB calls __chkstk, which flexlink must resolve from an archive it is given
