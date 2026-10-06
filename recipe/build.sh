@@ -453,6 +453,12 @@ build_native() {
       # ocamldoc man-page generation deadlocks under the freshly built runtime, and the
       # package already treats ocamldoc as native-only, so disable it here too.
       CONFIG_ARGS+=(--disable-native-compiler --disable-ocamldoc)
+      # configure puts the UNICODE defines only in the internal runtime flags; bake them
+      # into ocamlc_cppflags/ocamlopt_cppflags so user C stubs see TCHAR APIs as wide.
+      CONFIG_ARGS+=(
+        "COMPILER_BYTECODE_CPPFLAGS=-DUNICODE -D_UNICODE"
+        "COMPILER_NATIVE_CPPFLAGS=-DUNICODE -D_UNICODE"
+      )
     fi
   fi
 
@@ -1144,15 +1150,27 @@ int pthread_spin_destroy(pthread_spinlock_t *lock)
   return 0;
 }
 C_EOF
+    # compiler-rt semantics, needed because flexlink resolves symbols only from
+    # the archives it is given; its own archive member so it is pulled only
+    # when __chkstk is undefined.
+    _imports_chkstk_src="${_imports_tmp_dir}/conda_arm64_chkstk.c"
+    _imports_chkstk_obj="${_imports_tmp_dir}/conda_arm64_chkstk.o"
+    cat > "${_imports_chkstk_src}" << 'C_EOF'
+/* compiler-rt semantics: x15 = allocation size / 16; probe each 4096-byte
+   page below sp without moving sp; clobbers only x16 and x17. */
+__asm__(".text\n.balign 4\n.globl __chkstk\n__chkstk:\n  lsl x16, x15, #4\n  mov x17, sp\n1:\n  sub x17, x17, #4096\n  subs x16, x16, #4096\n  ldr xzr, [x17]\n  b.gt 1b\n  ret\n");
+C_EOF
     if [[ -n "${_imports_ar}" ]]; then
       set +e
       "${NATIVE_CC}" -c -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe "${_imports_compat_src}" -o "${_imports_compat_obj}" >/dev/null 2>&1
       _imports_compat_cc_rc=$?
+      "${NATIVE_CC}" -c -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe "${_imports_chkstk_src}" -o "${_imports_chkstk_obj}" >/dev/null 2>&1
+      _imports_chkstk_cc_rc=$?
       set -e
-      echo "  [DIAG imports] compat: compile exit=${_imports_compat_cc_rc}"
-      if [[ "${_imports_compat_cc_rc}" -eq 0 && -f "${_imports_compat_obj}" ]]; then
+      echo "  [DIAG imports] compat: compile exit=${_imports_compat_cc_rc} chkstk compile exit=${_imports_chkstk_cc_rc}"
+      if [[ "${_imports_compat_cc_rc}" -eq 0 && -f "${_imports_compat_obj}" && "${_imports_chkstk_cc_rc}" -eq 0 && -f "${_imports_chkstk_obj}" ]]; then
         set +e
-        "${_imports_ar}" rcs "${_imports_compat_out}" "${_imports_compat_obj}" >/dev/null 2>&1
+        "${_imports_ar}" rcs "${_imports_compat_out}" "${_imports_compat_obj}" "${_imports_chkstk_obj}" >/dev/null 2>&1
         _imports_compat_ar_rc=$?
         set -e
         echo "  [DIAG imports] compat: archive exit=${_imports_compat_ar_rc}"
@@ -1164,11 +1182,12 @@ C_EOF
             _imports_compat_has_isnan=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __isnan$" | head -1) || true
             _imports_compat_has_spin=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " pthread_spin_lock$" | head -1) || true
             _imports_compat_has_fpreset=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " _fpreset$" | head -1) || true
+            _imports_compat_has_chkstk=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __chkstk$" | head -1) || true
             set -e
-            if [[ -n "${_imports_compat_has_isnan}" && -n "${_imports_compat_has_spin}" && -n "${_imports_compat_has_fpreset}" ]]; then
-              echo "  [DIAG imports] compat: verified __isnan, pthread_spin_lock and _fpreset defined"
+            if [[ -n "${_imports_compat_has_isnan}" && -n "${_imports_compat_has_spin}" && -n "${_imports_compat_has_fpreset}" && -n "${_imports_compat_has_chkstk}" ]]; then
+              echo "  [DIAG imports] compat: verified __isnan, pthread_spin_lock, _fpreset and __chkstk defined"
             else
-              echo "  [DIAG imports] compat: WARNING missing expected symbols (isnan=${_imports_compat_has_isnan:+yes} spin=${_imports_compat_has_spin:+yes} fpreset=${_imports_compat_has_fpreset:+yes})"
+              echo "  [DIAG imports] compat: WARNING missing expected symbols (isnan=${_imports_compat_has_isnan:+yes} spin=${_imports_compat_has_spin:+yes} fpreset=${_imports_compat_has_fpreset:+yes} chkstk=${_imports_compat_has_chkstk:+yes})"
             fi
           fi
         else
@@ -1304,6 +1323,10 @@ C_EOF
     done
     echo "  [FIX] config.generated.ml link settings after -L strip:"
     grep -n -E '^let .*-L|^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
+
+    # Parity report: compare this log against win-64
+    echo "  [PARITY] config.generated.ml compiler/linker settings:"
+    grep -E '^let [a-z_0-9]*(cppflags|cflags|c_libraries|mkexe|mkdll|mkmaindll|c_compiler|ldflags|ext_|system|model|architecture|flexdll)' "${_cfg_ml}" | sed 's/^/  [PARITY] /' || true
   fi
 
   if [[ "${target_platform}" == "win-arm64" ]]; then

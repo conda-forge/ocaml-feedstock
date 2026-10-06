@@ -267,6 +267,63 @@ if "%T_OK%"=="0" (
     echo   ocamlc -output-complete-exe: OK
 )
 
+REM User C stubs compiled by ocamlc must see the UNICODE defines (dune spawn_stubs.c relies on them).
+REM win-64 keeps upstream cppflags (no UNICODE), so this test is aarch64-only; the target comes from ocamlc -config.
+ocamlc -config > cfg_out.txt 2>&1
+findstr /B /C:"target:" cfg_out.txt | findstr /I /C:"aarch64" >nul
+if errorlevel 1 (
+    echo   ocamlc -c TCHAR stub: SKIPPED ^(win-64 keeps upstream cppflags^)
+) else (
+    echo   ocamlc -c TCHAR stub...
+    > tstub.c echo #include ^<windows.h^>
+    >> tstub.c echo int tstub_probe^(WCHAR *cmd^) {
+    >> tstub.c echo   TCHAR buf[MAX_PATH];
+    >> tstub.c echo   STARTUPINFO si; PROCESS_INFORMATION pi;
+    >> tstub.c echo   GetModuleFileName^(NULL, buf, MAX_PATH^);
+    >> tstub.c echo   return CreateProcess^(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, ^&si, ^&pi^) ? 1 : 0;
+    >> tstub.c echo }
+    set "T_OK=1"
+    del tstub.obj tstub.o 2>nul
+    %RWT% 300 ocamlc -c tstub.c > t_out.txt 2>&1
+    if errorlevel 1 set "T_OK=0"
+    type t_out.txt
+    findstr /B /C:"ocamlc_cppflags:" cfg_out.txt | findstr /C:"-DUNICODE" >nul
+    if errorlevel 1 (
+        findstr /B /C:"ocamlc_cppflags:" cfg_out.txt
+        set "T_OK=0"
+    )
+    if "!T_OK!"=="0" (
+        echo   ocamlc -c TCHAR stub: FAILED
+        set /a STUB_FAILS+=1
+        set "STUB_LIST=!STUB_LIST! ocamlc--c-tchar-stub"
+    ) else (
+        echo   ocamlc -c TCHAR stub: OK
+    )
+)
+
+REM A stub with a stack frame over 4 KB calls __chkstk, which flexlink must resolve from an archive it is given
+echo   ocamlc -output-complete-exe __chkstk...
+> bigstub.c echo #include ^<caml/mlvalues.h^>
+>> bigstub.c echo value big_probe(value u){ volatile char buf[8192]; buf[0]=1; buf[8191]=2; return Val_int(buf[0]+buf[8191]); }
+> bigmain.ml echo external big_probe : unit -^> int = "big_probe"
+>> bigmain.ml echo let () = Printf.printf "big ok %%d\n" (big_probe ())
+set "T_OK=1"
+del bigtest.exe 2>nul
+%RWT% 300 ocamlc -output-complete-exe -o bigtest.exe bigstub.c bigmain.ml
+if errorlevel 1 set "T_OK=0"
+if "%T_OK%"=="1" (
+    %RWT% 300 .\bigtest.exe > t_out.txt 2>&1
+    findstr /C:"big ok 3" t_out.txt >nul
+    if errorlevel 1 set "T_OK=0"
+)
+if "%T_OK%"=="0" (
+    echo   ocamlc -output-complete-exe __chkstk: FAILED
+    set /a STUB_FAILS+=1
+    set "STUB_LIST=!STUB_LIST! ocamlc--output-complete-exe-chkstk"
+) else (
+    echo   ocamlc -output-complete-exe __chkstk: OK
+)
+
 if not "%STUB_FAILS%"=="0" (
     echo === %STUB_FAILS% stub/custom-link test^(s^) FAILED:%STUB_LIST% ===
     exit /b 1
@@ -274,6 +331,7 @@ if not "%STUB_FAILS%"=="0" (
 
 REM Cleanup
 del hi.ml lib.ml lib.cmi lib.cmo lib.cmx lib.obj main.ml main.cmi main.cmo main.cmx main.obj multi.exe 2>nul
-del str_t.ml str_t.cmi str_t.cmo str_t.byte.exe unix_t.ml unix_t.cmi unix_t.cmo spawn_t.ml spawn_t.cmi spawn_t.cmo hello_custom.exe hello_complete.exe t_out.txt 2>nul
+del str_t.ml str_t.cmi str_t.cmo str_t.byte.exe unix_t.ml unix_t.cmi unix_t.cmo spawn_t.ml spawn_t.cmi spawn_t.cmo hello_custom.exe hello_complete.exe t_out.txt tstub.c tstub.obj tstub.o cfg_out.txt 2>nul
+del bigstub.c bigstub.obj bigstub.o bigmain.ml bigmain.cmi bigmain.cmo bigmain.cmx bigmain.obj bigtest.exe 2>nul
 
 echo === All compilation tests passed ===
