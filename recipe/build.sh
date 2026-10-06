@@ -453,6 +453,12 @@ build_native() {
       # ocamldoc man-page generation deadlocks under the freshly built runtime, and the
       # package already treats ocamldoc as native-only, so disable it here too.
       CONFIG_ARGS+=(--disable-native-compiler --disable-ocamldoc)
+      # configure puts the UNICODE defines only in the internal runtime flags; bake them
+      # into ocamlc_cppflags/ocamlopt_cppflags so user C stubs see TCHAR APIs as wide.
+      CONFIG_ARGS+=(
+        "COMPILER_BYTECODE_CPPFLAGS=-DUNICODE -D_UNICODE"
+        "COMPILER_NATIVE_CPPFLAGS=-DUNICODE -D_UNICODE"
+      )
     fi
   fi
 
@@ -1304,6 +1310,10 @@ C_EOF
     done
     echo "  [FIX] config.generated.ml link settings after -L strip:"
     grep -n -E '^let .*-L|^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
+
+    # Parity report: compare this log against win-64
+    echo "  [PARITY] config.generated.ml compiler/linker settings:"
+    grep -E '^let [a-z_0-9]*(cppflags|cflags|c_libraries|mkexe|mkdll|mkmaindll|c_compiler|ldflags|ext_|system|model|architecture|flexdll)' "${_cfg_ml}" | sed 's/^/  [PARITY] /' || true
   fi
 
   if [[ "${target_platform}" == "win-arm64" ]]; then
