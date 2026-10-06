@@ -1130,23 +1130,26 @@ int __isnan(double x) { return x != x; }
 int __isnanf(float x) { return x != x; }
 int __isnanl(long double x) { return x != x; }
 
+/* winpthreads convention: -1 (PTHREAD_SPINLOCK_INITIALIZER) is unlocked and 0 is locked. */
 int pthread_spin_lock(pthread_spinlock_t *lock)
 {
-  while (__atomic_exchange_n((volatile __UINTPTR_TYPE__ *)lock,
-                             (__UINTPTR_TYPE__)1, __ATOMIC_ACQUIRE) != 0) { }
+  volatile __UINTPTR_TYPE__ *p = (volatile __UINTPTR_TYPE__ *)lock;
+  while (__atomic_exchange_n(p, (__UINTPTR_TYPE__)0, __ATOMIC_ACQUIRE) == 0) {
+    while (__atomic_load_n(p, __ATOMIC_RELAXED) == 0) { }
+  }
   return 0;
 }
 
 int pthread_spin_unlock(pthread_spinlock_t *lock)
 {
   __atomic_store_n((volatile __UINTPTR_TYPE__ *)lock,
-                   (__UINTPTR_TYPE__)0, __ATOMIC_RELEASE);
+                   (__UINTPTR_TYPE__)-1, __ATOMIC_RELEASE);
   return 0;
 }
 
 int pthread_spin_destroy(pthread_spinlock_t *lock)
 {
-  *lock = 0;
+  (void)lock;
   return 0;
 }
 C_EOF
