@@ -324,6 +324,48 @@ if "%T_OK%"=="0" (
     echo   ocamlc -output-complete-exe __chkstk: OK
 )
 
+REM threads.cma links winpthreads, whose spinlocks must start unlocked; a wrong lock convention hangs at startup
+echo let () = let t = Thread.create (fun () -^> print_endline "thread ok") () in Thread.join t; print_endline "main ok"> thr.ml
+echo   ocamlc -output-complete-exe threads.cma...
+set "T_OK=1"
+del thr.exe 2>nul
+%RWT% 300 ocamlc -output-complete-exe -I +unix -I +threads unix.cma threads.cma thr.ml -o thr.exe
+if errorlevel 1 set "T_OK=0"
+if "%T_OK%"=="1" (
+    %RWT% 120 .\thr.exe > t_out.txt 2>&1
+    if errorlevel 1 set "T_OK=0"
+    type t_out.txt
+    findstr /C:"thread ok" t_out.txt >nul
+    if errorlevel 1 set "T_OK=0"
+    findstr /C:"main ok" t_out.txt >nul
+    if errorlevel 1 set "T_OK=0"
+)
+if "%T_OK%"=="0" (
+    echo   ocamlc -output-complete-exe threads.cma: FAILED
+    set /a STUB_FAILS+=1
+    set "STUB_LIST=!STUB_LIST! ocamlc--output-complete-exe-threads"
+) else (
+    echo   ocamlc -output-complete-exe threads.cma: OK
+)
+
+echo   ocaml with threads.cma...
+%RWT% 120 ocaml -I +unix -I +threads unix.cma threads.cma thr.ml > t_out.txt 2>&1
+set "T_RC=%errorlevel%"
+type t_out.txt
+set "T_OK=1"
+if not "%T_RC%"=="0" set "T_OK=0"
+findstr /C:"thread ok" t_out.txt >nul
+if errorlevel 1 set "T_OK=0"
+findstr /C:"main ok" t_out.txt >nul
+if errorlevel 1 set "T_OK=0"
+if "%T_OK%"=="0" (
+    echo   threads.cma toplevel: FAILED
+    set /a STUB_FAILS+=1
+    set "STUB_LIST=!STUB_LIST! threads.cma-toplevel"
+) else (
+    echo   threads.cma toplevel: OK
+)
+
 if not "%STUB_FAILS%"=="0" (
     echo === %STUB_FAILS% stub/custom-link test^(s^) FAILED:%STUB_LIST% ===
     exit /b 1
@@ -333,5 +375,6 @@ REM Cleanup
 del hi.ml lib.ml lib.cmi lib.cmo lib.cmx lib.obj main.ml main.cmi main.cmo main.cmx main.obj multi.exe 2>nul
 del str_t.ml str_t.cmi str_t.cmo str_t.byte.exe unix_t.ml unix_t.cmi unix_t.cmo spawn_t.ml spawn_t.cmi spawn_t.cmo hello_custom.exe hello_complete.exe t_out.txt tstub.c tstub.obj tstub.o cfg_out.txt 2>nul
 del bigstub.c bigstub.obj bigstub.o bigmain.ml bigmain.cmi bigmain.cmo bigmain.cmx bigmain.obj bigtest.exe 2>nul
+del thr.ml thr.cmi thr.cmo thr.cmx thr.obj thr.exe 2>nul
 
 echo === All compilation tests passed ===
