@@ -1,6 +1,6 @@
 context:
   # At least main + 100 so label builds never share a filename with main builds
-  build_number: 114
+  build_number: 115
   name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
@@ -145,6 +145,9 @@ source:
         # Guards flexdll's parse-time ocamlopt -version / -where shell probes
         # so they can be supplied via env.
         - patches/flexdll-makefile-skip-ocamlopt-probes.patch
+        # flexlink emits ARM64 section relocs in descending order, which
+        # lld-link turns into a stray out-of-order .reloc block.
+        - patches/flexdll-arm64-sort-coff-relocs.patch
   - if: not unix and c_compiler == "vs2022"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
@@ -816,6 +819,7 @@ outputs:
               then:
                 - testing/run-with-timeout.ps1
                 - testing/load-dll.ps1
+                - testing/pe_reloc_check.ml
         requirements:
           build:
             - if: is_qemuable

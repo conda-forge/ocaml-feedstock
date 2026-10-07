@@ -348,6 +348,19 @@ if "%T_OK%"=="0" (
     echo   ocamlc -output-complete-exe threads.cma: OK
 )
 
+REM lld-link mis-emits base relocations when flexlink writes them out of order; running the exe can pass by luck, so check the table
+echo   thr.exe .reloc order...
+set "T_OK=1"
+%RWT% 120 ocaml "%~dp0pe_reloc_check.ml" thr.exe
+if errorlevel 1 set "T_OK=0"
+if "%T_OK%"=="0" (
+    echo   thr.exe .reloc order: FAILED
+    set /a STUB_FAILS+=1
+    set "STUB_LIST=!STUB_LIST! thr.exe-reloc-order"
+) else (
+    echo   thr.exe .reloc order: OK
+)
+
 echo   ocaml with threads.cma...
 %RWT% 120 ocaml -I +unix -I +threads unix.cma threads.cma thr.ml > t_out.txt 2>&1
 set "T_RC=%errorlevel%"
