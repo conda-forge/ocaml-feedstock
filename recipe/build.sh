@@ -1253,24 +1253,25 @@ C_EOF
   fi
 
   # ============================================================================
-  # FIX: win-arm64 zig has no compiler-rt archive for ubsan/stack-protector/chkstk
+  # FIX: win-arm64 zig has no compiler-rt archive for ubsan/stack-protector
   # ============================================================================
-  # __ubsan_handle_*, __stack_chk_fail/__stack_chk_guard and __chkstk are only
-  # emitted because the C compilation enables UB sanitizing, the stack
-  # protector, and large-stack-frame probing; zig ships no clang_rt/compiler_rt
-  # archive on this target to satisfy any of them at link time (see builtins:
-  # NOT FOUND above), so all three features are disabled and no references to
-  # their helpers are emitted.
+  # __ubsan_handle_* and __stack_chk_fail/__stack_chk_guard are only emitted
+  # because the C compilation enables UB sanitizing and the stack protector;
+  # zig ships no clang_rt/compiler_rt archive on this target to satisfy them at
+  # link time (see builtins: NOT FOUND above), so both features are disabled and
+  # no references to their helpers are emitted. Large-frame stack probing stays
+  # on because __chkstk is provided by libconda_arm64_compat.a for flexlink
+  # links.
   if [[ "${target_platform}" == "win-arm64" ]]; then
     if [[ -f "Makefile.config" ]]; then
       echo "  [DIAG imports] Makefile.config CFLAGS lines (before)"
       grep -n -E '^(CFLAGS|OC_CFLAGS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (no CFLAGS/OC_CFLAGS lines found)"
-      sed -i -E 's/^(CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe/' "Makefile.config"
-      sed -i -E 's/^(OC_CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe/' "Makefile.config"
+      sed -i -E 's/^(CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector/' "Makefile.config"
+      sed -i -E 's/^(OC_CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector/' "Makefile.config"
       echo "  [DIAG imports] Makefile.config CFLAGS lines (after)"
       grep -n -E '^(CFLAGS|OC_CFLAGS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (no CFLAGS/OC_CFLAGS lines found)"
     else
-      echo "  [FIX] ERROR: Makefile.config not found, cannot append -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe"
+      echo "  [FIX] ERROR: Makefile.config not found, cannot append -fno-sanitize=undefined -fno-stack-protector"
     fi
   fi
 
