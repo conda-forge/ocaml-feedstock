@@ -324,6 +324,28 @@ if "%T_OK%"=="0" (
     echo   ocamlc -output-complete-exe __chkstk: OK
 )
 
+REM caml_unix_write has a 64KB frame, so this exe needs __chkstk stack probes on the main thread
+echo let () = ignore (Unix.write_substring Unix.stdout "unix write ok\n" 0 14)> uw.ml
+echo   ocamlc -output-complete-exe unix.write...
+set "T_OK=1"
+del uw.exe 2>nul
+%RWT% 300 ocamlc -output-complete-exe -I +unix unix.cma uw.ml -o uw.exe
+if errorlevel 1 set "T_OK=0"
+if "%T_OK%"=="1" (
+    %RWT% 120 .\uw.exe > t_out.txt 2>&1
+    if errorlevel 1 set "T_OK=0"
+    type t_out.txt
+    findstr /C:"unix write ok" t_out.txt >nul
+    if errorlevel 1 set "T_OK=0"
+)
+if "%T_OK%"=="0" (
+    echo   ocamlc -output-complete-exe unix.write: FAILED
+    set /a STUB_FAILS+=1
+    set "STUB_LIST=!STUB_LIST! ocamlc--output-complete-exe-unix-write"
+) else (
+    echo   ocamlc -output-complete-exe unix.write: OK
+)
+
 REM threads.cma links winpthreads, whose spinlocks must start unlocked; a wrong lock convention hangs at startup
 echo let () = let t = Thread.create (fun () -^> print_endline "thread ok") () in Thread.join t; print_endline "main ok"> thr.ml
 echo   ocamlc -output-complete-exe threads.cma...
