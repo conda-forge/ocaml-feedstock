@@ -161,8 +161,8 @@ CROSS_COMPILER_OVERRIDES=$(CROSS_OVERRIDES) CAMLC=ocamlc CAMLOPT=$(CAMLOPT) \
 # below (NATIVE_L1A_PIN, NATIVE_CAMLC_PIN, NATIVE_OTHERLIBS_CAMLC_PIN,
 # CROSS_CAMLC_PIN) redirect CAMLC to explicit in-tree binaries, prefixed
 # with the in-tree runtime/ocamlrun where the target is a bytecode image,
-# and NATIVE_L1A_PIN links the BUILD-arch compilers with a zstd-free stub,
-# so every .cmi they write is plain. Defaults off; build.sh sets it
+# and NATIVE_L1A_PIN links the BUILD-arch compilers with a decompress-only
+# stub, so every .cmi they write is plain. Defaults off; build.sh sets it
 # to 1 for targets configured --without-zstd.
 STDLIB_CMI_PIN_INTREE ?= 0
 
@@ -204,12 +204,21 @@ else
 NATIVE_CAMLC_PIN=
 endif
 
-# NOZSTD_STUB_OBJ: BUILD-arch object defining the zstd-free
-# caml_zstd_initialize (runtime/zstd.c's #else branch). utils/compression.ml
-# calls it at startup; when it returns false the program writes plain
-# marshal data. Kept outside runtime/ so no runtime rule touches it.
+# NOZSTD_STUB_OBJ: BUILD-arch object defining a decompress-only
+# caml_zstd_initialize. utils/compression.ml calls it at startup. It installs
+# the intern decompression hook exactly as runtime/zstd.c does, so the
+# BUILD-arch compilers read compressed .cmi/.cmx written by ordinary
+# compilers, but returns false so they still write plain marshal data that the
+# zstd-free target can read. Kept outside runtime/ so no runtime rule touches
+# it.
 NOZSTD_DIR = $(abspath $(ROOTDIR))/_nozstd
 NOZSTD_STUB_OBJ = $(NOZSTD_DIR)/nozstd_stub.o
+# BUILD-arch zstd for the stub's decompressor, independent of HAS_ZSTD (which
+# describes the target). build.sh passes both on the STDLIB_CMI_PIN_INTREE path.
+NOZSTD_STUB_ZSTD_CFLAGS ?=
+NOZSTD_STUB_ZSTD_LIBS ?= -lzstd
+# ocamlopt link flags for NOZSTD_STUB_ZSTD_LIBS: -l to -cclib, the rest to -ccopt.
+NOZSTD_STUB_LINK_FLAGS = $(foreach f,$(NOZSTD_STUB_ZSTD_LIBS),$(if $(filter -l%,$(f)),-cclib $(f),-ccopt $(f)))
 
 # NATIVE_L1A_PIN: applied at the crossopt step that links ocamlc.opt,
 # ocamlopt.opt and the native tools. These are BUILD-arch executables, so
@@ -221,8 +230,9 @@ NOZSTD_STUB_OBJ = $(NOZSTD_DIR)/nozstd_stub.o
 # at link time. CAMLC is prefixed with the in-tree
 # runtime/ocamlrun for the same reason as CROSS_COMPILERLIBS_OVERRIDES above.
 # COMPRESSED_MARSHALING_FLAGS replaces -lcomprmarsh (baked into
-# compilerlibs/ocamlcommon.cmxa) with NOZSTD_STUB_OBJ, so the linked
-# compilers write plain .cmi/.cmx for the zstd-free target. build.sh passes
+# compilerlibs/ocamlcommon.cmxa) with NOZSTD_STUB_OBJ plus the BUILD libzstd,
+# so the linked compilers read compressed .cmi/.cmx but write plain ones for
+# the zstd-free target. build.sh passes
 # its own COMPRESSED_MARSHALING_FLAGS on the outer make command line, which
 # reaches the inner $(MAKE) through MAKEFLAGS; GNU make reads MAKEFLAGS
 # before the inner command line, so this explicit argument is assigned last
@@ -232,7 +242,7 @@ NATIVE_L1A_PIN=CAMLC="$(RUN_TARGET) $(abspath $(ROOTDIR))/runtime/ocamlrun $(abs
   CAMLOPT="$(CAMLOPT) -I $(NOZSTD_DIR) $(STDLIBFLAGS)" \
   OCAMLOPT="$(CAMLOPT) -I $(NOZSTD_DIR) $(STDLIBFLAGS)" \
   BEST_OCAMLOPT="$(CAMLOPT) -I $(NOZSTD_DIR) $(STDLIBFLAGS)" \
-  COMPRESSED_MARSHALING_FLAGS="-cclib $(NOZSTD_STUB_OBJ)"
+  COMPRESSED_MARSHALING_FLAGS="-cclib $(NOZSTD_STUB_OBJ) $(NOZSTD_STUB_LINK_FLAGS)"
 # ocamltoolsopt.opt links against the stdlib.cmxa in the work tree, which is
 # BUILD-arch only around the native-compiler link, so it is built there.
 NATIVE_L1A_TOOLS=ocamltoolsopt.opt
@@ -505,15 +515,35 @@ endif
 	# above), so this link degrades to plain BYTECCLIBS/LDFLAGS with no -lzstd.
 	$(MAKE) runtime/libcamlrun_shared.so $(RUNTIME_VARS) $(CROSS_SHARED_LIB_VARS) BYTECCLIBS='$(TARGET_ZSTD_LIBS) $(BYTECCLIBS)' LDFLAGS="$(TARGET_ZSTD_LIBS) $(LDFLAGS)" $(OLDS)
 ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
-	# Compile NOZSTD_STUB_OBJ (see NATIVE_L1A_PIN) with the BUILD C compiler
-	# against the BUILD ocaml headers; runtime/caml is configured for the
-	# target and is not used here.
+	# Compile NOZSTD_STUB_OBJ (see NOZSTD_STUB_OBJ and NATIVE_L1A_PIN) with the
+	# BUILD C compiler against the BUILD ocaml and zstd headers; runtime/caml
+	# is configured for the target and is not used here. The decompressor
+	# matches runtime/zstd.c's caml_zstd_decompress.
 	@mkdir -p "$(dir $(NOZSTD_STUB_OBJ))"
-	@printf '%s\n' '#define CAML_INTERNALS' '#include <caml/mlvalues.h>' \
-	  'CAMLprim value caml_zstd_initialize(value vunit)' '{' '  return Val_false;' '}' \
+	@printf '%s\n' \
+	  '#define CAML_INTERNALS' \
+	  '#include <stdbool.h>' \
+	  '#include <caml/intext.h>' \
+	  '#include <caml/memory.h>' \
+	  '#include <caml/mlvalues.h>' \
+	  '#include <zstd.h>' \
+	  '' \
+	  'static size_t caml_zstd_decompress(unsigned char * blk,' \
+	  '                                   uintnat uncompressed_data_len,' \
+	  '                                   const unsigned char * intern_src,' \
+	  '                                   uintnat data_len)' \
+	  '{' \
+	  '  return ZSTD_decompress(blk, uncompressed_data_len, intern_src, data_len);' \
+	  '}' \
+	  '' \
+	  'CAMLprim value caml_zstd_initialize(value vunit)' \
+	  '{' \
+	  '  caml_intern_decompress_input = caml_zstd_decompress;' \
+	  '  return Val_false;' \
+	  '}' \
 	  > "$(basename $(NOZSTD_STUB_OBJ)).c"
 	_w="$(NATIVE_STDLIB)"; [ -n "$$_w" ] || _w=$$($(CAMLOPT) -where); \
-	$(NATIVE_CC) -c -O2 -fPIC -I"$$_w" -o "$(NOZSTD_STUB_OBJ)" "$(basename $(NOZSTD_STUB_OBJ)).c"
+	$(NATIVE_CC) -c -O2 -fPIC -I"$$_w" $(NOZSTD_STUB_ZSTD_CFLAGS) -o "$(NOZSTD_STUB_OBJ)" "$(basename $(NOZSTD_STUB_OBJ)).c"
 	# Link the BUILD libasmrun* into NOZSTD_DIR: runtimeopt has already rebuilt
 	# ./stdlib/libasmrun.a for the target, and the BUILD-arch link needs BUILD ones.
 	_w="$(NATIVE_STDLIB)"; [ -n "$$_w" ] || _w=$$($(CAMLOPT) -where); \

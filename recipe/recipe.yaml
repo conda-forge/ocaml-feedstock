@@ -358,12 +358,14 @@ outputs:
             - lld ${{ c_compiler_version }}*
             - llvm-tools ${{ c_compiler_version }}*
 
+      # A cross-compiler runs on its build platform, which has zstd: even for
+      # a zstd-free target its compilers link libzstd to read compressed .cmi.
       host:
-        - if: has_zstd
+        - if: has_zstd or is_cross_compiler
           then: zstd
 
       run:
-        - if: has_zstd
+        - if: has_zstd or is_cross_compiler
           then: zstd
         # OCaml needs a C compiler at runtime - ocamlopt, conda-ocaml-mkexe,
         # conda-ocaml-mkdll all invoke the C compiler. Must use the activating
