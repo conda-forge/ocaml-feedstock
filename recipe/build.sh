@@ -1798,6 +1798,12 @@ TOOLWRAPPER
     _BUILD_ZSTD_LIBS=""
     [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]] && _BUILD_ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
 
+    # BUILD-arch zstd for Makefile.cross's decompress-only stub, which lets the
+    # BUILD-arch compilers of a zstd-free target read compressed .cmi/.cmx.
+    # Set regardless of OCAML_HAS_ZSTD; passed only with STDLIB_CMI_PIN_INTREE=1.
+    _BUILD_ZSTD_STUB_CFLAGS="-I${BUILD_PREFIX}/include"
+    _BUILD_ZSTD_STUB_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+
     echo "  [4/7] Pre-building bytecode runtime and stdlib with native tools..."
     run_logged "runtime-all" "${MAKE[@]}" runtime-all \
       ARCH=amd64 \
@@ -1947,7 +1953,11 @@ TOOLWRAPPER
       # Gated on whether the target itself has no zstd, not on one platform
       # name, since that is the actual condition that requires the pin.
       if [[ "${OCAML_HAS_ZSTD:-1}" == "0" ]]; then
-        CROSSOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
+        CROSSOPT_ARGS+=(
+          STDLIB_CMI_PIN_INTREE=1
+          NOZSTD_STUB_ZSTD_CFLAGS="${_BUILD_ZSTD_STUB_CFLAGS}"
+          NOZSTD_STUB_ZSTD_LIBS="${_BUILD_ZSTD_STUB_LIBS}"
+        )
         echo "  zstd-free target: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
       fi
 

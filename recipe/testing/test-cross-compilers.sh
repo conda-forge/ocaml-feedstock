@@ -51,6 +51,12 @@ get_target_id() {
   esac
 }
 
+# Print the 4-byte marshal magic that follows the 12-byte .cmi magic.
+# 8495a6bd marks a zstd-compressed payload.
+cmi_marshal_magic() {
+  od -An -tx1 -j12 -N4 "$1" | tr -d ' \n'
+}
+
 # ==============================================================================
 # Comprehensive Cross-Compiler Validation
 # ==============================================================================
@@ -786,6 +792,49 @@ STUBMLEOF
   fi
 
   rm -rf "${STUB_DIR}"
+
+  # ---------------------------------------------------------------------------
+  # Test 15: .cmi written by the native (zstd-enabled) ocamlc is readable by
+  # the cross ocamlc.opt; on s390x the cross compiler must write it plain
+  # ---------------------------------------------------------------------------
+  echo "  [15/15] Native-written .cmi read by ${target}-ocamlc.opt..."
+  CMI_DIR="/tmp/test_cmi_compat_${TARGET_ID}"
+  CROSS_OCAMLC_OPT="${PREFIX}/bin/${target}-ocamlc.opt"
+  rm -rf "${CMI_DIR}"
+  mkdir -p "${CMI_DIR}"
+  echo 'val x : int' > "${CMI_DIR}/a.mli"
+  echo 'let y = A.x' > "${CMI_DIR}/b.ml"
+
+  # -nopervasives keeps Stdlib out of a.cmi's imports, so only the marshal
+  # format is under test, not native-vs-cross Stdlib CRCs.
+  if (cd "${CMI_DIR}" && ocamlc -nopervasives -c a.mli) 2>/dev/null; then
+    if [[ "$(cmi_marshal_magic "${CMI_DIR}/a.cmi")" == "8495a6bd" ]]; then
+      echo "    native a.cmi: compressed"
+    else
+      echo "    ~ native a.cmi: not compressed (decompression path not exercised)"
+    fi
+    if (cd "${CMI_DIR}" && "${CROSS_OCAMLC_OPT}" -I . -c b.ml) 2>/dev/null; then
+      echo "    [OK] ${target}-ocamlc.opt read the native a.cmi"
+      if [[ "${target}" == s390x-* ]]; then
+        if [[ "$(cmi_marshal_magic "${CMI_DIR}/b.cmi")" == "8495a6bd" ]]; then
+          echo "    [FAIL] ERROR: b.cmi written compressed; the zstd-free s390x toolchain cannot read it"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        else
+          echo "    [OK] b.cmi written uncompressed"
+        fi
+      fi
+    else
+      echo "    [FAIL] ERROR: ${target}-ocamlc.opt could not read the native a.cmi"
+      (cd "${CMI_DIR}" && "${CROSS_OCAMLC_OPT}" -I . -c b.ml) 2>&1 | tail -5 | sed 's/^/      /'
+      TEST_ERRORS=$((TEST_ERRORS + 1))
+    fi
+  else
+    echo "    [FAIL] ERROR: native ocamlc failed to compile a.mli"
+    (cd "${CMI_DIR}" && ocamlc -nopervasives -c a.mli) 2>&1 | tail -5 | sed 's/^/      /'
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
+  rm -rf "${CMI_DIR}"
 
   # ---------------------------------------------------------------------------
   # Summary
