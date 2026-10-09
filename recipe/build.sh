@@ -1491,7 +1491,7 @@ build_cross_compiler() {
 
   # Sanitize CFLAGS unconditionally: cross-compilers fail on x86-specific flags
   # (see top-level Early CFLAGS/LDFLAGS Sanitization block for full rationale)
-  sanitize_and_export_cross_flags "aarch64"
+  sanitize_and_export_cross_flags "$(get_arch_for_sanitization "${OCAML_TARGET_TRIPLET:-${target_platform}}")"
 
   if [[ "${target_platform}" != "linux"* ]] && [[ "${target_platform}" != "osx"* ]]; then
     echo "No cross-compiler recipe for ${target_platform} ... yet"
@@ -1986,8 +1986,8 @@ TOOLWRAPPER
       if [[ -f "$_pre_unix" ]] && [[ -f "$_pre_threads" ]] && [[ -f "$_ocamlobjinfo_build" ]]; then
         check_unix_crc "${_ocamlobjinfo_build}" "${_pre_unix}" "${_pre_threads}" "PRE-INSTALL"
       else
-        echo "    ERROR: Missing a CRC file:"
-        ls -l "$_pre_unix" "$_pre_threads" "$_ocamlobjinfo_build"
+        echo "    ERROR: Missing a CRC file: ${_pre_unix} ${_pre_threads} ${_ocamlobjinfo_build}"
+        exit 1
       fi
 
       INSTALL_ARGS=(

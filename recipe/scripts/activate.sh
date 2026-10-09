@@ -1,31 +1,7 @@
 # shellcheck shell=sh
 
-# This function takes no arguments
-# It tries to determine the name of this file in a programatic way.
-_get_sourced_filename() {
-    # shellcheck disable=SC3054,SC2296 # non-POSIX array access and bad '(' are guarded
-    if [ -n "${BASH_SOURCE+x}" ] && [ -n "${BASH_SOURCE[0]}" ]; then
-        # shellcheck disable=SC3054 # non-POSIX array access is guarded
-        basename "${BASH_SOURCE[0]}"
-    elif [ -n "$ZSH_NAME" ] && [ -n "${(%):-%x}" ]; then
-        # in zsh use prompt-style expansion to introspect the same information
-        # see http://stackoverflow.com/questions/9901210/bash-source0-equivalent-in-zsh
-        # shellcheck disable=SC2296  # bad '(' is guarded
-        basename "${(%):-%x}"
-    else
-        echo "UNKNOWN FILE"
-    fi
-}
-
 export _OCAML_OCAMLLIB_CONDA_BACKUP="${OCAMLLIB:-}"
 export _OCAML_OCAML_PREFIX_CONDA_BACKUP="${OCAML_PREFIX:-}"
-
-if [ "${CONDA_BUILD:-0}" = "1" ]; then
-  if [ -f /tmp/old-env-$$.txt ]; then
-    rm -f /tmp/old-env-$$.txt || true
-  fi
-  env > /tmp/old-env-$$.txt
-fi
 
 export OCAML_PREFIX="${CONDA_PREFIX}"
 export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
@@ -46,19 +22,4 @@ export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-@MKDLL@}"
 if [ "$(uname)" = "Darwin" ]; then
   export _OCAML_DYLD_FALLBACK_LIBRARY_PATH_BACKUP="${DYLD_FALLBACK_LIBRARY_PATH:-}"
   export DYLD_FALLBACK_LIBRARY_PATH="${CONDA_PREFIX}/lib${DYLD_FALLBACK_LIBRARY_PATH:+:${DYLD_FALLBACK_LIBRARY_PATH}}"
-fi
-
-if [ $? -ne 0 ]; then
-  echo "ERROR: $(_get_sourced_filename) failed, see above for details"
-else
-  if [ "${CONDA_BUILD:-0}" = "1" ]; then
-    if [ -f /tmp/new-env-$$.txt ]; then
-      rm -f /tmp/new-env-$$.txt || true
-    fi
-    env > /tmp/new-env-$$.txt
-
-    echo "INFO: $(_get_sourced_filename) made the following environmental changes:"
-    diff -U 0 -rN /tmp/old-env-$$.txt /tmp/new-env-$$.txt | tail -n +4 | command -p grep "^-.*\|^+.*" | command -p grep -v "CONDA_BACKUP_" | sort || true
-    rm -f /tmp/old-env-$$.txt /tmp/new-env-$$.txt || true
-  fi
 fi
