@@ -12,32 +12,57 @@ fi
 
 echo "=== OCaml Tool Version Tests (expecting ${VERSION}) ==="
 
+# Print FAIL with the observed output and exit 1 unless -version matches
+check_version() {
+  local tool="$1" out
+  echo -n "  ${tool}: "
+  out=$("${tool}" -version 2>&1) || true
+  if printf '%s\n' "${out}" | grep -q "${VERSION}"; then
+    echo "OK"
+  else
+    echo "FAIL (found: ${out:-<no output>})"
+    exit 1
+  fi
+}
+
+# Print FAIL and exit 1 unless -help succeeds
+check_help() {
+  local tool="$1"
+  echo -n "  ${tool}: "
+  if "${tool}" -help > /dev/null 2>&1; then
+    echo "OK"
+  else
+    echo "FAIL (-help exited non-zero)"
+    exit 1
+  fi
+}
+
 # Core tools (always available)
 echo "Testing core tools..."
-echo -n "  ocamlc: " && ocamlc -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamldep: " && ocamldep -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamllex: " && ocamllex -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamlrun: " && ocamlrun -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamlyacc: " && ocamlyacc -version | grep -q "${VERSION}" && echo "OK"
+check_version ocamlc
+check_version ocamldep
+check_version ocamllex
+check_version ocamlrun
+check_version ocamlyacc
 
 # Interactive tools
 echo "Testing interactive tools..."
-echo -n "  ocaml: " && ocaml -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamlcp: " && ocamlcp -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamlmklib: " && ocamlmklib -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamlmktop: " && ocamlmktop -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamloptp: " && ocamloptp -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamlprof: " && ocamlprof -version | grep -q "${VERSION}" && echo "OK"
+check_version ocaml
+check_version ocamlcp
+check_version ocamlmklib
+check_version ocamlmktop
+check_version ocamloptp
+check_version ocamlprof
 
 # Native compiler
 echo "Testing native compiler..."
-echo -n "  ocamlopt: " && ocamlopt -version | grep -q "${VERSION}" && echo "OK"
+check_version ocamlopt
 
 # Utility tools (check help instead of version for some)
 echo "Testing utility tools..."
-echo -n "  ocamlobjinfo: " && ocamlobjinfo -help > /dev/null 2>&1 && echo "OK"
-echo -n "  ocamlobjinfo.opt: " && ocamlobjinfo.opt -help > /dev/null 2>&1 && echo "OK"
-echo -n "  ocamlcmt: " && ocamlcmt -help > /dev/null 2>&1 && echo "OK"
-echo -n "  ocamlobjinfo.byte: " && ocamlobjinfo.byte -help > /dev/null 2>&1 && echo "OK"
+check_help ocamlobjinfo
+check_help ocamlobjinfo.opt
+check_help ocamlcmt
+check_help ocamlobjinfo.byte
 
 echo "=== All version tests passed ==="
