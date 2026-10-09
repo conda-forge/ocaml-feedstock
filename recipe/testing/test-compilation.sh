@@ -132,7 +132,6 @@ assert_arch() {
     power) pattern="PowerPC|ppc64" ;;
     riscv) pattern="RISC-V" ;;
     s390x) pattern="S/390|s390" ;;
-    i386)  pattern="80386|i386" ;;
     *)
       echo "  [FAIL] ${label}: no file(1) pattern known for ocamlopt architecture '${OCAML_ARCH}'"
       exit 1
@@ -268,7 +267,7 @@ run_target ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma
 
 # Verify it's a real executable (not bytecode that needs ocamlrun)
 echo -n "  verifying executable type: "
-if file complete_test.exe | grep -qE "(ELF|Mach-O|PE32)"; then
+if file complete_test.exe | grep -qE "(ELF|Mach-O)"; then
   echo "OK (native executable)"
 else
   echo "FAIL: unexpected file type"

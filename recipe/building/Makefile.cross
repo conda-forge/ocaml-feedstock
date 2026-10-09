@@ -409,13 +409,8 @@ ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
 	  rm -f stdlib/*.cmi stdlib/*.cmo stdlib/*.cma; \
 	  if $(MAKE) -C stdlib all COMPILER_DEPS= $(CROSS_OVERRIDES) CAMLC="$(RUN_TARGET) $$_rt $$_oc" $(OLDS); then \
 	    _m=$$(od -An -tx1 -j12 -N4 stdlib/stdlib.cmi 2>/dev/null | tr -d ' \n'); \
-	    echo "[stdlib-zstd-free] rebuilt stdlib.cmi offset12=$$_m"; \
-	    if [ "$$_m" = "8495a6be" ] || [ "$$_m" = "8495a6bf" ]; then \
-	      echo "[stdlib-zstd-free] stdlib written plain via the in-tree runtime"; \
-	    else \
+	    if [ "$$_m" != "8495a6be" ] && [ "$$_m" != "8495a6bf" ]; then \
 	      echo "[stdlib-zstd-free] FATAL: stdlib.cmi magic is $$_m, expected 8495a6be or 8495a6bf (plain)"; \
-	      echo "[stdlib-zstd-free] FATAL: 8495a6bd would mean the in-tree ocamlc still wrote a"; \
-	      echo "[stdlib-zstd-free] FATAL: COMPRESSED interface - the pin did not take effect"; \
 	      exit 1; \
 	    fi; \
 	  else \
@@ -426,23 +421,6 @@ ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
 	else \
 	  echo "[stdlib-zstd-free] in-tree runtime or ocamlc missing (_rt=$$_rt _oc=$$_oc) - keeping default build"; \
 	fi
-	# Broader diagnostic only (non-fatal): scan built archives for any
-	# COMPRESSED marshal object (magic byte sequence 84 95 a6 bd). The
-	# probe above is fatal because it proves whether the pin took effect on
-	# stdlib.cmi specifically; a compressed object surviving in one of
-	# these archives would be STALE from an earlier unpinned build (the
-	# zstd-free runtime cannot itself emit compressed output), so this scan
-	# only warns.
-	@for _af in stdlib/stdlib.cma otherlibs/dynlink/dynlink.cma compilerlibs/*.cma; do \
-	  if [ -f "$$_af" ]; then \
-	    _n=$$(od -An -tx1 "$$_af" 2>/dev/null | tr -d ' \n' | grep -o 8495a6bd | wc -l | tr -d ' '); \
-	    echo "[stdlib-zstd-free] archive scan: $$_af compressed_objects=$$_n"; \
-	    if [ "$$_n" -gt 0 ]; then \
-	      echo "[stdlib-zstd-free] WARNING: $$_af contains $$_n stale compressed marshal object(s)"; \
-	    fi; \
-	  fi; \
-	done; \
-	true
 	# After the zstd-free stdlib rebuild above changes stdlib.cmi's CRCs,
 	# the compilerlibs .cmi built by the ocamlc step earlier in this recipe
 	# are stale. Purge them so the CAMLC-pinned ocamllex/ocaml rebuilds just
@@ -718,7 +696,6 @@ endif
 	mkdir -p "$(LIBDIR)/stublibs"
 	@for f in otherlibs/*/dll*.so; do \
 	  if [ -f "$$f" ]; then \
-	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
 	  fi; \
 	done
@@ -791,8 +768,8 @@ endif
 	$(MAKE) -C stdlib allopt CAMLOPT=$(CAMLOPT) OPTCOMPILER= COMPILER_DEPS= $(CROSS_OVERRIDES) $(OLDS)
 	# Clean dynlink again before otherlibrariesopt
 	@echo "=== Cleaning dynlink files before otherlibrariesopt ==="
-	rm -fv otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o 2>/dev/null || true
-	rm -fv otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o 2>/dev/null || true
+	rm -f otherlibs/dynlink/*.cmx otherlibs/dynlink/*.cmi otherlibs/dynlink/*.o 2>/dev/null || true
+	rm -f otherlibs/dynlink/native/*.cmx otherlibs/dynlink/native/*.cmi otherlibs/dynlink/native/*.o 2>/dev/null || true
 	# Build otherlibs and tools with cross-compiler
 	# CAMLOPT is pinned above; CAMLC would otherwise fall through to bare
 	# ocamlc, so pin it too on both lines below.
@@ -806,7 +783,6 @@ endif
 	mkdir -p "$(LIBDIR)/stublibs"
 	@for f in otherlibs/*/dll*.so; do \
 	  if [ -f "$$f" ]; then \
-	    echo "  Copying: $$f"; \
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
 	  fi; \
 	done

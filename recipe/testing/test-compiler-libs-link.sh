@@ -123,14 +123,6 @@ else
   exit 1
 fi
 
-# Diagnostic only: show the Extra C options recorded in ocamlcommon.cmxa,
-# where the stale -L is recorded. Does not affect PASS/FAIL.
-if command -v ocamlobjinfo >/dev/null 2>&1; then
-  CMXA_PATH="$(run_target ocamlopt -where)/compiler-libs/ocamlcommon.cmxa"
-  echo "  Extra C options for ocamlcommon.cmxa (diagnostic):"
-  run_target ocamlobjinfo "${CMXA_PATH}" 2>/dev/null | grep "Extra C options" || echo "    (not found)"
-fi
-
 # Bonus check: run the produced executable if this platform can run it.
 # Cross-targets under emulation may not run it; only the link is required.
 if [[ -x ./t ]]; then

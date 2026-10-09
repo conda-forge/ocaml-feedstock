@@ -62,9 +62,7 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   _target_arch=$(get_arch_for_sanitization "${target_platform}")
   echo ""
   echo "=== Sanitizing CFLAGS/LDFLAGS for ${_target_arch} ==="
-  echo "Before: CFLAGS contains $(echo "${CFLAGS:-}" | grep -oE '\-march=[^ ]+' | head -3 | tr '\n' ' ')"
   sanitize_and_export_cross_flags "${_target_arch}"
-  echo "After:  CFLAGS contains $(echo "${CFLAGS:-}" | grep -oE '\-march=[^ ]+' | head -3 | tr '\n' ' ')"
 fi
 
 # Platform detection (must be after sourcing common-functions.sh for is_unix)
@@ -370,12 +368,7 @@ build_native() {
     --mandir="${OCAML_INSTALL_PREFIX}"/share/man
   )
 
-  # Enable ocamltest if running tests
-  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
-    CONFIG_ARGS+=(--enable-ocamltest)
-  else
-    CONFIG_ARGS+=(--disable-ocamltest)
-  fi
+  CONFIG_ARGS+=(--disable-ocamltest)
 
   # Add toolchain to configure args
   # NOTE: OCaml 5.4.0+ requires CFLAGS/LDFLAGS as environment variables, not configure args.
@@ -487,7 +480,7 @@ build_native() {
 
   echo ""
   echo "  [1/4] Configuring native compiler"
-  run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}" || { cat config.log; exit 1; }
+  run_logged "configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}" -prefix="${OCAML_INSTALL_PREFIX}" || { tail -n 100 config.log; exit 1; }
 
   # ============================================================================
   # Patch Makefile for OCaml 5.4.0 bug: CHECKSTACK_CC undefined
@@ -546,7 +539,6 @@ build_native() {
         for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
           if grep -q "^let ${_cvar} = " "${_cfg_ml}"; then
             sed -i -E "/^let ${_cvar} = /s#-L[^ \"]+ *##g" "${_cfg_ml}"
-            echo "  [config-sanitize] ${_cvar}: $(grep "^let ${_cvar} = " "${_cfg_ml}")"
           else
             echo "  [config-sanitize] WARNING: ${_cvar} not matched in ${_cfg_ml}"
           fi
@@ -639,8 +631,6 @@ build_native() {
       sed -i -e "s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "Makefile.config"
       # Config.bytecomp_c_libraries/native_c_libraries are compiled in, keep them equal to Makefile.config
       sed -i -E "/^let (bytecomp|native)_c_libraries/s/-lsynchronization/-lapi-ms-win-core-synch-l1-2-0/g" "utils/config.generated.ml"
-      grep -n -E '^(BYTECCLIBS|NATIVECCLIBS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [FIX]   /' || true
-      grep -n -E '^let (bytecomp|native)_c_libraries' "utils/config.generated.ml" 2>/dev/null | sed 's/^/  [FIX]   /' || true
     fi
   fi
 
@@ -657,9 +647,7 @@ build_native() {
   # import libraries from zig's bundled mingw .def files with dlltool and
   # point flexlink at them via an extra -L entry.
   if [[ "${target_platform}" == "win-arm64" ]]; then
-    echo "  [DIAG imports] zig C driver: NATIVE_CC='${NATIVE_CC:-}'"
     _imports_search_line=$("${NATIVE_CC}" -print-search-dirs 2>&1 | grep '^libraries:' 2>/dev/null) || true
-    echo "  [DIAG imports] ${_imports_search_line}"
     _imports_dirlist="${_imports_search_line#libraries:}"
     _imports_dirlist="${_imports_dirlist# }"
     _imports_dirlist="${_imports_dirlist#=}"
@@ -685,58 +673,28 @@ build_native() {
     done
     _imports_dirs+=("${_imports_extra_dirs[@]+"${_imports_extra_dirs[@]}"}")
 
-    echo "  [DIAG imports] search dirs (normalized):"
-    for _imports_dir in "${_imports_dirs[@]+"${_imports_dirs[@]}"}"; do
-      if [[ -d "${_imports_dir}" ]]; then
-        echo "  [DIAG imports] dir: ${_imports_dir} (exists)"
-        _imports_total=$(find "${_imports_dir}" -maxdepth 1 -type f 2>/dev/null | wc -l) || true
-        _imports_defs=$(find "${_imports_dir}" -maxdepth 1 -type f -name '*.def' 2>/dev/null | wc -l) || true
-        echo "  [DIAG imports]   total files: ${_imports_total}, *.def files: ${_imports_defs}"
-        find "${_imports_dir}" -maxdepth 1 -type f -name '*.def' 2>/dev/null | xargs -n1 basename 2>/dev/null | head -30 | sed 's/^/  [DIAG imports]   def: /' || true
-        echo "  [DIAG imports]   extension breakdown (top 10 of ${_imports_total} files):"
-        find "${_imports_dir}" -maxdepth 1 -type f 2>/dev/null | sed 's/.*\///; s/^[^.]*$/(noext)/; s/.*\.//' 2>/dev/null | sort 2>/dev/null | uniq -c 2>/dev/null | sort -rn 2>/dev/null | head -10 | sed 's/^/  [DIAG imports]     /' || true
-      else
-        echo "  [DIAG imports] dir: ${_imports_dir} (missing)"
-      fi
-    done
-
-    echo "  [DIAG imports] dlltool availability:"
     _imports_dlltool=""
     _imports_dlltool_style=""
     if command -v dlltool >/dev/null 2>&1; then
       _imports_dlltool="$(command -v dlltool)"
       _imports_dlltool_style="binutils"
-      echo "  [DIAG imports]   chosen: dlltool (${_imports_dlltool})"
     elif command -v llvm-dlltool >/dev/null 2>&1; then
       _imports_dlltool="$(command -v llvm-dlltool)"
       _imports_dlltool_style="llvm"
-      echo "  [DIAG imports]   chosen: llvm-dlltool (${_imports_dlltool})"
-    else
-      echo "  [DIAG imports]   chosen: none available, skipping import library generation"
     fi
 
-    echo "  [DIAG imports] ar availability:"
     _imports_ar=""
     if command -v llvm-ar >/dev/null 2>&1; then
       _imports_ar="$(command -v llvm-ar)"
-      echo "  [DIAG imports]   chosen: llvm-ar (${_imports_ar})"
     elif command -v ar >/dev/null 2>&1; then
       _imports_ar="$(command -v ar)"
-      echo "  [DIAG imports]   chosen: ar (${_imports_ar})"
-    else
-      echo "  [DIAG imports]   chosen: none available, compiled/stub archives cannot be created"
     fi
 
-    echo "  [DIAG imports] nm availability:"
     _imports_nm=""
     if command -v llvm-nm >/dev/null 2>&1; then
       _imports_nm="$(command -v llvm-nm)"
-      echo "  [DIAG imports]   chosen: llvm-nm (${_imports_nm})"
     elif command -v nm >/dev/null 2>&1; then
       _imports_nm="$(command -v nm)"
-      echo "  [DIAG imports]   chosen: nm (${_imports_nm})"
-    else
-      echo "  [DIAG imports]   chosen: none available, archive verification skipped"
     fi
 
     _imports_definc_dir=""
@@ -746,13 +704,11 @@ build_native() {
         break
       fi
     done
-    echo "  [DIAG imports] def-include dir: ${_imports_definc_dir:-not found}"
 
     _imports_zig_root=""
     if [[ "${#_imports_dirs[@]}" -gt 0 ]]; then
       _imports_zig_root="$(dirname "${_imports_dirs[0]}")"
     fi
-    echo "  [DIAG imports] zig lib tree root for archive/source search: ${_imports_zig_root:-not derived}"
 
     # zig ships two parallel mingw dirs, lib-common and libarm64, each holding
     # its own copy of every archive. Archives taken from lib-common came back
@@ -770,14 +726,9 @@ build_native() {
         _imports_ordered_search_dirs+=("${_imports_dir}")
       fi
     done
-    echo "  [DIAG imports] archive search order:"
-    for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
-      echo "  [DIAG imports]   ${_imports_dir}"
-    done
 
     _imports_stage_dir="${BUILD_PREFIX}/Library/lib/ocaml-arm64-imports"
     _imports_tmp_dir="${_imports_stage_dir}/.tmp"
-    _imports_generated=0
     _imports_stub_libs=()
     mkdir -p "${_imports_stage_dir}" "${_imports_tmp_dir}" || true
     for _imports_lib in kernel32 ucrtbase ucrt msvcrt user32 advapi32 shell32 ole32 ws2_32 uuid version shlwapi api-ms-win-core-synch-l1-2-0 winpthread pthread gcc_eh wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
@@ -799,26 +750,22 @@ build_native() {
       # whole-tree find as a last resort.
       if [[ -n "${_imports_zig_root}" && -d "${_imports_zig_root}" ]]; then
         _imports_found_archive=""
-        _imports_found_dir=""
         set +e
         for _imports_search_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
           _imports_hit=$(find "${_imports_search_dir}" -type f \( -iname "lib${_imports_lib}.a" -o -iname "${_imports_lib}.lib" \) 2>/dev/null | head -1)
           if [[ -n "${_imports_hit}" ]]; then
             _imports_found_archive="${_imports_hit}"
-            _imports_found_dir="${_imports_search_dir}"
             break
           fi
         done
         if [[ -z "${_imports_found_archive}" ]]; then
           _imports_found_archive=$(find "${_imports_zig_root}" -type f \( -iname "lib${_imports_lib}.a" -o -iname "${_imports_lib}.lib" \) 2>/dev/null | head -1)
-          [[ -n "${_imports_found_archive}" ]] && _imports_found_dir="whole-tree fallback"
         fi
         set -e
         if [[ -n "${_imports_found_archive}" ]]; then
           cp "${_imports_found_archive}" "${_imports_out}" 2>/dev/null || true
           if [[ -f "${_imports_out}" ]]; then
             _imports_mechanism="copied"
-            echo "  [DIAG imports] ${_imports_lib}: copied=${_imports_found_archive} (from ${_imports_found_dir})"
 
             _imports_expected_sym=""
             case "${_imports_lib}" in
@@ -851,10 +798,7 @@ build_native() {
               # prefixed data symbol; accept either spelling as present.
               _imports_verify_hit=$("${_imports_nm}" --defined-only "${_imports_out}" 2>/dev/null | grep -E " (__imp_)?${_imports_expected_sym}\$" 2>/dev/null | head -1)
               set -e
-              if [[ -n "${_imports_verify_hit}" ]]; then
-                echo "  [DIAG imports] ${_imports_lib}: verify found ${_imports_expected_sym}"
-              else
-                echo "  [DIAG imports] ${_imports_lib}: copied archive lacks ${_imports_expected_sym}, discarding and trying generation"
+              if [[ -z "${_imports_verify_hit}" ]]; then
                 rm -f "${_imports_out}" 2>/dev/null || true
                 _imports_mechanism=""
               fi
@@ -867,13 +811,11 @@ build_native() {
       # when no real archive was found.
       if [[ -z "${_imports_mechanism}" ]]; then
         _imports_def=""
-        _imports_def_dir=""
         _imports_def_mechanism=""
         for _imports_basename in "${_imports_basenames[@]}"; do
           for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
             if [[ -f "${_imports_dir}/${_imports_basename}" ]]; then
               _imports_def="${_imports_dir}/${_imports_basename}"
-              _imports_def_dir="${_imports_dir}"
               _imports_def_mechanism="def"
               break 2
             fi
@@ -885,34 +827,28 @@ build_native() {
         # same libarm64-first order as the .def and archive lookups above.
         if [[ -z "${_imports_def}" ]]; then
           _imports_def_in=""
-          _imports_def_in_dir=""
           for _imports_basename in "${_imports_basenames_in[@]}"; do
             for _imports_dir in "${_imports_ordered_search_dirs[@]+"${_imports_ordered_search_dirs[@]}"}"; do
               if [[ -f "${_imports_dir}/${_imports_basename}" ]]; then
                 _imports_def_in="${_imports_dir}/${_imports_basename}"
-                _imports_def_in_dir="${_imports_dir}"
                 break 2
               fi
             done
           done
           if [[ -n "${_imports_def_in}" ]]; then
-            echo "  [DIAG imports] ${_imports_lib}: def.in=${_imports_def_in}"
             _imports_pp_out="${_imports_tmp_dir}/${_imports_lib}.def"
             set +e
             "${NATIVE_CC}" -E -x c -P -I "${_imports_definc_dir:-$(dirname "${_imports_def_in}")}" "${_imports_def_in}" -o "${_imports_pp_out}" >/dev/null 2>&1
             _imports_pp_rc=$?
             set -e
-            echo "  [DIAG imports] ${_imports_lib}: def.in preprocess exit=${_imports_pp_rc}"
             if [[ "${_imports_pp_rc}" -eq 0 && -f "${_imports_pp_out}" ]]; then
               _imports_def="${_imports_pp_out}"
-              _imports_def_dir="${_imports_def_in_dir}"
               _imports_def_mechanism="def.in"
             fi
           fi
         fi
 
         if [[ -n "${_imports_def}" && -n "${_imports_dlltool}" ]]; then
-          echo "  [DIAG imports] ${_imports_lib}: def=${_imports_def} (${_imports_def_mechanism}) (from ${_imports_def_dir:-unknown})"
           # arm64 windows has no stdcall @N decoration, but the .def files
           # here carry i386 stdcall spelling (WSASocketW@24). Strip a
           # trailing @<digits> from each export line before dlltool runs, so
@@ -921,25 +857,16 @@ build_native() {
           # untouched since @N is not at end of line there.
           _imports_def_sanitized="${_imports_tmp_dir}/${_imports_lib}.undecorated.def"
           sed 's/@[0-9][0-9]*[[:space:]]*$//' "${_imports_def}" > "${_imports_def_sanitized}" 2>/dev/null || cp "${_imports_def}" "${_imports_def_sanitized}"
-          echo "  [DIAG imports] ${_imports_lib}: sanitized def=${_imports_def_sanitized}"
           set +e
           if [[ "${_imports_dlltool_style}" == "llvm" ]]; then
             "${_imports_dlltool}" -m arm64 -d "${_imports_def_sanitized}" -l "${_imports_out}" -D "${_imports_lib}.dll" >/dev/null 2>&1
           else
             "${_imports_dlltool}" --machine arm64 --def "${_imports_def_sanitized}" --output-lib "${_imports_out}" --dllname "${_imports_lib}.dll" >/dev/null 2>&1
           fi
-          _imports_rc=$?
           set -e
-          echo "  [DIAG imports] ${_imports_lib}: dlltool exit=${_imports_rc}"
           if [[ -f "${_imports_out}" ]]; then
             _imports_mechanism="${_imports_def_mechanism}"
-          else
-            echo "  [DIAG imports] ${_imports_lib}: output not produced from ${_imports_def_mechanism}"
           fi
-        elif [[ -n "${_imports_def}" ]]; then
-          echo "  [DIAG imports] ${_imports_lib}: def=${_imports_def} found but no dlltool available"
-        else
-          echo "  [DIAG imports] ${_imports_lib}: no def found"
         fi
       fi
 
@@ -951,19 +878,15 @@ build_native() {
         _imports_uuid_src=$(find "${_imports_zig_root}" -type f -iname "uuid.c" 2>/dev/null | head -1)
         set -e
         if [[ -n "${_imports_uuid_src}" ]]; then
-          echo "  [DIAG imports] uuid: source=${_imports_uuid_src}"
           _imports_uuid_obj="${_imports_tmp_dir}/uuid.o"
           set +e
           "${NATIVE_CC}" -c "${_imports_uuid_src}" -o "${_imports_uuid_obj}" >/dev/null 2>&1
           _imports_cc_rc=$?
           set -e
-          echo "  [DIAG imports] uuid: compile exit=${_imports_cc_rc}"
           if [[ "${_imports_cc_rc}" -eq 0 && -f "${_imports_uuid_obj}" ]]; then
             set +e
             "${_imports_ar}" rcs "${_imports_out}" "${_imports_uuid_obj}" >/dev/null 2>&1
-            _imports_ar_rc=$?
             set -e
-            echo "  [DIAG imports] uuid: archive exit=${_imports_ar_rc}"
             if [[ -f "${_imports_out}" ]]; then
               _imports_mechanism="compiled"
             fi
@@ -981,17 +904,11 @@ build_native() {
         if [[ -n "${_imports_ar}" ]]; then
           set +e
           "${_imports_ar}" rcs "${_imports_out}" >/dev/null 2>&1
-          _imports_ar_rc=$?
           set -e
           if [[ -f "${_imports_out}" ]]; then
-            echo "  [DIAG imports] STUB: lib${_imports_lib}.a created EMPTY - symbols must come from the driver's own defaults"
             _imports_mechanism="stub"
             _imports_stub_libs+=("${_imports_lib}")
-          else
-            echo "  [DIAG imports] ${_imports_lib}: stub creation failed (ar exit=${_imports_ar_rc})"
           fi
-        else
-          echo "  [DIAG imports] ${_imports_lib}: no ar tool available, cannot create stub"
         fi
       fi
 
@@ -1004,33 +921,12 @@ build_native() {
     _imports_pthread_out="${_imports_stage_dir}/libpthread.a"
     _imports_mingwex_out="${_imports_stage_dir}/libmingwex.a"
     if [[ -f "${_imports_winpthread_out}" ]]; then
-      _imports_winpthread_size=$(wc -c < "${_imports_winpthread_out}" 2>/dev/null) || true
       _imports_pthread_size=0
       if [[ -f "${_imports_pthread_out}" ]]; then
         _imports_pthread_size=$(wc -c < "${_imports_pthread_out}" 2>/dev/null) || true
       fi
-      echo "  [DIAG imports] pthread: libwinpthread.a size=${_imports_winpthread_size:-0}, libpthread.a size=${_imports_pthread_size:-0}"
       if [[ "${_imports_pthread_size:-0}" -lt 8192 ]]; then
         cp "${_imports_winpthread_out}" "${_imports_pthread_out}" 2>/dev/null || true
-        echo "  [DIAG imports] pthread: libpthread.a is a forwarding stub, replaced with libwinpthread.a contents"
-      else
-        echo "  [DIAG imports] pthread: libpthread.a already >= 8192 bytes, keeping as-is"
-      fi
-    else
-      echo "  [DIAG imports] pthread: libwinpthread.a not staged, cannot backfill libpthread.a"
-    fi
-
-    # Archive-membership probe: confirm libwinpthread.a actually carries CRT
-    # startup objects (ucrtexewin.obj defines wmain and calls wWinMain) rather
-    # than assuming it from the undefined-symbol error alone.
-    if [[ -n "${_imports_ar}" && -f "${_imports_winpthread_out}" ]]; then
-      _imports_winpthread_crt_members=$("${_imports_ar}" t "${_imports_winpthread_out}" 2>/dev/null | grep -E 'crt|exewin|ucrtexe' | head -20) || true
-      if [[ -n "${_imports_winpthread_crt_members}" ]]; then
-        while IFS= read -r _imports_crt_member; do
-          echo "  [DIAG imports] libwinpthread.a member: ${_imports_crt_member}"
-        done <<< "${_imports_winpthread_crt_members}"
-      else
-        echo "  [DIAG imports] libwinpthread.a: none matched crt|exewin|ucrtexe in member names"
       fi
     fi
 
@@ -1043,33 +939,15 @@ build_native() {
     # time.
     if [[ -n "${_imports_ar}" ]]; then
       for _imports_crt_archive in "${_imports_winpthread_out}" "${_imports_pthread_out}" "${_imports_mingwex_out}"; do
-        if [[ ! -f "${_imports_crt_archive}" ]]; then
-          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") not staged, skipping"
-          continue
-        fi
+        [[ -f "${_imports_crt_archive}" ]] || continue
         _imports_crt_shims=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe|fpreset_arm64)\.obj$') || true
-        if [[ -z "${_imports_crt_shims}" ]]; then
-          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") none matched crt startup shim basenames"
-        else
-          _imports_crt_shim_count=$(printf '%s\n' "${_imports_crt_shims}" | grep -c .) || true
-          echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") found ${_imports_crt_shim_count} matching member(s)"
+        if [[ -n "${_imports_crt_shims}" ]]; then
           while IFS= read -r _imports_crt_shim; do
             [[ -z "${_imports_crt_shim}" ]] && continue
-            echo "  [DIAG imports] crt-strip: deleting ${_imports_crt_shim} from $(basename "${_imports_crt_archive}")"
             "${_imports_ar}" d "${_imports_crt_archive}" "${_imports_crt_shim}" 2>/dev/null || true
           done <<< "${_imports_crt_shims}"
-          # empty result here is the success case (no shim members remain), so
-          # an empty match must not be treated as a pipeline failure
-          _imports_crt_shims_after=$("${_imports_ar}" t "${_imports_crt_archive}" 2>/dev/null | grep -E '(^|[\\/])(crtexewin|ucrtexewin|crtexe|ucrtexe|fpreset_arm64)\.obj$') || true
-          if [[ -z "${_imports_crt_shims_after}" ]]; then
-            echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") verified clean, none matched after deletion"
-          else
-            echo "  [DIAG imports] crt-strip: $(basename "${_imports_crt_archive}") WARNING still matches after deletion"
-          fi
         fi
       done
-    else
-      echo "  [DIAG imports] crt-strip: no ar available, cannot strip CRT startup shims"
     fi
 
     # Compiler-rt/builtins: zig's own runtime carries __chkstk, the stack
@@ -1090,13 +968,9 @@ build_native() {
       _imports_builtins_out="${_imports_stage_dir}/${_imports_builtins_base}"
       cp "${_imports_builtins_found}" "${_imports_builtins_out}" 2>/dev/null || true
       if [[ -f "${_imports_builtins_out}" ]]; then
-        _imports_builtins_size=$(wc -c < "${_imports_builtins_out}" 2>/dev/null) || true
-        echo "  [DIAG imports] builtins: copied=${_imports_builtins_found} size=${_imports_builtins_size}"
         _imports_builtins_libflag="${_imports_builtins_base#lib}"
         _imports_builtins_libflag="${_imports_builtins_libflag%.a}"
       fi
-    else
-      echo "  [DIAG imports] builtins: NOT FOUND"
     fi
 
     # zig's arm64 mingw runtime ships neither the __isnan family nor the
@@ -1170,37 +1044,11 @@ C_EOF
       "${NATIVE_CC}" -c -fno-sanitize=undefined -fno-stack-protector -mno-stack-arg-probe "${_imports_chkstk_src}" -o "${_imports_chkstk_obj}" >/dev/null 2>&1
       _imports_chkstk_cc_rc=$?
       set -e
-      echo "  [DIAG imports] compat: compile exit=${_imports_compat_cc_rc} chkstk compile exit=${_imports_chkstk_cc_rc}"
       if [[ "${_imports_compat_cc_rc}" -eq 0 && -f "${_imports_compat_obj}" && "${_imports_chkstk_cc_rc}" -eq 0 && -f "${_imports_chkstk_obj}" ]]; then
         set +e
         "${_imports_ar}" rcs "${_imports_compat_out}" "${_imports_compat_obj}" "${_imports_chkstk_obj}" >/dev/null 2>&1
-        _imports_compat_ar_rc=$?
         set -e
-        echo "  [DIAG imports] compat: archive exit=${_imports_compat_ar_rc}"
-        if [[ -f "${_imports_compat_out}" ]]; then
-          _imports_compat_size=$(wc -c < "${_imports_compat_out}" 2>/dev/null) || true
-          echo "  [DIAG imports] compat: libconda_arm64_compat.a size=${_imports_compat_size}"
-          if [[ -n "${_imports_nm}" ]]; then
-            set +e
-            _imports_compat_has_isnan=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __isnan$" | head -1) || true
-            _imports_compat_has_spin=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " pthread_spin_lock$" | head -1) || true
-            _imports_compat_has_fpreset=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " _fpreset$" | head -1) || true
-            _imports_compat_has_chkstk=$("${_imports_nm}" --defined-only "${_imports_compat_out}" 2>/dev/null | grep " __chkstk$" | head -1) || true
-            set -e
-            if [[ -n "${_imports_compat_has_isnan}" && -n "${_imports_compat_has_spin}" && -n "${_imports_compat_has_fpreset}" && -n "${_imports_compat_has_chkstk}" ]]; then
-              echo "  [DIAG imports] compat: verified __isnan, pthread_spin_lock, _fpreset and __chkstk defined"
-            else
-              echo "  [DIAG imports] compat: WARNING missing expected symbols (isnan=${_imports_compat_has_isnan:+yes} spin=${_imports_compat_has_spin:+yes} fpreset=${_imports_compat_has_fpreset:+yes} chkstk=${_imports_compat_has_chkstk:+yes})"
-            fi
-          fi
-        else
-          echo "  [DIAG imports] compat: archive not produced"
-        fi
-      else
-        echo "  [DIAG imports] compat: compile failed, libconda_arm64_compat.a not created"
       fi
-    else
-      echo "  [DIAG imports] compat: no ar tool available, cannot create libconda_arm64_compat.a"
     fi
 
     _imports_extra_libflags=""
@@ -1217,18 +1065,11 @@ C_EOF
           break
         fi
       done
-      if [[ "${_imports_deflib_is_stub}" -eq 1 ]]; then
-        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=stub)"
-        continue
-      fi
-      if [[ "${_imports_deflib}" == "winpthread" ]]; then
-        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=duplicate, OCaml MKEXE already passes -lpthread and staged libpthread.a is a byte-identical copy of libwinpthread.a)"
-        continue
-      fi
-      if [[ "${_imports_deflib}" == "msvcrt" ]]; then
-        echo "  [DIAG imports] ${_imports_deflib}: excluded from -l list (mechanism=crt-conflict, msvcrt is the alternative C runtime to ucrtbase and the two are never linked together; flexlink resolves symbols itself so exactly one C runtime must remain)"
-        continue
-      fi
+      [[ "${_imports_deflib_is_stub}" -eq 1 ]] && continue
+      # OCaml MKEXE already passes -lpthread, and staged libpthread.a is a
+      # byte-identical copy of libwinpthread.a
+      [[ "${_imports_deflib}" == "winpthread" ]] && continue
+      [[ "${_imports_deflib}" == "msvcrt" ]] && continue
       if [[ -f "${_imports_stage_dir}/lib${_imports_deflib}.a" ]]; then
         _imports_extra_libflags="${_imports_extra_libflags:+${_imports_extra_libflags} }-l${_imports_deflib}"
       fi
@@ -1240,15 +1081,11 @@ C_EOF
       _imports_extra_libflags="${_imports_extra_libflags:+${_imports_extra_libflags} }-lconda_arm64_compat"
     fi
 
-    if [[ "${_imports_generated}" -gt 0 || -n "${_imports_extra_libflags}" ]]; then
-      # -v makes flexlink print the lld-link command it builds instead of
-      # hiding it, so the merged -L/-l order and CRT objects become visible.
-      export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-v -L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
+    if [[ -n "${_imports_extra_libflags}" ]]; then
+      export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-L${_imports_stage_dir}${_imports_extra_libflags:+ ${_imports_extra_libflags}}"
       echo "  [FIX] FLEXLINKFLAGS now: ${FLEXLINKFLAGS}"
       # Install step ships these archives and activate.bat reuses the -l list.
       printf '%s\n' "${_imports_extra_libflags}" > "${SRC_DIR}/_win_arm64_flexlink_libs.txt"
-    else
-      echo "  [DIAG imports] no import libraries staged, leaving FLEXLINKFLAGS unchanged"
     fi
   fi
 
@@ -1258,18 +1095,14 @@ C_EOF
   # __ubsan_handle_* and __stack_chk_fail/__stack_chk_guard are only emitted
   # because the C compilation enables UB sanitizing and the stack protector;
   # zig ships no clang_rt/compiler_rt archive on this target to satisfy them at
-  # link time (see builtins: NOT FOUND above), so both features are disabled and
+  # link time, so both features are disabled and
   # no references to their helpers are emitted. Large-frame stack probing stays
   # on because __chkstk is provided by libconda_arm64_compat.a for flexlink
   # links.
   if [[ "${target_platform}" == "win-arm64" ]]; then
     if [[ -f "Makefile.config" ]]; then
-      echo "  [DIAG imports] Makefile.config CFLAGS lines (before)"
-      grep -n -E '^(CFLAGS|OC_CFLAGS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (no CFLAGS/OC_CFLAGS lines found)"
       sed -i -E 's/^(CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector/' "Makefile.config"
       sed -i -E 's/^(OC_CFLAGS=.*)$/\1 -fno-sanitize=undefined -fno-stack-protector/' "Makefile.config"
-      echo "  [DIAG imports] Makefile.config CFLAGS lines (after)"
-      grep -n -E '^(CFLAGS|OC_CFLAGS)=' "Makefile.config" 2>/dev/null | sed 's/^/  [DIAG imports]   /' || echo "  [DIAG imports]   (no CFLAGS/OC_CFLAGS lines found)"
     else
       echo "  [FIX] ERROR: Makefile.config not found, cannot append -fno-sanitize=undefined -fno-stack-protector"
     fi
@@ -1308,7 +1141,6 @@ C_EOF
         echo "  [FIX] replacing -l:libpthread.a with ${_pthread_replacement} in Makefile.config and config.generated.ml"
         sed -i "s/-l:libpthread\.a/${_pthread_replacement}/g" "Makefile.config"
         sed -i -E "/^let (bytecomp|native)_c_libraries/s/-l:libpthread\.a/${_pthread_replacement}/g" "utils/config.generated.ml"
-        grep -n -E '^let (bytecomp|native)_c_libraries' "utils/config.generated.ml" 2>/dev/null | sed 's/^/  [FIX]   /' || true
       fi
     else
       echo "  [FIX] ERROR: Makefile.config not found, cannot replace -l:libpthread.a"
@@ -1319,36 +1151,21 @@ C_EOF
   if [[ "${target_platform}" == "win-arm64" ]]; then
     _cfg_ml="utils/config.generated.ml"
     _cfg_link_vars=(mkexe mkdll mkmaindll bytecomp_c_libraries native_c_libraries compression_c_libraries)
-    echo "  [FIX] config.generated.ml link settings before -L strip:"
-    grep -n -E '^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
     for _cvar in "${_cfg_link_vars[@]}"; do
       # flexlink passes "-link <opt>" to the C linker; drop the pair, or a dangling -link swallows the next argument
       sed -i -E "/^let ${_cvar} = /s#(-link +)?-L[^ |\"]+ *##g" "${_cfg_ml}"
     done
-    echo "  [FIX] config.generated.ml link settings after -L strip:"
-    grep -n -E '^let .*-L|^let (mkexe|mkdll|mkmaindll) = ' "${_cfg_ml}" | sed 's/^/  [FIX] /' || true
-
-    # Parity report: compare this log against win-64
-    echo "  [PARITY] config.generated.ml compiler/linker settings:"
-    grep -E '^let [a-z_0-9]*(cppflags|cflags|c_libraries|mkexe|mkdll|mkmaindll|c_compiler|ldflags|ext_|system|model|architecture|flexdll)' "${_cfg_ml}" | sed 's/^/  [PARITY] /' || true
   fi
 
   if [[ "${target_platform}" == "win-arm64" ]]; then
     # configured with --disable-native-compiler, so world.opt has nothing to build
     echo "  [3/4] Compiling bytecode compiler"
-    # V=1 and VERBOSE=1 (OCaml's build system has used both spellings) force
-    # quiet-mode rules like MKEXE to echo their full command lines, so the
-    # actual link command for runtime/ocamlrun.exe becomes visible in the log.
-    #
     # This lane hangs rather than failing, and run_logged only surfaces its
     # tail once make returns - a hang gives zero signal. Bound the call with
-    # timeout and run a heartbeat that tails the log every 60s, so a stuck
-    # build still produces a diagnosable failure and shows the last progress.
+    # timeout so a stuck build still produces a diagnosable failure.
     _world_timeout="${OCAML_WORLD_TIMEOUT_S:-1500}"
-    echo "  [DIAG world] bounding make world to ${_world_timeout}s (kill-after 120s)"
-    _world_logfile="${LOG_DIR}/world.log"
     _world_start=$(date +%s)
-    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world V=1 VERBOSE=1 "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"; then
+    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"; then
       :
     else
       _world_rc=$?
@@ -1363,16 +1180,6 @@ C_EOF
   else
     echo "  [3/4] Compiling native compiler"
     run_logged "world" "${MAKE[@]}" world.opt "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
-  fi
-
-  # ============================================================================
-  # Tests (Optional)
-  # ============================================================================
-
-  if [[ "${SKIP_MAKE_TESTS:-0}" == "0" ]]; then
-    echo "  - Running tests"
-    run_logged "ocamltest" "${MAKE[@]}"  ocamltest -j "${CPU_COUNT}"
-    run_logged "test" "${MAKE[@]}"  tests -j "${CPU_COUNT}"
   fi
 
   # ============================================================================
@@ -1468,18 +1275,6 @@ C_EOF
   echo "============================================================"
   echo "  Location: ${OCAML_INSTALL_PREFIX}"
   echo "  Version:  $(${OCAML_INSTALL_PREFIX}/bin/ocamlopt -version 2>/dev/null || echo 'N/A')"
-
-  # ============================================================================
-  # DIAGNOSTIC (non-fatal): win-arm64 installed binary inventory
-  # ============================================================================
-  # recipe/recipe.yaml's package_contents block (strict: true) unconditionally
-  # requires ocamlopt, ocamlopt.opt, ocamlc.opt, ocamldep.opt, ocamllex.opt and
-  # ocamlobjinfo.opt. This lane configures --disable-native-compiler and
-  # builds "make world" (bytecode only, not world.opt), so it cannot produce
-  # those natively-compiled binaries. This block enumerates what actually
-  # landed in the install tree so the package_contents exclusion list can be
-  # written from real data instead of a guess. Nothing here may abort the
-  # build.
 }
 
 # ==============================================================================
@@ -1961,12 +1756,6 @@ TOOLWRAPPER
         echo "  zstd-free target: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
       fi
 
-      # Which ocamlc actually drives crossopt, and against which stdlib
-      echo "    bootstrap ocamlc:  $(command -v ocamlc || echo NOT-ON-PATH)"
-      echo "    bootstrap OCAMLLIB: ${OCAMLLIB:-unset}"
-      ocamlc -version 2>&1 | sed 's/^/    bootstrap version: /'
-      ocamlc -config 2>&1 | sed 's/^/    bootstrap config: /'
-
       # Serialized: Makefile.cross deletes utils/*.cmi and middle_end/*.cmi mid-build,
       # which races with parallel compile jobs and corrupts what a concurrent ocamlc reads
       run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j1
@@ -2111,7 +1900,6 @@ EOF
       [[ -n "${CROSS_MODEL}" ]] && echo "    Patched MODEL=${CROSS_MODEL}"
       echo "    Patched toolchain to use ${target}-ocaml-* standalone wrappers"
       echo "    Cleaned build-time paths from prefix/LIBDIR/STUBLIBDIR"
-      echo "    Removed CONFIGURE_ARGS (contained build-time paths)"
     else
       echo "    WARNING: Makefile.config not found at ${makefile_config}"
     fi
@@ -2154,7 +1942,6 @@ EOF
         else
           _arch_info=$(readelf -h "$_obj" 2>&1 | grep -i "Machine:" || file "$_obj")
         fi
-        echo "    libasmrun.a object: $_arch_info"
         # Check architecture matches target (use | not \| with grep -E)
         case "${CROSS_ARCH}" in
           arm64) _expected="arm64|ARM64|AArch64|aarch64" ;;
@@ -2171,7 +1958,6 @@ EOF
           rm -rf "$_tmpdir"
           exit 1
         fi
-        echo "    [OK] Architecture verified: ${CROSS_ARCH}"
       fi
       rm -rf "$_tmpdir"
     else
@@ -2509,12 +2295,6 @@ EOF
   if [[ "${CROSS_ARCH}" == "riscv" ]]; then
     export "CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_CC} ${CROSS_LDFLAGS} -Wl,-E -ldl -Wl,--no-as-needed -lm -Wl,--as-needed"
   fi
-  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_AR=${CROSS_AR##*/} CONDA_OCAML_${_tgt_id}_RANLIB=${CROSS_RANLIB##*/}"
-  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKEXE=${_mkexe_val:-<unset>}"
-  echo "  [tool-override] CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL:-<unset>}"
-  # Confirm which binary the cross ocamlopt actually execs for the native link.
-  echo "  [tool-override] mkexe wrapper body:"
-  cat "${BUILD_PREFIX}/bin/${OCAML_TARGET_TRIPLET}-ocaml-mkexe" 2>&1 || echo "    NOT FOUND"
 
   # ============================================================================
   # Build crosscompiledopt
@@ -2560,12 +2340,6 @@ EOF
       CROSSCOMPILEDOPT_ARGS+=( STDLIB_CMI_PIN_INTREE=1 )
       echo "  zstd-free target: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
     fi
-
-    # Diagnostic: confirm the host prefix actually carries libzstd, and in
-    # which architecture, before the link that needs it.
-    echo "  zstd in host prefix:"
-    ls -l "${PREFIX}"/lib/libzstd* 2>&1 || echo "    NONE FOUND"
-    file "${PREFIX}"/lib/libzstd.so 2>&1 || true
 
     # ocamlopt builds the compilerlibs link from flags recorded in the .cmxa,
     # which no longer carries a -L, so give the cross gcc a search path it

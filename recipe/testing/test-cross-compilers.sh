@@ -66,7 +66,6 @@ cmi_marshal_magic() {
 
 test_cross_compiler() {
   local target="$1"
-  local arch_name="$2"
   local qemu_execve=""
   [[ "${target}" == *-apple-darwin* ]] || qemu_execve="qemu-execve-${target%%-*}"
 
@@ -429,18 +428,9 @@ CONSEOF
     # They need rpath to find libzstd in ${PREFIX}/lib/
     CROSS_OCAMLOPT_BIN="${OCAML_CROSS_PREFIX}/bin/ocamlopt.opt"
     if [[ -f "${CROSS_OCAMLOPT_BIN}" ]]; then
-      # Show diagnostic info
-      echo "    Binary: ${CROSS_OCAMLOPT_BIN}"
-      echo "    Dependencies (otool -L):"
-      otool -L "${CROSS_OCAMLOPT_BIN}" 2>&1 | head -10 | sed 's/^/      /'
-
       # Check if libzstd is linked via @rpath
       if otool -L "${CROSS_OCAMLOPT_BIN}" 2>/dev/null | grep -q "@rpath/libzstd"; then
         echo "    libzstd link: @rpath/libzstd (needs rpath entry)"
-
-        # Show LC_RPATH entries
-        echo "    LC_RPATH entries (otool -l):"
-        otool -l "${CROSS_OCAMLOPT_BIN}" 2>&1 | grep -A2 "LC_RPATH" | sed 's/^/      /' || echo "      (none found)"
 
         # Verify rpath includes path to lib/
         # Accept either @executable_path or @loader_path (equivalent for executables)
@@ -907,17 +897,7 @@ EOF
   if [[ ! -x "${TOOLCHAIN_WRAPPER}" ]]; then
     echo "    [FAIL] ERROR: ${TOOLCHAIN_WRAPPER} not found or not executable"
     echo "      Cross-compiler should have standalone toolchain wrappers"
-    ENV_TEST_PASSED=0
     return 1
-  fi
-
-  # Debug: Check wrapper script content
-  echo "  Debug: Checking standalone toolchain wrapper..."
-  echo "    Wrapper exists: ${TOOLCHAIN_WRAPPER}"
-  if grep -q "CONDA_OCAML_${TARGET_ID}_CC" "${TOOLCHAIN_WRAPPER}" 2>/dev/null; then
-    echo "    [OK] Wrapper reads CONDA_OCAML_${TARGET_ID}_CC"
-  else
-    echo "    [FAIL] Wrapper does NOT read CONDA_OCAML_${TARGET_ID}_CC"
   fi
 
   echo "  Testing environment variable override..."
@@ -983,31 +963,8 @@ TOTAL_ERRORS=0
 if [[ -n "$TARGET_TRIPLE" ]]; then
   echo "Testing specific target: ${TARGET_TRIPLE}"
 
-  # Determine QEMU settings based on target
-  case "${TARGET_TRIPLE}" in
-    aarch64-conda-linux-gnu)
-      ARCH_NAME="Linux ARM64 (aarch64)"
-      ;;
-    powerpc64le-conda-linux-gnu)
-      ARCH_NAME="Linux PPC64LE"
-      ;;
-    riscv64-conda-linux-gnu)
-      ARCH_NAME="Linux RISCV64 (riscv64)"
-      ;;
-    s390x-conda-linux-gnu)
-      ARCH_NAME="Linux S390X"
-      ;;
-    arm64-apple-darwin*)
-      ARCH_NAME="macOS ARM64"
-      ;;
-    *)
-      echo "Warning: Unknown target triple ${TARGET_TRIPLE}, testing anyway..."
-      ARCH_NAME="${TARGET_TRIPLE}"
-      ;;
-  esac
-
   # Test the specified target
-  if test_cross_compiler "${TARGET_TRIPLE}" "${ARCH_NAME}"; then
+  if test_cross_compiler "${TARGET_TRIPLE}"; then
     :
   else
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
