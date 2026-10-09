@@ -18,7 +18,7 @@ has complex behavior that shouldn't be overridden.
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 --- a/tools/ocamlmklib.ml
 +++ b/tools/ocamlmklib.ml
-@@ -17,6 +17,18 @@
+@@ -15,6 +15,18 @@
 
  open Printf
 
@@ -37,16 +37,16 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
  let mklib out files opts =
    if Config.ccomp_type = "msvc"
    then let machine =
-@@ -25,7 +37,7 @@ let mklib out files opts =
-       else ""
-     in
-     Printf.sprintf "link -lib -nologo %s-out:%s %s %s" machine out opts files
+@@ -23,7 +35,7 @@
+     else ""
+   in
+   Printf.sprintf "link -lib -nologo %s-out:%s %s %s" machine out opts files
 -  else Printf.sprintf "%s rcs %s %s %s" Config.ar out opts files
 +  else Printf.sprintf "%s rcs %s %s %s" conda_ar out opts files
 
  (* PR#4783: under Windows, don't use absolute paths because we do
     not know where the binary distribution will be installed. *)
-@@ -202,7 +214,7 @@ let build_libs () =
+@@ -288,7 +300,7 @@
      if !dynlink then begin
        let retcode = command
            (Printf.sprintf "%s %s -o %s %s %s %s %s %s %s"

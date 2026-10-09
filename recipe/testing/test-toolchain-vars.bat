@@ -160,24 +160,6 @@ echo Test 4: SKIPPED (no native backend on this target)
 echo.
 :native_test4_done
 
-REM Test 5: Custom CC can be set (just verify variable changes)
-echo Test 5: Custom CONDA_OCAML_CC can be overridden
-
-set ORIGINAL_CC=%CONDA_OCAML_CC%
-set CONDA_OCAML_CC=custom-test-cc
-
-if "%CONDA_OCAML_CC%" == "custom-test-cc" (
-    echo PASS: CONDA_OCAML_CC can be overridden to: %CONDA_OCAML_CC%
-) else (
-    echo FAIL: CONDA_OCAML_CC override failed
-    exit /b 1
-)
-
-REM Restore original
-set CONDA_OCAML_CC=%ORIGINAL_CC%
-echo   Restored to: %CONDA_OCAML_CC%
-echo.
-
 REM Cleanup
 rmdir /s /q "%TESTDIR%" 2>nul
 

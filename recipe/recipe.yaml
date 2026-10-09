@@ -1,7 +1,6 @@
 context:
   # At least main + 100 so label builds never share a filename with main builds
   build_number: 117
-  name: ocaml
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -206,7 +205,6 @@ outputs:
       script:
         file: build.sh
         env:
-          SKIP_MAKE_TESTS: "1"
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
           OCAML_BOOTSTRAP_IN_LANE: "${{ 1 if bootstrap_in_lane else 0 }}"
@@ -664,11 +662,11 @@ outputs:
       # ----------------------------------------------------------------------
       - script:
           - if: is_cross_target
-            then: cd testing && ${{ dot }}test-cross-arch.${{ sh }} ${{ target_platform }}
+            then: cd testing && ${{ dot }}test-cross-arch.sh ${{ target_platform }}
             else: echo "Native build or cross-compiler - skipping cross-arch check"
         files:
           recipe:
-            - testing/test-cross-arch.${{ sh }}
+            - testing/test-cross-arch.sh
         requirements:
           build:
             - ${{ m2 }}grep
@@ -695,11 +693,11 @@ outputs:
       # ----------------------------------------------------------------------
       - script:
           - if: is_native and unix
-            then: cd testing && ${{ dot }}test-native-only-tools.${{ sh }} ${{ version }}
+            then: cd testing && ${{ dot }}test-native-only-tools.sh ${{ version }}
             else: echo "Skipping native-only tools"
         files:
           recipe:
-            - testing/test-native-only-tools.${{ sh }}
+            - testing/test-native-only-tools.sh
         requirements:
           build:
             - ${{ m2 }}grep

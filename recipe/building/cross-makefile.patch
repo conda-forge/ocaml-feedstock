@@ -1,0 +1,30 @@
+Cross-build Makefile changes: compile tools/checkstack with CHECKSTACK_CC
+(the build machine compiler) and include Makefile.cross when BUILD != HOST.
+Applied by apply_cross_patches with -p0.
+
+--- Makefile.orig
++++ Makefile
+@@ -2213,8 +2213,11 @@
+ 	$<
+
+ .INTERMEDIATE: tools/checkstack$(EXE) tools/checkstack.$(O)
++tools/checkstack.$(O): tools/checkstack.c
++	$(V_CC)$(CHECKSTACK_CC) $(OC_CFLAGS) $(CFLAGS) $(OUTPUTOBJ)$@ -c $<
++
+ tools/checkstack$(EXE): tools/checkstack.$(O)
+-	$(V_MKEXE)$(MKEXE) $(OUTPUTEXE)$@ $<
++	$(V_MKEXE)$(CHECKSTACK_CC) $(OC_LDFLAGS) $(LDFLAGS) $(OUTPUTEXE)$@ $<
+ else
+ checkstack:
+ 	@
+@@ -2971,6 +2974,10 @@
+ ifneq "$(HOST)" "$(TARGET)"
+ include Makefile.cross
+ endif
++# Also include for canadian cross (BUILD != HOST)
++ifneq "$(BUILD)" "$(HOST)"
++include Makefile.cross
++endif
+
+ Makefile.config Makefile.build_config: config.status
+ config.status:

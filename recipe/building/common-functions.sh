@@ -52,11 +52,17 @@ run_logged() {
 # Requires: NEEDS_DL variable to be set (1 = add -ldl)
 apply_cross_patches() {
   cp "${RECIPE_DIR}"/building/Makefile.cross .
-  patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch > /dev/null 2>&1 || true
+  local mk_patch="${RECIPE_DIR}/building/cross-makefile.patch"
+  # A second call on the same tree finds the patch already applied; skip it
+  if ! patch -R -p0 -f -s --dry-run < "${mk_patch}" > /dev/null 2>&1; then
+    if ! patch -N -p0 -f < "${mk_patch}" > /dev/null; then
+      echo "ERROR: cross-makefile.patch did not apply"
+      return 1
+    fi
+  fi
 
   # Fix dynlink "inconsistent assumptions" error:
   # Use otherlibrariesopt-cross target which calls dynlink-allopt with proper CAMLOPT/BEST_OCAMLOPT
-  sed -i 's/otherlibrariesopt ocamltoolsopt/otherlibrariesopt-cross ocamltoolsopt/g' Makefile.cross
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
@@ -698,7 +704,7 @@ clean_makefile_config() {
 
   # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths
   sed -i '/^CONFIGURE_ARGS=/d' "${config_file}"
-  echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${config_file}"
+  echo "CONFIGURE_ARGS=" >>"${config_file}"
 
   # Replace absolute /home/ paths with prefix
   sed -i "s|/home/[^/]*/feedstock_root[^[:space:]]*|${prefix}|g" "${config_file}"

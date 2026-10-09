@@ -37,27 +37,22 @@ case "${TARGET_PLATFORM}" in
   linux-aarch64)
     ARCH_CHECK="AArch64"
     CHECK_CMD="$(build_tool readelf) -h"
-    SHARED_EXT="so"
     ;;
   linux-ppc64le)
     ARCH_CHECK="PowerPC64"
     CHECK_CMD="$(build_tool readelf) -h"
-    SHARED_EXT="so"
     ;;
   linux-riscv64)
     ARCH_CHECK="RISC-V"
     CHECK_CMD="$(build_tool readelf) -h"
-    SHARED_EXT="so"
     ;;
   linux-s390x)
     ARCH_CHECK="S/390"
     CHECK_CMD="$(build_tool readelf) -h"
-    SHARED_EXT="so"
     ;;
   osx-arm64)
     ARCH_CHECK="arm64"
     CHECK_CMD="file"
-    SHARED_EXT="so"
     ;;
   *)
     echo "Not a cross-compilation target (${TARGET_PLATFORM}), skipping"
@@ -103,13 +98,13 @@ check_binary "${PREFIX}/bin/ocamlrun" "ocamlrun"
 
 echo ""
 echo "Checking shared libraries..."
-check_binary "${PREFIX}/lib/ocaml/libasmrun_shared.${SHARED_EXT}" "libasmrun_shared.${SHARED_EXT}"
+check_binary "${PREFIX}/lib/ocaml/libasmrun_shared.so" "libasmrun_shared.so"
 
 # Check stublibs if they exist
-if ls "${PREFIX}/lib/ocaml/stublibs/"*.${SHARED_EXT} >/dev/null 2>&1; then
+if ls "${PREFIX}/lib/ocaml/stublibs/"*.so>/dev/null 2>&1; then
   echo ""
   echo "Checking stublibs..."
-  for stublib in "${PREFIX}/lib/ocaml/stublibs/"*.${SHARED_EXT}; do
+  for stublib in "${PREFIX}/lib/ocaml/stublibs/"*.so; do
     stubname=$(basename "$stublib")
     check_binary "$stublib" "stublibs/${stubname}"
   done

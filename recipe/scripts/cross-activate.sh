@@ -70,10 +70,3 @@ export -f ocaml_use_native
 export OCAML_CROSS_TARGET="${_OCAML_CROSS_TARGET}"
 export OCAML_CROSS_PREFIX="${_OCAML_CROSS_PREFIX}"
 export OCAML_CROSS_MODE="native"
-
-if [ "${CONDA_BUILD:-0}" = "1" ]; then
-  echo "INFO: ocaml_cross_activate.sh loaded:"
-  echo "  OCAML_CROSS_TARGET=${OCAML_CROSS_TARGET}"
-  echo "  OCAML_CROSS_PREFIX=${OCAML_CROSS_PREFIX}"
-  echo "  OCAML_CROSS_MODE=${OCAML_CROSS_MODE} (use ocaml_use_cross/ocaml_use_native to swap)"
-fi
