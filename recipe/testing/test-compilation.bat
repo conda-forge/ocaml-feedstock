@@ -144,18 +144,19 @@ for /f "delims=" %%i in ('ocamlc -where') do set "OCAMLWHERE=%%i"
 set "STR_DLL=!OCAMLWHERE!\stublibs\dllcamlstrbyt.dll"
 echo   dll: !STR_DLL!
 set "T_OK=1"
+del t_out.txt 2>nul
 if not exist "!STR_DLL!" (
     dir /b "!OCAMLWHERE!\stublibs"
     set "T_OK=0"
 ) else (
     %RWT% 120 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0load-dll.ps1" "!STR_DLL!" > t_out.txt 2>&1
     if not "!errorlevel!"=="0" set "T_OK=0"
-    type t_out.txt
     findstr /C:"load ok" t_out.txt >nul
     if errorlevel 1 set "T_OK=0"
 )
 if "%T_OK%"=="0" (
     echo   LoadLibrary dllcamlstrbyt.dll: FAILED
+    if exist t_out.txt type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! LoadLibrary-dllcamlstrbyt"
 ) else (
@@ -167,18 +168,19 @@ REM ocamlrun dlopen of dllcamlstr outside the toplevel: isolates whether the han
 echo   bytecode exe with str.cma...
 del str_t.byte.exe 2>nul
 set "T_OK=1"
+del t_out.txt 2>nul
 ocamlc -I +str str.cma str_t.ml -o str_t.byte.exe
 if errorlevel 1 (
     set "T_OK=0"
 ) else (
     %RWT% 120 ocamlrun str_t.byte.exe > t_out.txt 2>&1
     if not "!errorlevel!"=="0" set "T_OK=0"
-    type t_out.txt
     findstr /C:"str ok" t_out.txt >nul
     if errorlevel 1 set "T_OK=0"
 )
 if "%T_OK%"=="0" (
     echo   bytecode exe str.cma: FAILED
+    if exist t_out.txt type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! str.cma-bytecode-exe"
 ) else (
@@ -188,13 +190,13 @@ if "%T_OK%"=="0" (
 echo   ocaml with str.cma...
 %RWT% 120 ocaml -I +str str.cma str_t.ml > t_out.txt 2>&1
 set "T_RC=%errorlevel%"
-type t_out.txt
 set "T_OK=1"
 if not "%T_RC%"=="0" set "T_OK=0"
 findstr /C:"str ok" t_out.txt >nul
 if errorlevel 1 set "T_OK=0"
 if "%T_OK%"=="0" (
     echo   str.cma toplevel: FAILED
+    type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! str.cma-toplevel"
 ) else (
@@ -205,13 +207,13 @@ echo let () = Printf.printf "unix ok %%b\n" (Unix.getpid () ^> 0)> unix_t.ml
 echo   ocaml with unix.cma...
 %RWT% 120 ocaml -I +unix unix.cma unix_t.ml > t_out.txt 2>&1
 set "T_RC=%errorlevel%"
-type t_out.txt
 set "T_OK=1"
 if not "%T_RC%"=="0" set "T_OK=0"
 findstr /C:"unix ok true" t_out.txt >nul
 if errorlevel 1 set "T_OK=0"
 if "%T_OK%"=="0" (
     echo   unix.cma toplevel: FAILED
+    type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! unix.cma-toplevel"
 ) else (
@@ -222,9 +224,9 @@ echo let () = let pid = Unix.create_process "ocamlc" [^|"ocamlc"; "-version"^|] 
 echo   ocaml spawning ocamlc...
 %RWT% 120 ocaml -I +unix unix.cma spawn_t.ml > t_out.txt 2>&1
 set "T_RC=%errorlevel%"
-type t_out.txt
 if not "%T_RC%"=="0" (
     echo   spawn ocamlc: FAILED
+    type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! spawn-ocamlc"
 ) else (
@@ -286,7 +288,6 @@ if errorlevel 1 (
     del tstub.obj tstub.o 2>nul
     %RWT% 300 ocamlc -c tstub.c > t_out.txt 2>&1
     if errorlevel 1 set "T_OK=0"
-    type t_out.txt
     findstr /B /C:"ocamlc_cppflags:" cfg_out.txt | findstr /C:"-DUNICODE" >nul
     if errorlevel 1 (
         findstr /B /C:"ocamlc_cppflags:" cfg_out.txt
@@ -294,6 +295,7 @@ if errorlevel 1 (
     )
     if "!T_OK!"=="0" (
         echo   ocamlc -c TCHAR stub: FAILED
+        type t_out.txt
         set /a STUB_FAILS+=1
         set "STUB_LIST=!STUB_LIST! ocamlc--c-tchar-stub"
     ) else (
@@ -328,18 +330,19 @@ REM caml_unix_write has a 64KB frame, so this exe needs __chkstk stack probes on
 echo let () = ignore (Unix.write_substring Unix.stdout "unix write ok\n" 0 14)> uw.ml
 echo   ocamlc -output-complete-exe unix.write...
 set "T_OK=1"
+del t_out.txt 2>nul
 del uw.exe 2>nul
 %RWT% 300 ocamlc -output-complete-exe -I +unix unix.cma uw.ml -o uw.exe
 if errorlevel 1 set "T_OK=0"
 if "%T_OK%"=="1" (
     %RWT% 120 .\uw.exe > t_out.txt 2>&1
     if errorlevel 1 set "T_OK=0"
-    type t_out.txt
     findstr /C:"unix write ok" t_out.txt >nul
     if errorlevel 1 set "T_OK=0"
 )
 if "%T_OK%"=="0" (
     echo   ocamlc -output-complete-exe unix.write: FAILED
+    if exist t_out.txt type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! ocamlc--output-complete-exe-unix-write"
 ) else (
@@ -350,13 +353,13 @@ REM threads.cma links winpthreads, whose spinlocks must start unlocked; a wrong 
 echo let () = let t = Thread.create (fun () -^> print_endline "thread ok") () in Thread.join t; print_endline "main ok"> thr.ml
 echo   ocamlc -output-complete-exe threads.cma...
 set "T_OK=1"
+del t_out.txt 2>nul
 del thr.exe 2>nul
 %RWT% 300 ocamlc -output-complete-exe -I +unix -I +threads unix.cma threads.cma thr.ml -o thr.exe
 if errorlevel 1 set "T_OK=0"
 if "%T_OK%"=="1" (
     %RWT% 120 .\thr.exe > t_out.txt 2>&1
     if errorlevel 1 set "T_OK=0"
-    type t_out.txt
     findstr /C:"thread ok" t_out.txt >nul
     if errorlevel 1 set "T_OK=0"
     findstr /C:"main ok" t_out.txt >nul
@@ -364,6 +367,7 @@ if "%T_OK%"=="1" (
 )
 if "%T_OK%"=="0" (
     echo   ocamlc -output-complete-exe threads.cma: FAILED
+    if exist t_out.txt type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! ocamlc--output-complete-exe-threads"
 ) else (
@@ -386,7 +390,6 @@ if "%T_OK%"=="0" (
 echo   ocaml with threads.cma...
 %RWT% 120 ocaml -I +unix -I +threads unix.cma threads.cma thr.ml > t_out.txt 2>&1
 set "T_RC=%errorlevel%"
-type t_out.txt
 set "T_OK=1"
 if not "%T_RC%"=="0" set "T_OK=0"
 findstr /C:"thread ok" t_out.txt >nul
@@ -395,6 +398,7 @@ findstr /C:"main ok" t_out.txt >nul
 if errorlevel 1 set "T_OK=0"
 if "%T_OK%"=="0" (
     echo   threads.cma toplevel: FAILED
+    type t_out.txt
     set /a STUB_FAILS+=1
     set "STUB_LIST=!STUB_LIST! threads.cma-toplevel"
 ) else (
