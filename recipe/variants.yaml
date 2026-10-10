@@ -27,8 +27,8 @@ cross_target_platform_:
 # gcc 15 builds conflict with the gcc 14 s390x toolchain.
 channel_sources:
   - if: s390x
-    then: conda-forge/label/zig_dev,conda-forge
-    else: conda-forge/label/ocaml_experimental,conda-forge/label/zig_dev,conda-forge
+    then: conda-forge
+    else: conda-forge/label/ocaml_experimental,conda-forge
 
 # Uploads from this branch go to the ocaml_experimental label, not main.
 channel_targets:
