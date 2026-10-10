@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Comprehensive cross-compiler validation tests
-# Tests cross-compilers built on linux-64 and osx-64 platforms
+# Tests a cross-compiler on the platform that hosts its build
 # These tests verify the cross-compilers are correctly configured for use
 # by downstream packages like dune/opam.
 
@@ -12,9 +12,8 @@ TARGET_PLATFORM="${3:-${target_platform:-}}"
 TARGET_TRIPLE="${4:-}"
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> [build_platform] [target_platform] [target_triple]"
-  echo "  target_triple: Optional specific target to test (e.g., aarch64-conda-linux-gnu)"
-  echo "                 If omitted, tests all available targets for the build platform"
+  echo "Usage: $0 <version> <build_platform> <target_platform> <target_triple>"
+  echo "  target_triple: the cross target to test (e.g., aarch64-conda-linux-gnu)"
   exit 1
 fi
 
@@ -75,10 +74,11 @@ test_cross_compiler() {
   OCAML_CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
   OCAML_CROSS_LIBDIR="${OCAML_CROSS_PREFIX}/lib/ocaml"
 
-  # Check if cross-compiler exists
+  # An absent cross-compiler is a build failure, not a skip: this script runs only
+  # on is_cross_compiler lanes, whose deliverable is exactly this binary.
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  ✗ SKIP: ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
+    return 1
   fi
 
   # Setup macOS ARM64 SDK for linking tests
@@ -232,6 +232,12 @@ TESTEOF
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
+      *)
+        # An unrecognised CROSS_ARCH is exactly the botched-wiring case this
+        # test exists to catch - silence here would read as a pass.
+        echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify binary architecture"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
+        ;;
     esac
 
     # Execution test with QEMU if available
@@ -276,7 +282,9 @@ TESTEOF
               fi
               ;;
             *)
-              echo "    ~ ${rtname}: ${rtlib_arch} (no check for ${CROSS_ARCH})"
+              # Silence here would read as a pass and hide a wrong-arch runtime.
+              echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+              TEST_ERRORS=$((TEST_ERRORS + 1))
               ;;
           esac
           ;;
@@ -302,7 +310,9 @@ TESTEOF
                 fi
                 ;;
               *)
-                echo "    ~ ${rtname}: ${rtlib_arch}"
+                # Silence here would read as a pass and hide a wrong-arch runtime.
+                echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
                 ;;
             esac
           else
@@ -625,8 +635,9 @@ SYSCALLEOF
       if echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_OK"; then
         echo "    [OK] Unix syscalls work correctly under QEMU"
       elif echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_SUSPICIOUS"; then
-        echo "    ✗ WARNING: Unix syscalls return suspicious values"
+        echo "    [FAIL] ERROR: Unix syscalls return suspicious values"
         echo "      Output: ${SYSCALL_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       else
         echo "    ~ QEMU syscall test inconclusive"
       fi
@@ -672,8 +683,8 @@ test_toolchain_env_vars() {
   CROSS_OCAMLOPT="${PREFIX}/bin/${target}-ocamlopt"
 
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  ✗ SKIP: ${target} cross-compiler not found"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found"
+    return 1
   fi
 
   # Create fake toolchain wrappers to test environment override
@@ -710,8 +721,7 @@ EOF
   if [[ ! -x "${TOOLCHAIN_WRAPPER}" ]]; then
     echo "    [FAIL] ERROR: ${TOOLCHAIN_WRAPPER} not found or not executable"
     echo "      Cross-compiler should have standalone toolchain wrappers"
-    ENV_TEST_PASSED=0
-    return 0
+    return 1
   fi
 
   echo "  Testing environment variable override..."

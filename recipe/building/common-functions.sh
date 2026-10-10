@@ -43,7 +43,7 @@ run_logged() {
   else
     local rc=$?
     echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
-    tail -100 "${logfile}" | sed "s/^/${indent} /"
+    tail -400 "${logfile}" | sed "s/^/${indent} /"
     return ${rc}
   fi
 }
@@ -520,7 +520,8 @@ setup_toolchain() {
 
   # Export all
   export "${name}_AR=${_AR}" "${name}_AS=${_AS}" "${name}_CC=${_CC}" "${name}_RANLIB=${_RANLIB}"
-  export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP}" "${name}_LD=${_LD}"
+  # STRIP defaults to ':' so an empty strip stays a harmless no-op when passed as a make variable
+  export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP:-:}" "${name}_LD=${_LD}"
   export "${name}_ASM=${_ASM}" "${name}_MKDLL=${_MKDLL}" "${name}_MKEXE=${_MKEXE}"
 }
 
@@ -621,6 +622,7 @@ WRAPPER
 clean_makefile_config() {
   local config_file="$1"
   local prefix="$2"
+  local keep='@@OCAML_RELOC_L@@'
 
   [[ -f "${config_file}" ]] || return 0
 
@@ -629,6 +631,14 @@ clean_makefile_config() {
     "rattler-build" "conda-bld" "build_artifacts" "placehold"
     "host_env" "build_env" "_build_env" "feedstock"
   )
+
+  # Paths under the prefix are relocatable: conda rewrites the prefix at install
+  # time, and the prefix itself contains marker substrings during the build.
+  # Mask every occurrence of the prefix string (-L, -Wl,-rpath, plain paths) so
+  # no marker rule below sees it; restored after the whole-line deletion.
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "s|${prefix}|${keep}|g" "${config_file}"
+  fi
 
   # Remove -L and -Wl,-L paths containing build directories
   sed -i 's|-L/[^ ]*/lib ||g' "${config_file}"
@@ -657,8 +667,12 @@ clean_makefile_config() {
     sed -i "\\|^/[^[:space:]]*${marker}|d" "${config_file}"
   done
 
-  # Delete orphaned lines that are only the prefix
+  # Delete orphaned lines that are only the prefix, in either form: the bare
+  # prefix emitted by the rewrites above, or the masked prefix from rule 1.
   sed -i '/^'"${prefix//\//\\/}"'$/d' "${config_file}"
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "/^${keep}$/d" "${config_file}"
+  fi
   sed -i '\|^/home/[^/]*/feedstock|d' "${config_file}"
 
   # Final grep-based cleanup for any remaining build markers
@@ -671,6 +685,10 @@ clean_makefile_config() {
     else
       rm -f "${temp_file}"
     fi
+  fi
+
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "s|${keep}|${prefix}|g" "${config_file}"
   fi
 
   # OCaml 5.4+: Strip $(LDFLAGS) from MKEXE/MKDLL/MKMAINDLL.
@@ -770,11 +788,26 @@ patch_checkstack_cc() {
 # Operates on Makefile.config in the current directory
 patch_makefile_config_post_configure() {
   local config_file="Makefile.config"
+  local keep='@@OCAML_RELOC_L@@'
 
-  sed -i  's#-fdebug-prefix-map=[^ ]*##g' "${config_file}"
-  sed -i  's#-link\s+-L[^ ]*##g' "${config_file}"                             # Remove flexlink's "-link -L..." patterns
-  sed -i  's#-L[^ ]*##g' "${config_file}"                                     # Remove standalone -L paths
-  # These would be found in BUILD_PREFIX and fail relocation
+  sed -i 's#-fdebug-prefix-map=[^ ]*##g' "${config_file}"
+
+  # configure bakes in -L paths that do not exist for a consumer of the
+  # installed package. Paths under PREFIX are the exception: conda rewrites
+  # PREFIX at install time, and -L${PREFIX}/lib is what keeps zstd resolvable
+  # for -output-complete-exe links. Protect those, strip the rest, restore.
+  if [[ -n "${PREFIX:-}" ]]; then
+    sed -i "s#-L${PREFIX}#${keep}#g" "${config_file}"
+  fi
+  # flexlink "-link -L..." pairs go first, so removing the -L does not leave
+  # an orphaned "-link" behind.
+  sed -i 's#-link[[:space:]][[:space:]]*-L[^ ]*##g' "${config_file}"
+  sed -i 's#-Wl,-L[^ ]*##g' "${config_file}"
+  sed -i 's#-L[^ ]*##g' "${config_file}"
+  if [[ -n "${PREFIX:-}" ]]; then
+    sed -i "s#${keep}#-L${PREFIX}#g" "${config_file}"
+  fi
+
   # Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
   # Simple commands: CC, AS, ASM, ASPP, STRIP (line ends with binary name)
   sed -Ei 's#^(CC|AS|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"
@@ -954,14 +987,24 @@ check_unix_crc() {
   local label="$4"
 
   # Extract Unix implementation CRC from unix.cmxa
+  local unix_out
+  if ! unix_out=$("${ocamlobjinfo_path}" "${unix_cmxa}"); then
+    echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${unix_cmxa}"
+    exit 1
+  fi
   local unix_crc
-  unix_crc=$("${ocamlobjinfo_path}" "${unix_cmxa}" 2>&1 \
+  unix_crc=$(echo "${unix_out}" \
     | grep -A1 "^Name: Unix$" | grep "CRC of implementation" | awk '{print $NF}')
 
   # Extract what threads.cmxa expects from Unix (implementation CRC)
   # Must scope to "Implementations imported" section to avoid matching interface CRCs
+  local threads_out
+  if ! threads_out=$("${ocamlobjinfo_path}" "${threads_cmxa}"); then
+    echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${threads_cmxa}"
+    exit 1
+  fi
   local threads_crc
-  threads_crc=$("${ocamlobjinfo_path}" "${threads_cmxa}" 2>&1 \
+  threads_crc=$(echo "${threads_out}" \
     | sed -n '/^Implementations imported:/,/^[A-Z]/p' \
     | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
 
