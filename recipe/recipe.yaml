@@ -815,6 +815,9 @@ outputs:
         files:
           recipe:
             - testing/test-compilation.${{ sh }}
+            - if: unix
+              then:
+                - testing/test-helpers.sh
             - if: not unix
               then:
                 - testing/run-with-timeout.ps1
@@ -843,6 +846,7 @@ outputs:
         files:
           recipe:
             - testing/test-compiler-libs-link.sh
+            - testing/test-helpers.sh
         requirements:
           build:
             - if: is_qemuable
@@ -860,6 +864,9 @@ outputs:
         files:
           recipe:
             - testing/test-toolchain-vars.${{ sh }}
+            - if: unix
+              then:
+                - testing/test-helpers.sh
         requirements:
           build:
             - if: is_qemuable
