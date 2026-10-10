@@ -1,10 +1,9 @@
 Request marshal compression only when it is available.
 
 utils/compression.ml passes [Compression] to caml_output_value
-unconditionally. A runtime built with zstd calls its compression hook
-without checking it was installed, so a compiler linked against such a
-runtime but with a caml_zstd_initialize that returns false crashes on
-every .cmi write. Gate the flag on compression_supported.
+unconditionally, so a zstd runtime paired with a caml_zstd_initialize that
+returns false crashes on every .cmi write. Gate the flag on
+compression_supported.
 
 --- a/utils/compression.ml
 +++ b/utils/compression.ml
