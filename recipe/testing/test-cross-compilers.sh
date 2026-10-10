@@ -57,9 +57,8 @@ get_target_id() {
 
 test_cross_compiler() {
   local target="$1"
-  local arch_name="$2"
-  local qemu_cmd="${3:-}"
-  local qemu_prefix="${4:-}"
+  local qemu_execve=""
+  [[ "${target}" == *-apple-darwin* ]] || qemu_execve="qemu-execve-${target%%-*}"
 
   echo ""
   echo "  ========================================================================"
@@ -106,6 +105,11 @@ test_cross_compiler() {
   fi
 
   TEST_ERRORS=0
+
+  if [[ -n "$qemu_execve" && -z "${QEMU_LD_PREFIX:-}" ]]; then
+    echo "    [FAIL] ERROR: QEMU_LD_PREFIX not set by ${qemu_execve} activation (target sysroot missing)"
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
 
   # ---------------------------------------------------------------------------
   # Test 1: Version check
@@ -241,13 +245,17 @@ TESTEOF
     esac
 
     # Execution test with QEMU if available
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      if QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
+      if "${qemu_execve}" "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
         echo "    [OK] Execution successful (QEMU)"
       else
-        echo "    ~ Execution SKIPPED (QEMU execution failed - expected on some platforms)"
+        echo "    [FAIL] ERROR: execution under QEMU failed"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: execution test: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
 
     rm -f "${TEST_BIN}" "${TEST_BIN}.o" "${TEST_BIN}.cmx" "${TEST_BIN}.cmi"
@@ -583,9 +591,9 @@ MAINEOF
     echo "    [OK] Multi-file compilation successful"
 
     # Verify with QEMU if available
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      QEMU_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${MULTIFILE_BIN}" 2>&1 || true)
+      QEMU_OUTPUT=$("${qemu_execve}" "${MULTIFILE_BIN}" 2>&1 || true)
       if echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_CORRECT"; then
         echo "    [OK] Computation correct under QEMU"
       elif echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_WRONG"; then
@@ -593,11 +601,16 @@ MAINEOF
         echo "      Output: ${QEMU_OUTPUT}"
         TEST_ERRORS=$((TEST_ERRORS + 1))
       elif echo "${QEMU_OUTPUT}" | grep -q "Hello"; then
-        echo "    ~ Partial execution (computation test inconclusive)"
+        echo "    [FAIL] ERROR: Partial execution (computation test inconclusive)"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       else
-        echo "    ~ QEMU execution failed (may be platform limitation)"
+        echo "    [FAIL] ERROR: QEMU execution failed"
         echo "      Output: ${QEMU_OUTPUT}" | head -3 | sed 's/^/      /'
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: multi-file program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   else
     TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -630,8 +643,8 @@ SYSCALLEOF
   if "${CROSS_OCAMLOPT}" -o "${SYSCALL_BIN}" unix.cmxa "${SYSCALL_TEST}" 2>/dev/null; then
     echo "    [OK] Unix syscall compilation successful"
 
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
-      SYSCALL_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${SYSCALL_BIN}" 2>&1 || true)
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
+      SYSCALL_OUTPUT=$("${qemu_execve}" "${SYSCALL_BIN}" 2>&1 || true)
       if echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_OK"; then
         echo "    [OK] Unix syscalls work correctly under QEMU"
       elif echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_SUSPICIOUS"; then
@@ -639,8 +652,13 @@ SYSCALLEOF
         echo "      Output: ${SYSCALL_OUTPUT}"
         TEST_ERRORS=$((TEST_ERRORS + 1))
       else
-        echo "    ~ QEMU syscall test inconclusive"
+        echo "    [FAIL] ERROR: QEMU syscall test inconclusive"
+        echo "      Output: ${SYSCALL_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: Unix syscall program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   else
     echo "    [FAIL] ERROR: Unix syscall compilation failed"
@@ -768,9 +786,10 @@ echo "Build platform:  ${BUILD_PLATFORM}"
 echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
 
-# Only run on native x86_64 platforms where cross-compilers are built
-if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]]; then
-  echo "Cross-compilers only built on linux-64 and osx-64, skipping"
+# Only run on platforms that host a cross-compiler build. linux-aarch64 hosts the
+# ppc64le cross-compiler, per cross_build_platform in recipe.yaml.
+if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "linux-aarch64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]]; then
+  echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
 fi
 
@@ -786,33 +805,8 @@ TOTAL_ERRORS=0
 if [[ -n "$TARGET_TRIPLE" ]]; then
   echo "Testing specific target: ${TARGET_TRIPLE}"
 
-  # Determine QEMU settings based on target
-  case "${TARGET_TRIPLE}" in
-    aarch64-conda-linux-gnu)
-      QEMU_CMD="qemu-execve-aarch64"
-      QEMU_PREFIX="${PREFIX}/aarch64-conda-linux-gnu/sysroot"
-      ARCH_NAME="Linux ARM64 (aarch64)"
-      ;;
-    powerpc64le-conda-linux-gnu)
-      QEMU_CMD="qemu-execve-ppc64le"
-      QEMU_PREFIX="${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"
-      ARCH_NAME="Linux PPC64LE"
-      ;;
-    arm64-apple-darwin*)
-      QEMU_CMD=""
-      QEMU_PREFIX=""
-      ARCH_NAME="macOS ARM64"
-      ;;
-    *)
-      echo "Warning: Unknown target triple ${TARGET_TRIPLE}, testing anyway..."
-      QEMU_CMD=""
-      QEMU_PREFIX=""
-      ARCH_NAME="${TARGET_TRIPLE}"
-      ;;
-  esac
-
   # Test the specified target
-  if test_cross_compiler "${TARGET_TRIPLE}" "${ARCH_NAME}" "${QEMU_CMD}" "${QEMU_PREFIX}"; then
+  if test_cross_compiler "${TARGET_TRIPLE}"; then
     :
   else
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
@@ -825,67 +819,8 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
   fi
 else
-  # No specific target - test all available targets for the build platform
-
-  # Linux x86_64: test aarch64 and ppc64le cross-compilers
-  if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
-    # Test aarch64 cross-compiler
-    if test_cross_compiler \
-      "aarch64-conda-linux-gnu" \
-      "Linux ARM64 (aarch64)" \
-      "qemu-execve-aarch64" \
-      "${PREFIX}/aarch64-conda-linux-gnu/sysroot"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for aarch64
-    if test_toolchain_env_vars "aarch64-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test ppc64le cross-compiler
-    if test_cross_compiler \
-      "powerpc64le-conda-linux-gnu" \
-      "Linux PPC64LE" \
-      "qemu-execve-ppc64le" \
-      "${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for ppc64le
-    if test_toolchain_env_vars "powerpc64le-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
-
-  # macOS x86_64: test arm64 cross-compiler
-  if [[ "$BUILD_PLATFORM" == "osx-64" ]]; then
-    # Test arm64 cross-compiler (no QEMU for macOS)
-    if test_cross_compiler \
-      "arm64-apple-darwin20.0.0" \
-      "macOS ARM64" \
-      "" \
-      ""; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for arm64
-    if test_toolchain_env_vars "arm64-apple-darwin20.0.0"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
+  echo "ERROR: no target triple supplied (argument 4); nothing to test"
+  exit 1
 fi
 
 echo ""

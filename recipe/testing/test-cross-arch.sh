@@ -72,7 +72,7 @@ check_binary() {
     echo "FAILED"
     echo "    Expected: ${ARCH_CHECK}"
     echo "    Got:"
-    ${CHECK_CMD} "$binary" 2>/dev/null | head -5
+    ${CHECK_CMD} "$binary" | head -5
     exit 1
   fi
 }
