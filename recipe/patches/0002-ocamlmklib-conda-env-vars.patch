@@ -1,16 +1,10 @@
 From: conda-forge
 Subject: [PATCH] ocamlmklib: Support CONDA_OCAML_* environment variables
 
-For cross-compilation in conda-forge, ocamlmklib needs to use TARGET
-architecture tools instead of BUILD tools. The Config module values are
-baked in at compile time and point to BUILD tools.
-
-This patch adds support for CONDA_OCAML_AR and CONDA_OCAML_MKDLL
-environment variables, falling back to Config values when not set.
-This maintains backward compatibility while enabling cross-compilation.
-
-Note: This patch is only applied on Unix. Windows uses flexlink which
-has complex behavior that shouldn't be overridden.
+Config.ar and Config.mkdll are baked in at compile time and point to BUILD
+tools. Use CONDA_OCAML_AR and CONDA_OCAML_MKDLL when set, so cross builds
+get TARGET tools; fall back to Config otherwise. Unix only: Windows uses
+flexlink, which must not be overridden.
 ---
  tools/ocamlmklib.ml | 15 +++++++++++++--
  1 file changed, 13 insertions(+), 2 deletions(-)
