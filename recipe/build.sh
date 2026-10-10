@@ -985,6 +985,7 @@ EOF
           arm64) _expected="arm64|ARM64|AArch64|aarch64" ;;
           aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
           power) _expected="PowerPC|ppc64" ;;
+          amd64) _expected="x86_64|amd64" ;;
           *) _expected="${CROSS_ARCH}" ;;
         esac
         if ! echo "$_arch_info" | grep -qiE "$_expected"; then

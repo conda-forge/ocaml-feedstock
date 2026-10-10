@@ -281,6 +281,14 @@ TESTEOF
                 TEST_ERRORS=$((TEST_ERRORS + 1))
               fi
               ;;
+            amd64)
+              if echo "${rtlib_arch}" | grep -q "x86_64"; then
+                echo "    [OK] ${rtname}: ${rtlib_arch}"
+              else
+                echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected x86_64)"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
+              fi
+              ;;
             *)
               # Silence here would read as a pass and hide a wrong-arch runtime.
               echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
@@ -304,6 +312,14 @@ TESTEOF
               power)
                 if echo "${rtlib_arch}" | grep -qi "powerpc\|ppc64"; then
                   echo "    [OK] ${rtname}: PowerPC64"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              amd64)
+                if echo "${rtlib_arch}" | grep -qi "x86-64\|x86_64"; then
+                  echo "    [OK] ${rtname}: x86_64"
                 else
                   echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
                   TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -769,8 +785,8 @@ echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
 
 # Only run on native x86_64 platforms where cross-compilers are built
-if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]]; then
-  echo "Cross-compilers only built on linux-64 and osx-64, skipping"
+if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
+  echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
 fi
 
