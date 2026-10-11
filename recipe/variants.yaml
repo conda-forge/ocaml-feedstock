@@ -3,6 +3,9 @@ c_compiler:
     then:
       - vs2022
       - gcc
+  - if: not unix and arm64
+    then:
+      - zig
 
 cross_target_platform_:
   - linux-64
@@ -11,3 +14,4 @@ cross_target_platform_:
   - osx-64
   - osx-arm64
   - win-64
+  - win-arm64
