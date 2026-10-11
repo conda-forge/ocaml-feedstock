@@ -605,7 +605,7 @@ build_native() {
     _imports_tmp_dir="${_imports_stage_dir}/.tmp"
     _imports_stub_libs=()
     mkdir -p "${_imports_stage_dir}" "${_imports_tmp_dir}" || true
-    for _imports_lib in kernel32 ucrtbase ucrt msvcrt user32 advapi32 shell32 ole32 ws2_32 uuid version shlwapi api-ms-win-core-synch-l1-2-0 winpthread pthread gcc_eh wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
+    for _imports_lib in kernel32 ucrtbase ucrt msvcrt user32 advapi32 gdi32 userenv shell32 ole32 ws2_32 uuid version shlwapi api-ms-win-core-synch-l1-2-0 winpthread pthread gcc_eh wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
       _imports_basenames=("${_imports_lib}.def" "lib${_imports_lib}.def")
       _imports_basenames_in=("${_imports_lib}.def.in" "lib${_imports_lib}.def.in")
       if [[ "${_imports_lib}" == "pthread" || "${_imports_lib}" == "winpthread" ]]; then
@@ -645,6 +645,8 @@ build_native() {
               kernel32) _imports_expected_sym="CreateFileW" ;;
               user32) _imports_expected_sym="MessageBoxW" ;;
               advapi32) _imports_expected_sym="RegOpenKeyExW" ;;
+              gdi32) _imports_expected_sym="CreateCompatibleDC" ;;
+              userenv) _imports_expected_sym="GetUserProfileDirectoryW" ;;
               shell32) _imports_expected_sym="SHGetKnownFolderPath" ;;
               ole32) _imports_expected_sym="CoCreateInstance" ;;
               shlwapi) _imports_expected_sym="PathFileExistsW" ;;
@@ -909,11 +911,19 @@ C_EOF
       fi
     fi
 
+    echo "  - Stubbed import libs: ${_imports_stub_libs[@]+"${_imports_stub_libs[@]}"}"
+    for _imports_stub_check in "${_imports_stub_libs[@]+"${_imports_stub_libs[@]}"}"; do
+      if [[ "${_imports_stub_check}" == "gdi32" || "${_imports_stub_check}" == "userenv" ]]; then
+        echo "  ERROR: ${_imports_stub_check} import lib is a stub: zig provided neither an archive nor a .def for it"
+        exit 1
+      fi
+    done
+
     _imports_extra_libflags=""
     # ucrtbase is the C runtime zig's arm64 mingw target links against; msvcrt
     # is the legacy alternative and the two are never linked together, so
     # exactly one stays in the -l list (ucrtbase; msvcrt is excluded below).
-    for _imports_deflib in kernel32 ucrtbase msvcrt ucrt user32 advapi32 shell32 ole32 shlwapi version api-ms-win-core-synch-l1-2-0 uuid ws2_32 winpthread wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
+    for _imports_deflib in kernel32 ucrtbase msvcrt ucrt user32 advapi32 gdi32 userenv shell32 ole32 shlwapi version api-ms-win-core-synch-l1-2-0 uuid ws2_32 winpthread wsock32 mingwex api-ms-win-crt-runtime-l1-1-0 api-ms-win-crt-math-l1-1-0; do
       _imports_deflib_is_stub=0
       for _imports_stub_check in "${_imports_stub_libs[@]+"${_imports_stub_libs[@]}"}"; do
         if [[ "${_imports_stub_check}" == "${_imports_deflib}" ]]; then
