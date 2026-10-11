@@ -1,5 +1,5 @@
 context:
-  build_number: 14
+  build_number: 15
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -27,13 +27,15 @@ context:
       "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and c_compiler == "zig" else
       "unknown"
     }}
-  # Which platform builds cross-compilers for each target
+  # Which platform builds cross-compilers for each target. Empty for a target
+  # that is not listed, which never equals target_platform, so an unlisted
+  # target builds nowhere.
   cross_build_platform: >-
     ${{
       "linux-64" if cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le"] else
       "osx-64"   if cross_target_platform_ in ["osx-64", "osx-arm64"]                        else
       "win-64"   if cross_target_platform_ == "win-64"                                       else
-      target_platform
+      ""
     }}
   # ===========================================================================
   # Build case detection helpers (exactly one is true per build)
