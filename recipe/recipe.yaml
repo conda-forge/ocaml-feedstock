@@ -1,14 +1,15 @@
 context:
-  build_number: 11
-  name: ocaml
+  build_number: 12
   version: 5.4.0
   flexdll_version: "0.44"
+
   dot: ${{ "./" if unix else "" }}
   library: ${{ "Library/" if not unix else "" }}
   m2: ${{ "m2-" if not unix else "" }}
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
+
   # ===========================================================================
   # GCC-style derived values (not variant keys - keeps filenames clean)
   # cross_target_platform_ comes from variants.yaml
@@ -39,6 +40,7 @@ context:
   is_native: ${{ cross_target_platform_ == build_platform }}
   is_cross_compiler: ${{ (cross_target_platform_ != target_platform) and (build_platform == cross_build_platform) }}
   is_cross_target: ${{ (cross_target_platform_ == target_platform) and (build_platform != target_platform) }}
+  is_standard_layout: ${{ is_native or is_cross_target }}
 
 recipe:
   name: ocaml-packages
@@ -119,7 +121,6 @@ outputs:
       script:
         file: build.sh
         env:
-          SKIP_MAKE_TESTS: "1"
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
@@ -142,7 +143,7 @@ outputs:
         force_file_type:
           text:
             # --- NATIVE/CROSS-TARGET: Standard lib paths ---
-            - if: is_native or is_cross_target
+            - if: is_standard_layout
               then:
                 - lib/ocaml/ld.conf
                 - lib/ocaml/Makefile.config
@@ -158,7 +159,7 @@ outputs:
                 - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
         ignore:
           # --- NATIVE/CROSS-TARGET: Standard bytecode files ---
-          - if: is_native or is_cross_target
+          - if: is_standard_layout
             then:
               - bin/ocam{l,lcmt,lcp,ldebug,ldoc,lmklib,lmktop,loptp,lprof}
               - lib/ocaml/**/*.{cmo,cma,cmi,cmx,cmt,cmti}
@@ -253,10 +254,10 @@ outputs:
 
       run:
         - zstd
-        # OCaml needs a C compiler at runtime — ocamlopt, conda-ocaml-mkexe,
+        # OCaml needs a C compiler at runtime - ocamlopt, conda-ocaml-mkexe,
         # conda-ocaml-mkdll all invoke the C compiler. Must use the activating
         # metapackages (not _impl) because _impl doesn't put tools in PATH.
-        - if: is_native or is_cross_target
+        - if: is_standard_layout
           then:
             - if: not unix and c_compiler == "gcc"
               then:
@@ -270,9 +271,9 @@ outputs:
 
         # --- CROSS-COMPILER ONLY: Include full toolchain ---
         # Like gcc_linux-aarch64 depends on native gcc, our cross-compiler depends
-        # on native OCaml — downstream compiler("ocaml") resolves to the cross-compiler
+        # on native OCaml - downstream compiler("ocaml") resolves to the cross-compiler
         # which needs native ocaml/ocamlc in PATH for tools like findlib/dune.
-        # Native OCaml for the build platform — can't use pin_subpackage because
+        # Native OCaml for the build platform - can't use pin_subpackage because
         # the build_platform output may not be in the same CI job (e.g., osx cross
         # built on linux). Use version pin instead.
         - if: is_cross_compiler
@@ -350,7 +351,7 @@ outputs:
             - etc/conda/test-files/*
 
             # NATIVE/CROSS-TARGET: Standard layout
-            - if: is_native or is_cross_target
+            - if: is_standard_layout
               then:
                 - etc/conda/activate.d/ocaml_activate.${{ sh }}
                 - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
@@ -416,7 +417,6 @@ outputs:
 
       # ----------------------------------------------------------------------
       # Package integrity: paths, config, env vars, rpath
-      # (merged from test-env-paths + test-config)
       # ----------------------------------------------------------------------
       - script:
           - if: is_native
@@ -447,11 +447,11 @@ outputs:
       # ----------------------------------------------------------------------
       - script:
           - if: is_cross_target
-            then: cd testing && ${{ dot }}test-cross-arch.${{ sh }} ${{ target_platform }}
+            then: cd testing && ${{ dot }}test-cross-arch.sh ${{ target_platform }}
             else: echo "Native build or cross-compiler - skipping cross-arch check"
         files:
           recipe:
-            - testing/test-cross-arch.${{ sh }}
+            - testing/test-cross-arch.sh
         requirements:
           run:
             - if: unix
@@ -480,11 +480,11 @@ outputs:
       # ----------------------------------------------------------------------
       - script:
           - if: is_native and unix
-            then: cd testing && ${{ dot }}test-native-only-tools.${{ sh }} ${{ version }}
+            then: cd testing && ${{ dot }}test-native-only-tools.sh ${{ version }}
             else: echo "Skipping native-only tools"
         files:
           recipe:
-            - testing/test-native-only-tools.${{ sh }}
+            - testing/test-native-only-tools.sh
         requirements:
           run:
             # Use native grep on arm64 since no QEMU
@@ -494,7 +494,7 @@ outputs:
 
       # ----------------------------------------------------------------------
       # Compiler wrapper validation (conda-ocaml-cc, conda-ocaml-mkexe)
-      # NO extra C compiler test dep — validates that ocaml_$platform's run dep
+      # NO extra C compiler test dep - validates that ocaml_$platform's run dep
       # on compiler("c") provides the triplet-prefixed binary.
       # ----------------------------------------------------------------------
       - script:
@@ -534,8 +534,6 @@ outputs:
         requirements:
           run:
             - ${{ m2 }}file
-
-      # - downstream: ${{ "ocaml-dune" if not is_cross_compiler else "none" }}
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
@@ -613,49 +611,6 @@ outputs:
         requirements:
           run:
             - ${{ m2 }}grep
-
-  # ==========================================================================
-  # DEVELOPMENT META-PACKAGE: ocaml-devel
-  # Full OCaml development environment with build tools
-  # Uncomment when opam, dune, ocamlfind, ocamlbuild are available on conda-forge
-  # ==========================================================================
-  # - package:
-  #     name: ocaml-devel_${{ cross_target_platform_ }}
-  #   build:
-  #     noarch: generic
-  #     skip: cross_target_platform_ != target_platform
-  #     script: echo "Development environment meta-package"
-  #   requirements:
-  #     run:
-  #       - ${{ pin_subpackage('ocaml-compiler', exact=True) }}
-  #       # Package manager
-  #       - opam
-  #       # Build systems
-  #       - dune
-  #       - ocamlbuild
-  #       # Package finder/installer
-  #       - ocamlfind
-  #   tests:
-  #     # ----------------------------------------------------------------------
-  #     # Verify all development tools are available
-  #     # ----------------------------------------------------------------------
-  #     - script: |
-  #         ocaml -version
-  #         ocamlopt${{ xt }} -version
-  #         opam --version
-  #         dune --version
-  #         ocamlfind -version
-  #         ocamlbuild -version
-  #         echo "ocaml-devel environment ready"
-  #
-  #     # ----------------------------------------------------------------------
-  #     # Test dune project build
-  #     # ----------------------------------------------------------------------
-  #     - script:
-  #         - cd testing && ${{ dot }}test-dune-project.${{ sh }}
-  #       files:
-  #         recipe:
-  #           - testing/test-dune-project.${{ sh }}
 
 about:
   homepage: https://ocaml.org/

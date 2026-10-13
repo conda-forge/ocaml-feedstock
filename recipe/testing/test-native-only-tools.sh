@@ -12,8 +12,21 @@ fi
 
 echo "=== Native-only Tool Tests (expecting ${VERSION}) ==="
 
-echo -n "  ocamldoc: " && ocamldoc -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamldoc.opt: " && ocamldoc.opt -version | grep -q "${VERSION}" && echo "OK"
-echo -n "  ocamldebug: " && ocamldebug -version | grep -q "${VERSION}" && echo "OK"
+# Print FAIL with the observed output and exit 1 unless -version matches
+check_version() {
+  local tool="$1" out
+  echo -n "  ${tool}: "
+  out=$("${tool}" -version 2>&1) || true
+  if printf '%s\n' "${out}" | grep -q "${VERSION}"; then
+    echo "OK"
+  else
+    echo "FAIL (found: ${out:-<no output>})"
+    exit 1
+  fi
+}
+
+check_version ocamldoc
+check_version ocamldoc.opt
+check_version ocamldebug
 
 echo "=== All native-only tool tests passed ==="
