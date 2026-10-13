@@ -396,16 +396,21 @@ else
       fi
     done
 
-    # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir
-    case "$(uname -s)" in
-      MINGW*|MSYS*|CYGWIN*)
-        echo "  ocamlmklib compiler resolution: skipped on Windows (uses PATH by design)"
-        ;;
-      *)
-        echo "Checking ocamlmklib compiler resolution..."
-        check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
-        ;;
-    esac
+    # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir.
+    # Native only: under OCAML_QEMU the compilers ocamlmklib spawns cannot run.
+    if [[ "${MODE}" != "native" ]]; then
+      echo "  ocamlmklib compiler resolution: skipped in ${MODE} mode"
+    else
+      case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+          echo "  ocamlmklib compiler resolution: skipped on Windows (uses PATH by design)"
+          ;;
+        *)
+          echo "Checking ocamlmklib compiler resolution..."
+          check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
+          ;;
+      esac
+    fi
   else
     echo "Skipping -config-var checks (cannot execute cross-target binaries)"
   fi
