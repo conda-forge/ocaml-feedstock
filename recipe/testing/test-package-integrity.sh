@@ -59,6 +59,44 @@ check_no_staging_paths() {
 }
 
 # ============================================================================
+# HELPER: Check ocamlmklib runs the compilers shipped next to it
+# Usage: check_ocamlmklib_compiler <ocamlc> <ocamlmklib> <expected-ocamlc-path>
+#
+# ocamlmklib -v prints "+ <cmd>" before running each command; the first word
+# of the first such line is the compiler it resolved.
+# ============================================================================
+check_ocamlmklib_compiler() {
+  local ocamlc_cmd="$1"
+  local mklib_cmd="$2"
+  local expected="$3"
+  local tmpdir out first_line compiler
+
+  tmpdir=$(mktemp -d)
+  echo "let x = 1" > "${tmpdir}/a.ml"
+  if ! (cd "${tmpdir}" && "${ocamlc_cmd}" -c a.ml); then
+    echo "ERROR: ${ocamlc_cmd} -c failed in ${tmpdir}"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  if ! out=$(cd "${tmpdir}" && "${mklib_cmd}" -v -o a a.cmo 2>&1); then
+    echo "ERROR: ${mklib_cmd} failed:"
+    echo "${out}" | head -10
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  rm -rf "${tmpdir}"
+
+  first_line=$(echo "${out}" | grep -m1 '^+ ' || true)
+  compiler="${first_line#+ }"
+  compiler="${compiler%% *}"
+  if ! [[ -n "${compiler}" && "${compiler}" -ef "${expected}" ]]; then
+    echo "ERROR: ${mklib_cmd} resolved compiler '${compiler}', expected '${expected}'"
+    exit 1
+  fi
+  echo "  ${mklib_cmd} compiler: ${compiler}"
+}
+
+# ============================================================================
 # CROSS-COMPILER mode
 # ============================================================================
 if [[ "${MODE}" == "cross" ]]; then
@@ -187,6 +225,12 @@ if [[ "${MODE}" == "cross" ]]; then
     fi
   done
   echo "  ${TARGET}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}: all present"
+
+  # --- ocamlmklib compiler resolution ---
+  # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir
+  echo "Checking ${TARGET}-ocamlmklib compiler resolution..."
+  check_ocamlmklib_compiler "${PREFIX}/bin/${TARGET}-ocamlc" "${PREFIX}/bin/${TARGET}-ocamlmklib" \
+    "${CROSS_PREFIX}/bin/ocamlc"
 
 # ============================================================================
 # NATIVE / CROSS-TARGET mode
@@ -343,6 +387,30 @@ else
       exit 1
     fi
     echo "  native_c_libraries: clean"
+
+    # Inventory only: these are baked at configure time
+    for var in bindir standard_library_default; do
+      VAR_VALUE=$("${OCAML_RUN[@]}" -config-var "${var}" 2>/dev/null || echo "N/A")
+      if echo "${VAR_VALUE}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
+        echo "  WARNING: ${var}=${VAR_VALUE} is a build-time staging path baked at configure time (tracked with #188)"
+      fi
+    done
+
+    # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir.
+    # Native only: under OCAML_QEMU the compilers ocamlmklib spawns cannot run.
+    if [[ "${MODE}" != "native" ]]; then
+      echo "  ocamlmklib compiler resolution: skipped in ${MODE} mode"
+    else
+      case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+          echo "  ocamlmklib compiler resolution: skipped on Windows (uses PATH by design)"
+          ;;
+        *)
+          echo "Checking ocamlmklib compiler resolution..."
+          check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
+          ;;
+      esac
+    fi
   else
     echo "Skipping -config-var checks (cannot execute cross-target binaries)"
   fi

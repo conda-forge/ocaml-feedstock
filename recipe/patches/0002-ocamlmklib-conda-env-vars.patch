@@ -5,9 +5,11 @@ Config.ar and Config.mkdll are baked in at compile time and point to BUILD
 tools. Use CONDA_OCAML_AR and CONDA_OCAML_MKDLL when set, so cross builds
 get TARGET tools; fall back to Config otherwise. Unix only: Windows uses
 flexlink, which must not be overridden.
+
+Also resolve ocamlc/ocamlopt next to the running executable (falling back to PATH) instead of Config.bindir; see conda-forge/ocaml-feedstock#188.
 ---
- tools/ocamlmklib.ml | 15 +++++++++++++--
- 1 file changed, 13 insertions(+), 2 deletions(-)
+ tools/ocamlmklib.ml | 24++++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 4 deletions(-)
 
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 --- a/tools/ocamlmklib.ml
@@ -31,7 +33,7 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
  let mklib out files opts =
    if Config.ccomp_type = "msvc"
    then let machine =
-@@ -23,7 +35,7 @@
+@@ -23,12 +35,17 @@
      else ""
    in
    Printf.sprintf "link -lib -nologo %s-out:%s %s %s" machine out opts files
@@ -40,7 +42,18 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 
  (* PR#4783: under Windows, don't use absolute paths because we do
     not know where the binary distribution will be installed. *)
-@@ -288,7 +300,7 @@
++(* conda: Config.bindir is the build-time install prefix, which does not
++   exist once the package is installed elsewhere. Use the compilers that
++   sit next to this executable, falling back to PATH. *)
+ let compiler_path name =
+-  if Sys.os_type = "Win32" then name else Filename.concat Config.bindir name
++  if Sys.os_type = "Win32" then name else
++  let sibling = Filename.concat (Filename.dirname Sys.executable_name) name in
++  if Sys.file_exists sibling then sibling else name
+
+ let bytecode_objs = ref []  (* .cmo,.cma,.ml,.mli files to pass to ocamlc *)
+ and native_objs = ref []    (* .cmx,.ml,.mli files to pass to ocamlopt *)
+@@ -288,7 +305,7 @@
      if !dynlink then begin
        let retcode = command
            (Printf.sprintf "%s %s -o %s %s %s %s %s %s %s"
