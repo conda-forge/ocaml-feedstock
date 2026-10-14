@@ -12,8 +12,6 @@
 # Environment variables (must be set by caller):
 #   CROSS_CC  - Target C compiler (e.g., aarch64-...-gcc)
 #   CROSS_AR  - Target archiver (e.g., aarch64-...-ar)
-#   CROSS_OCAMLMKLIB_NATIVE - Path to native ocamlmklib (optional, defaults to PATH search)
-#   CROSS_OCAMLMKLIB_DEBUG - Set to 1 for verbose output
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -31,12 +29,6 @@ if [[ ${BASH_VERSINFO[0]} -lt 5 || (${BASH_VERSINFO[0]} -eq 5 && ${BASH_VERSINFO
   fi
 fi
 
-debug() {
-  if [[ "${CROSS_OCAMLMKLIB_DEBUG:-}" == "1" ]]; then
-    echo "[cross-ocamlmklib] $*" >&2
-  fi
-}
-
 # macOS needs -undefined dynamic_lookup to defer OCaml runtime symbol resolution to runtime
 # Without this, the linker fails with "Undefined symbols for architecture arm64: _caml_alloc_small..."
 if [[ "$(uname)" == "Darwin" ]]; then
@@ -53,23 +45,15 @@ _build_c_libs() {
   local dll_name="dll${_name}.so"
   local lib_name="lib${_name}.a"
 
-  debug "Building shared library: $dll_name"
   local cmd=("${CROSS_CC}" -shared ${MACOS_LINK_FLAGS[@]+"${MACOS_LINK_FLAGS[@]}"} -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
   [[ -n "$verbose" ]] && echo "+ ${cmd[*]}"
   "${cmd[@]}"
 
-  debug "Building static library: $lib_name"
   rm -f "$lib_name"
   cmd=("${CROSS_AR}" rcs "$lib_name" "${c_objs[@]}")
   [[ -n "$verbose" ]] && echo "+ ${cmd[*]}"
   "${cmd[@]}"
-
-  debug "Built C libs: $dll_name, $lib_name"
 }
-
-debug "Args: $*"
-debug "CROSS_CC=${CROSS_CC:-unset}"
-debug "CROSS_AR=${CROSS_AR:-unset}"
 
 # Parse arguments
 output=""
@@ -139,21 +123,15 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      debug "WARNING: Unknown argument: $1"
       other_args+=("$1")
       shift
       ;;
   esac
 done
 
-debug "C objects: ${c_objs[*]:-none}"
-debug "OCaml objects: ${ocaml_objs[*]:-none}"
-
 # If we have OCaml files, we need the native ocamlmklib for the OCaml archive creation
 # But we still need to intercept C stub library creation
 if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
-  debug "Mixed build detected - OCaml + C files"
-
   # For mixed builds, we build the C stub libs ourselves, then delegate to native ocamlmklib
   # BUT ocamlmklib expects to find the C libs in the directory to link into the .cma/.cmxa
 
@@ -180,23 +158,18 @@ if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
   # Now call native ocamlmklib for OCaml archive creation
   # Remove C object files from args since we already handled them
   # Use "ocamlrun ocamlmklib" because cached ocamlmklib has stale shebang path
-  native_mklib="${CROSS_OCAMLMKLIB_NATIVE:-ocamlmklib}"
 
-  # If native_mklib is just "ocamlmklib", run it via ocamlrun to avoid stale shebang
+  # Run ocamlmklib via ocamlrun to avoid stale shebang
   # Use an array to avoid IFS issues (IFS=$'\n\t' at top removes space as separator)
   native_mklib_cmd=()
-  if [[ "$native_mklib" == "ocamlmklib" ]]; then
-    native_mklib_path=$(command -v ocamlmklib 2>/dev/null || true)
-    ocamlrun_path=$(command -v ocamlrun 2>/dev/null || true)
-    if [[ -n "$native_mklib_path" ]] && [[ -n "$ocamlrun_path" ]]; then
-      # Use absolute paths to avoid PATH issues in sub-directories
-      native_mklib_cmd=("$ocamlrun_path" "$native_mklib_path")
-    elif [[ -n "$native_mklib_path" ]]; then
-      # Fallback: run ocamlmklib directly (may have stale shebang)
-      native_mklib_cmd=("$native_mklib_path")
-    fi
-  else
-    native_mklib_cmd=("$native_mklib")
+  native_mklib_path=$(command -v ocamlmklib 2>/dev/null || true)
+  ocamlrun_path=$(command -v ocamlrun 2>/dev/null || true)
+  if [[ -n "$native_mklib_path" ]] && [[ -n "$ocamlrun_path" ]]; then
+    # Use absolute paths to avoid PATH issues in sub-directories
+    native_mklib_cmd=("$ocamlrun_path" "$native_mklib_path")
+  elif [[ -n "$native_mklib_path" ]]; then
+    # Fallback: run ocamlmklib directly (may have stale shebang)
+    native_mklib_cmd=("$native_mklib_path")
   fi
 
   # Build new args without C objects
@@ -215,12 +188,9 @@ if [[ ${#ocaml_objs[@]} -gt 0 ]]; then
     ((i++)) || true
   done
 
-  debug "Delegating to native ocamlmklib: ${native_mklib_cmd[*]} ${native_args[*]}"
   exec "${native_mklib_cmd[@]}" "${native_args[@]}"
 else
   # C-only build - handle entirely ourselves
-  debug "C-only build detected"
-
   # Use -oc if provided, otherwise fall back to -o (like real ocamlmklib)
   _output_c="${output_c:-$output}"
   if [[ -z "$_output_c" ]]; then
