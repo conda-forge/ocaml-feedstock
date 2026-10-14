@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Test that conda-ocaml-cc/mkexe/mkdll wrappers resolve to real compilers
 # This test runs on ocaml_$platform (NOT ocaml-compiler) with NO extra C compiler
-# test dep — it validates that the run dep on compiler("c") provides the
+# test dep - it validates that the run dep on compiler("c") provides the
 # triplet-prefixed binary that activate.sh bakes into CONDA_OCAML_CC.
 #
 # This catches: missing C compiler run dep, broken activation, wrong triplet name

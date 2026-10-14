@@ -52,11 +52,17 @@ run_logged() {
 # Requires: NEEDS_DL variable to be set (1 = add -ldl)
 apply_cross_patches() {
   cp "${RECIPE_DIR}"/building/Makefile.cross .
-  patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch > /dev/null 2>&1 || true
+  local mk_patch="${RECIPE_DIR}/building/cross-makefile.patch"
+  # A second call on the same tree finds the patch already applied; skip it
+  if ! patch -R -p0 -f -s --dry-run < "${mk_patch}" > /dev/null 2>&1; then
+    if ! patch -N -p0 -f < "${mk_patch}" > /dev/null; then
+      echo "ERROR: cross-makefile.patch did not apply"
+      return 1
+    fi
+  fi
 
   # Fix dynlink "inconsistent assumptions" error:
   # Use otherlibrariesopt-cross target which calls dynlink-allopt with proper CAMLOPT/BEST_OCAMLOPT
-  sed -i 's/otherlibrariesopt ocamltoolsopt/otherlibrariesopt-cross ocamltoolsopt/g' Makefile.cross
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
@@ -110,7 +116,7 @@ find_tool() {
 # ==============================================================================
 
 # Get target ID from triplet (for CONDA_OCAML_<TARGET_ID>_* variables)
-# Usage: get_target_id "aarch64-conda-linux-gnu" → "AARCH64"
+# Usage: get_target_id "aarch64-conda-linux-gnu" -> "AARCH64"
 get_target_id() {
   local target="$1"
   
@@ -124,7 +130,7 @@ get_target_id() {
 }
 
 # Get target architecture for OCaml ARCH variable
-# Usage: get_target_arch "aarch64-conda-linux-gnu" → "arm64"
+# Usage: get_target_arch "aarch64-conda-linux-gnu" -> "arm64"
 get_target_arch() {
   local target="$1"
   
@@ -137,10 +143,10 @@ get_target_arch() {
 }
 
 # Get target platform from triplet
-# Usage: get_target_platform "aarch64-conda-linux-gnu" → "linux-aarch64"
+# Usage: get_target_platform "aarch64-conda-linux-gnu" -> "linux-aarch64"
 get_target_platform() {
   local target="$1"
-  
+
   case "${target}" in
     aarch64-*) echo "linux-aarch64" ;;
     arm64-*) echo "osx-arm64" ;;
@@ -331,8 +337,8 @@ sanitize_and_export_cross_flags() {
 }
 
 # Get target architecture from conda target triplet or platform
-# Usage: get_arch_from_triplet "aarch64-conda-linux-gnu" → "aarch64"
-# Usage: get_arch_from_platform "linux-aarch64" → "aarch64"
+# Usage: get_arch_from_triplet "aarch64-conda-linux-gnu" -> "aarch64"
+# Usage: get_arch_from_platform "linux-aarch64" -> "aarch64"
 get_arch_for_sanitization() {
   local input="$1"
 
@@ -633,7 +639,7 @@ clean_makefile_config() {
 
   # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths
   sed -i '/^CONFIGURE_ARGS=/d' "${config_file}"
-  echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${config_file}"
+  echo "CONFIGURE_ARGS=" >>"${config_file}"
 
   # Replace absolute /home/ paths with prefix
   sed -i "s|/home/[^/]*/feedstock_root[^[:space:]]*|${prefix}|g" "${config_file}"
@@ -696,7 +702,7 @@ clean_runtime_launch_info() {
   #
   # Format:
   #   Line 1: launch method ("sh" or "exe") + \n
-  #   Line 2: BINDIR path + \000 + \n    ← null-terminated! This is intentional.
+  #   Line 2: BINDIR path + \000 + \n    <- null-terminated! This is intentional.
   #   Rest:   compiled stub binary (header.exe)
   #
   # BINDIR is used by ocamlc at LINK TIME to construct #!/BINDIR/ocamlrun shebangs
@@ -787,6 +793,14 @@ patch_makefile_config_post_configure() {
 #   dest_bin_dir - destination bin directory (e.g., ${BUILD_PREFIX}/bin or ${PREFIX}/bin)
 install_conda_ocaml_wrappers() {
   local dest_bin_dir="$1"
+
+  # conda-ocaml-common.sourced is a SOURCED shared library, not an executable
+  # tool: installed at 644 (not 755) into the same dir the wrappers land in,
+  # so each wrapper's `. "$(dirname "$0")/conda-ocaml-common.sourced"`
+  # resolves at runtime (wrappers are exec'd from PATH by
+  # ocamlopt/dune/flexlink in the installed prefix, not sourced by the
+  # build).
+  install -m 644 "${RECIPE_DIR}/scripts/conda-ocaml-common.sourced" "${dest_bin_dir}/conda-ocaml-common.sourced"
 
   for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${dest_bin_dir}/${wrapper}"
@@ -952,7 +966,7 @@ check_unix_crc() {
     | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
 
   if [[ "${unix_crc}" == "${threads_crc}" && -n "${unix_crc}" ]]; then
-    echo "    [PASS] ${label}: unix CRC match (${unix_crc})"
+    echo "    [OK] ${label}: unix CRC match (${unix_crc})"
   else
     echo "    [FAIL] ${label}: unix CRC mismatch"
     echo "           unix.cmxa    CRC: ${unix_crc:-<empty>}"
