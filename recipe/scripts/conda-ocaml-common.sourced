@@ -1,0 +1,89 @@
+# conda-ocaml-common.sourced
+# Shared library sourced by the conda-ocaml-* wrappers (not executable: no
+# shebang, installed at mode 644 by install_conda_ocaml_wrappers). Each wrapper
+# sources it relative to itself and passes its own filename / env var / default
+# tool / flags as literal arguments; identity is never derived from $0 here, or
+# the round-trip guard in ocaml_exec_selfguarded would be circular.
+
+# ocaml_exec_simple <var_value> <default_tool> -- "$@"
+# Plain passthrough used by conda-ocaml-ar/as/ld/ranlib: exec the env var's
+# value if set/non-empty (may be multiple words, e.g. AS="clang -c"), else
+# the default tool, followed by the wrapper's own arguments.
+ocaml_exec_simple() {
+  local var_value="$1"
+  local default_tool="$2"
+  shift 2
+  # shellcheck disable=SC2086
+  exec ${var_value:-${default_tool}} "$@"
+}
+
+# ocaml_darwin_fallback <var_value> <darwin_default> <generic_default>
+# Prints the tool+flags string to use: <var_value> if non-empty, else
+# <darwin_default> on macOS, else <generic_default>. Shared by conda-ocaml-mkdll
+# and conda-ocaml-mkexe, which pass different flag literals.
+ocaml_darwin_fallback() {
+  local var_value="$1" darwin_default="$2" generic_default="$3"
+  # A tool baked into an activation script may not exist here (e.g. an Intel
+  # macOS host bakes "<triplet>-gcc", and macOS has no -gcc driver). On darwin
+  # treat a non-existent tool as unset so the darwin default applies.
+  if [[ -n "${var_value}" ]] && [[ "$OSTYPE" == darwin* ]]; then
+    if ! command -v -- "${var_value%% *}" >/dev/null 2>&1; then
+      var_value=""
+    fi
+  fi
+  if [[ -z "${var_value}" ]] && [[ "$OSTYPE" == darwin* ]]; then
+    printf '%s' "${darwin_default}"
+  else
+    printf '%s' "${var_value:-${generic_default}}"
+  fi
+}
+
+# ocaml_exec_selfguarded <self_name> <fallback_tool_words> -- "$@"
+# Self-path derivation, round-trip guard and -L<prefix>/lib injection used by
+# conda-ocaml-cc and conda-ocaml-mkexe.
+# <self_name> must be the caller's literal installed filename (e.g.
+# "conda-ocaml-cc"), never derived from $0.
+# <fallback_tool_words> is the resolved tool+flags string (e.g.
+# "${CONDA_OCAML_CC:-cc}"); it is expanded unquoted below so it word-splits.
+ocaml_exec_selfguarded() {
+  local self_name="$1"
+  local fallback_tool="$2"
+  shift 2
+
+  # $0 may be a bare basename (spawned via execvp, as config.generated.ml does)
+  # and exec does not rewrite it; resolve through PATH so dirname does not fall
+  # back to the CWD.
+  local resolved_self="$0"
+  case "$0" in
+    */*) : ;; # already has a path component, use as-is
+    *) resolved_self="$(command -v -- "$0" 2>/dev/null || echo "$0")" ;;
+  esac
+
+  local derived_prefix=""
+  local script_dir
+  if script_dir="$(cd -- "$(dirname -- "${resolved_self}")" && pwd -P 2>/dev/null)"; then
+    derived_prefix="${script_dir%/bin}"
+  fi
+
+  # Round-trip self-check: accept the derived prefix only if it leads back to
+  # this wrapper at <prefix>/bin/<self_name>; otherwise an unrelated directory
+  # (e.g. the CWD) with a lib/ subdir could silently inject a wrong -L. The
+  # lib check is secondary.
+  if [[ -n "${derived_prefix:-}" ]] \
+    && [[ -x "${derived_prefix}/bin/${self_name}" ]] \
+    && [[ -d "${derived_prefix}/lib" ]]; then
+    # shellcheck disable=SC2086
+    exec ${fallback_tool} -L"${derived_prefix}/lib" "$@"
+  fi
+
+  # Self-derivation failed: fall back to CONDA_PREFIX, trusted only if its lib
+  # dir exists (in a build/test sandbox it may point at the build env).
+  if [[ -n "${CONDA_PREFIX:-}" ]] && [[ -d "${CONDA_PREFIX}/lib" ]]; then
+    # shellcheck disable=SC2086
+    exec ${fallback_tool} -L"${CONDA_PREFIX}/lib" "$@"
+  fi
+
+  # Neither resolved: exec with no -L.
+  # shellcheck disable=SC2086
+  exec ${fallback_tool} "$@"
+}
