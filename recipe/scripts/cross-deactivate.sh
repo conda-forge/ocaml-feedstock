@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# Cross-compiler deactivation — restore native state and clean up
+# Cross-compiler deactivation - restore native state and clean up
 
 # Ensure native mode before cleanup
 if type ocaml_use_native >/dev/null 2>&1; then
