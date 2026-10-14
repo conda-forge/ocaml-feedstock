@@ -390,22 +390,27 @@ else
 
     # Inventory only: these are baked at configure time
     for var in bindir standard_library_default; do
-      VAR_VALUE=$("${OCAML_CMD}" -config-var "${var}" 2>/dev/null || echo "N/A")
+      VAR_VALUE=$("${OCAML_RUN[@]}" -config-var "${var}" 2>/dev/null || echo "N/A")
       if echo "${VAR_VALUE}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
         echo "  WARNING: ${var}=${VAR_VALUE} is a build-time staging path baked at configure time (tracked with #188)"
       fi
     done
 
     # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir
-    case "$(uname -s)" in
-      MINGW*|MSYS*|CYGWIN*)
-        echo "  ocamlmklib compiler resolution: skipped on Windows (uses PATH by design)"
-        ;;
-      *)
-        echo "Checking ocamlmklib compiler resolution..."
-        check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
-        ;;
-    esac
+    # Native only: under OCAML_QEMU the compilers ocamlmklib spawns cannot run.
+    if [[ "${MODE}" != "native" ]]; then
+      echo "  ocamlmklib compiler resolution: skipped in ${MODE} mode"
+    else
+      case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+          echo "  ocamlmklib compiler resolution: skipped on Windows (uses PATH by design)"
+          ;;
+        *)
+          echo "Checking ocamlmklib compiler resolution..."
+          check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
+          ;;
+      esac
+    fi
   else
     echo "Skipping -config-var checks (cannot execute cross-target binaries)"
   fi
