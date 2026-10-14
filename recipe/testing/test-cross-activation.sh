@@ -9,7 +9,7 @@ ERRORS=0
 # Test 1: Cross activation script exists and was sourced
 echo "Test 1: Cross activation script sourced"
 if [[ -z "${OCAML_CROSS_TARGET:-}" ]]; then
-  echo "  FAIL: OCAML_CROSS_TARGET not set — cross-activate.sh not sourced"
+  echo "  FAIL: OCAML_CROSS_TARGET not set - cross-activate.sh not sourced"
   ERRORS=$((ERRORS + 1))
 else
   echo "  PASS: OCAML_CROSS_TARGET=${OCAML_CROSS_TARGET}"

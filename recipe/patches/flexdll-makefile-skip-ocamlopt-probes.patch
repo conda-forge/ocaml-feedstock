@@ -1,0 +1,21 @@
+diff -ruN a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -11,13 +11,17 @@
+
+ all: flexlink.exe support
+
++ifeq ($(OCAML_CONFIG_FILE),)
+ OCAML_CONFIG_FILE=$(shell cygpath -ad "$(shell ocamlopt -where 2>/dev/null)/Makefile.config" 2>/dev/null)
++endif
+ include $(OCAML_CONFIG_FILE)
+ OCAMLOPT=ocamlopt
+ EMPTY=
+ SPACE=$(EMPTY) $(EMPTY)
+ COMMA=,
++ifeq ($(OCAML_VERSION),)
+ OCAML_VERSION:=$(firstword $(subst ~, ,$(subst +, ,$(shell $(OCAMLOPT) -version 2>/dev/null))))
++endif
+ ifeq ($(OCAML_VERSION),)
+ OCAML_VERSION:=0
+ COMPAT_VERSION:=0
