@@ -1,0 +1,19 @@
+c_compiler:
+  - if: not unix and x86_64
+    then:
+      - vs2022
+      - gcc
+
+c_compiler_version:
+  - if: s390x
+    then:
+      - 14
+
+cross_target_platform_:
+  - linux-64
+  - linux-aarch64
+  - linux-ppc64le
+  - linux-s390x
+  - osx-64
+  - osx-arm64
+  - win-64
