@@ -5,6 +5,7 @@
 # against it.
 
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/test-helpers.sh"
 
 VERSION="${1:-}"
 
@@ -17,6 +18,7 @@ echo "=== compiler-libs native link test ==="
 export CONDA_OCAML_CC="${CONDA_OCAML_CC:-cc}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-${CONDA_OCAML_CC}}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-${CONDA_OCAML_CC} -shared}"
+qemu_wrap_toolchain
 
 TMPDIR_TEST="$(mktemp -d)"
 trap 'rm -rf "${TMPDIR_TEST}"' EXIT
@@ -25,7 +27,7 @@ cd "${TMPDIR_TEST}"
 printf 'let () = print_string Config.version\n' > t.ml
 
 echo "=== Testing native link against compiler-libs ==="
-if ocamlopt -I +compiler-libs ocamlcommon.cmxa t.ml -o t > link_out.txt 2>&1; then
+if run_target ocamlopt -I +compiler-libs ocamlcommon.cmxa t.ml -o t > link_out.txt 2>&1; then
   echo "  link: OK"
 else
   echo "  [FAIL] native link against compiler-libs failed"
@@ -34,18 +36,10 @@ else
   exit 1
 fi
 
-# Diagnostic only: show the Extra C options recorded in ocamlcommon.cmxa,
-# where the stale -L is recorded. Does not affect PASS/FAIL.
-if command -v ocamlobjinfo >/dev/null 2>&1; then
-  CMXA_PATH="$(ocamlopt -where)/compiler-libs/ocamlcommon.cmxa"
-  echo "  Extra C options for ocamlcommon.cmxa (diagnostic):"
-  ocamlobjinfo "${CMXA_PATH}" 2>/dev/null | grep "Extra C options" || echo "    (not found)"
-fi
-
 # Bonus check: run the produced executable if this platform can run it.
 # Cross-targets under emulation may not run it; only the link is required.
 if [[ -x ./t ]]; then
-  if ./t > run_out.txt 2>&1; then
+  if run_target ./t > run_out.txt 2>&1; then
     ACTUAL_VERSION="$(cat run_out.txt)"
     echo "  execution: OK (${ACTUAL_VERSION})"
     if [[ -n "${VERSION}" && "${ACTUAL_VERSION}" != "${VERSION}" ]]; then
