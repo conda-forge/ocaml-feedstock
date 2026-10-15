@@ -1531,9 +1531,17 @@ TOOLWRAPPER
         echo "  zstd-free target: pinning stdlib CAMLC to in-tree ocamlc (STDLIB_CMI_PIN_INTREE=1)"
       fi
 
+      # ocamlcommon.cmxa records -lzstd with no -L, and the host binaries built
+      # here link with the build-machine clang, where ${BUILD_PREFIX}/lib holds the
+      # only build-arch libzstd. Osx only: the linux native toolchain flags already
+      # carry -L${BUILD_PREFIX}/lib. Scoped to this make, not exported build-wide.
+      local crossopt_env=()
+      [[ "${build_platform:-}" == osx-* ]] \
+        && crossopt_env=(env LIBRARY_PATH="${BUILD_PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}")
+
       # Serialized: Makefile.cross deletes utils/*.cmi and middle_end/*.cmi mid-build,
       # which races with parallel compile jobs and corrupts what a concurrent ocamlc reads
-      run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j1
+      run_logged "crossopt" "${crossopt_env[@]}" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j1
 
       # --- Install crossopt ---
       echo "  [6/7] Installing cross-compiler via 'make installcross'..."
