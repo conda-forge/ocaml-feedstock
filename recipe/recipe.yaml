@@ -1,7 +1,11 @@
 context:
   # At least main + 100 so label builds never share a filename with main builds
-  build_number: 119
-  version: 5.4.0
+  build_number: 100
+  # True while the build-platform and target ocaml_<x> for this version are
+  # not yet published: their requirements drop to a >=5.4 floor. Set back to
+  # false once this version's packages are on the channel.
+  bootstrap: true
+  version: 5.4.1
   flexdll_version: "0.44"
 
   dot: ${{ "./" if unix else "" }}
@@ -104,7 +108,7 @@ recipe:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
+    sha256: d4528517aaa1a44b8e2b1bc109a1ed0a5e0014f3ddc4feb8906b11a7e063e89a
     patches:
       # Fix header include order bug where atomic_load_acquire/atomic_store_release
       # macros are undefined when mlvalues.h is included before platform.h.
@@ -309,7 +313,7 @@ outputs:
         # Guard (cross_target_platform_ != build_platform) prevents self-referenced cycle detection
         - if: is_cross_compiler and (linux or osx) and (cross_target_platform_ != build_platform)
           then:
-            - if: build_number == 0
+            - if: bootstrap
               then:
                 - ocaml_${{ build_platform }} >=5.4
               else:
@@ -334,7 +338,7 @@ outputs:
             # run-target.sh emulates target binaries during crossopt
             - if: is_qemuable
               then: ${{ qemu_pkg }}
-            - if: build_number == 0
+            - if: bootstrap
               then:
                 - ocaml_${{ build_platform }} >=5.4
                 - if: not bootstrap_in_lane
