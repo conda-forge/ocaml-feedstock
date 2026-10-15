@@ -63,6 +63,11 @@ COMPRESSED_MARSHALING_OVERRIDE='COMPRESSED_MARSHALING_FLAGS=-cclib -lcomprmarsh 
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
+  # Relocatable layout, matching opam's 5.5 compiler.
+  --with-relative-libdir
+  --enable-runtime-search
+  --enable-runtime-search-target=fallback
+  --with-additional-stublibsdir
   --enable-installing-source-artifacts
   --enable-installing-bytecode-programs
   PKG_CONFIG=false
@@ -386,11 +391,12 @@ build_native() {
     CC="${NATIVE_CC}" "${RECIPE_DIR}/building/build-wrappers.sh" "${BUILD_PREFIX}/Library/bin"
   fi
 
-  # TARGET_BINDIR/LIBDIR tell OCaml where binaries and libraries live at runtime
-  # on the target; conda-forge relocates paths containing ${PREFIX}, not _native ones.
+  # TARGET_BINDIR tells OCaml where binaries live at runtime on the target;
+  # conda-forge relocates paths containing ${PREFIX}, not _native ones.
   # An in-lane native stage overrides TARGET_BINDIR to its own staging bin.
+  # TARGET_LIBDIR must stay unset: --with-relative-libdir derives it.
   export TARGET_BINDIR="${TARGET_BINDIR:-${PREFIX}/bin}"
-  export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
+  unset TARGET_LIBDIR
 
   echo ""
   echo "  [1/4] Configuring native compiler"
@@ -1095,9 +1101,6 @@ C_EOF
   local installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   clean_makefile_config "${installed_config}" "${PREFIX}"
 
-  # runtime-launch-info is cleaned after transfer_to_prefix; cleaning here would
-  # corrupt it when this build is an intermediate stage.
-
   # OCaml embeds @rpath/libzstd.1.dylib; BYTECCLIBS should already set the rpath,
   # so only add it if missing.
   if [[ "${target_platform}" == "osx"* ]]; then
@@ -1684,9 +1687,6 @@ EOF
       echo "    WARNING: Makefile.config not found at ${makefile_config}"
     fi
 
-    # runtime-launch-info is cleaned after the transfer; cleaning here would
-    # corrupt it before the cross-target stage can use it.
-
     echo "  Cleaning up unnecessary library files..."
     (
       cd "${OCAML_CROSS_LIBDIR}"
@@ -1931,10 +1931,11 @@ EOF
   echo "    Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
   install_conda_ocaml_wrappers "${BUILD_PREFIX}/bin"
 
-  # TARGET_BINDIR/LIBDIR tell OCaml where binaries and libraries live at runtime
-  # on the target; conda-forge relocates paths containing ${PREFIX}, not _native ones.
+  # TARGET_BINDIR tells OCaml where binaries live at runtime on the target;
+  # conda-forge relocates paths containing ${PREFIX}, not _native ones.
+  # TARGET_LIBDIR must stay unset: --with-relative-libdir derives it.
   export TARGET_BINDIR="${PREFIX}/bin"
-  export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
+  unset TARGET_LIBDIR
 
   run_logged "stage3_configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}"
 
@@ -2128,9 +2129,6 @@ STRIPDEBUG
   local installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   clean_makefile_config "${installed_config}" "${PREFIX}"
 
-  # runtime-launch-info is cleaned after the transfer; cleaning here would
-  # corrupt it when this is an intermediate stage.
-
   if [[ "${target_platform}" == "osx-"* ]]; then
     echo "    Fixing macOS install names..."
     bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_INSTALL_PREFIX}/lib/ocaml"
@@ -2214,12 +2212,6 @@ EOF
     clean_makefile_config "${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
   fi
 
-  # runtime-launch-info is cleaned after the transfer to PREFIX
-  echo "  Cleaning build-time paths from final runtime-launch-info..."
-  if is_unix; then
-    clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
-  fi
-
 fi
 
 # GNU make deletes toplevel/byte/*.cmi as chained-implicit-rule intermediates
@@ -2287,12 +2279,6 @@ ${cross_dir}lib/ocaml/stublibs
 ${cross_dir}lib/ocaml
 EOF
       echo "    Fixed: lib/ocaml-cross-compilers/${triplet}/lib/ocaml/ld.conf"
-    fi
-
-    # runtime-launch-info is binary: use the binary-safe cleanup
-    runtime_info="${cross_dir}/lib/ocaml/runtime-launch-info"
-    if [[ -f "$runtime_info" ]]; then
-      clean_runtime_launch_info "$runtime_info" "${OCAML_INSTALL_PREFIX}"
     fi
   done
 fi
@@ -2376,12 +2362,6 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
 
   echo "  Cleaning build-time paths from final Makefile.config..."
   clean_makefile_config "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
-
-  # This build copies runtime-launch-info from the cross-compiler's stdlib, whose
-  # BINDIR points at the cross-compiler's staging directory; line 2 is replaced
-  # with the target BINDIR ($PREFIX/bin).
-  echo "  Cleaning build-time paths from final runtime-launch-info..."
-  clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
 
   # Any other installed text file (META, scripts, ...) that still names the
   # staging prefix; grep -I skips binaries, which are left untouched.
