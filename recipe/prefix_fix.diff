@@ -1,5 +1,5 @@
---- tools/ocamlmklib.ml.orig	2025-02-24 23:53:31.217791019 +0000
-+++ tools/ocamlmklib.ml	2025-02-24 23:53:51.373565862 +0000
+--- a/tools/ocamlmklib.ml
++++ b/tools/ocamlmklib.ml
 @@ -30,8 +30,7 @@
  
  (* PR#4783: under Windows, don't use absolute paths because we do
@@ -10,8 +10,8 @@
  
  let bytecode_objs = ref []  (* .cmo,.cma,.ml,.mli files to pass to ocamlc *)
  and native_objs = ref []    (* .cmx,.ml,.mli files to pass to ocamlopt *)
---- ./stdlib/Makefile.orig	2025-02-24 23:47:01.974146199 +0000
-+++ ./stdlib/Makefile	2025-02-24 23:49:20.080599122 +0000
+--- a/stdlib/Makefile
++++ b/stdlib/Makefile
 @@ -130,12 +130,7 @@
  # patterns and $(subst ...) since `camlheader%:` wouldn't match `camlheader`
  ifeq "$(SHEBANGSCRIPTS)" "true"
@@ -26,8 +26,8 @@
  
  # TODO This does not take long shebangs into account (since TARGET_BINDIR is not
  #      yet processed by configure)
---- ./utils/config.mlp.orig	2025-02-24 23:54:27.037167528 +0000
-+++ ./utils/config.mlp	2025-02-24 23:54:56.692836365 +0000
+--- a/utils/config.mlp
++++ b/utils/config.mlp
 @@ -19,7 +19,7 @@
  
  let bindir = "%%BINDIR%%"
