@@ -427,348 +427,352 @@ outputs:
     # TESTS
     # ========================================================================
     tests:
-      # ----------------------------------------------------------------------
-      # Package contents verification
-      # ----------------------------------------------------------------------
-      - package_contents:
-          strict: true
-          bin:
-            # NATIVE and CROSS-TARGET: native toolset for the target platform
-            - if: is_standard_layout
-              then:
-                - conda-ocaml-ar
-                - conda-ocaml-as
-                - conda-ocaml-cc
-                - conda-ocaml-ld
-                - conda-ocaml-ranlib
-                - if: unix
+      # The cross-compiler's test env needs ocaml_<build_platform> of this
+      # version, which is unpublished while bootstrapping, so it cannot solve.
+      - if: not (bootstrap and is_cross_compiler)
+        then:
+          # ----------------------------------------------------------------------
+          # Package contents verification
+          # ----------------------------------------------------------------------
+          - package_contents:
+              strict: true
+              bin:
+                # NATIVE and CROSS-TARGET: native toolset for the target platform
+                - if: is_standard_layout
                   then:
-                    - conda-ocaml-common.sourced
-                    - conda-ocaml-mkdll
-                    - conda-ocaml-mkexe
-                - ocaml
-                - ocamlc
-                - ocamldep
-                - ocamllex
-                - ocamlobjinfo
-                - ocamlmklib
-                - ocamlyacc
-                - ocamlc.byte
-                - ocamldep.byte
-                - ocamllex.byte
-                - ocamlobjinfo.byte
-                - ocamlcmt
-                - ocamlcp
-                - ocamlmktop
-                - ocamlprof
-                - ocamlrun
-                - ocamlrund
-                - if: has_native_backend
-                  then:
-                    - ocamlopt
-                    - ocamlc.opt
-                    - ocamldep.opt
-                    - ocamllex.opt
-                    - ocamlobjinfo.opt
-                    - ocamlopt.opt
-                    - ocamlopt.byte
-                    - ocamloptp
-                - if: unix or c_compiler in ["vs2022", "zig"]
-                  then:
-                    - ocamlruni
-                - if: not unix and c_compiler == "vs2022"
-                  then:
-                    - default_amd64.manifest
-                - if: not unix
-                  then:
-                    - flexlink
-                    - flexlink.byte
+                    - conda-ocaml-ar
+                    - conda-ocaml-as
+                    - conda-ocaml-cc
+                    - conda-ocaml-ld
+                    - conda-ocaml-ranlib
+                    - if: unix
+                      then:
+                        - conda-ocaml-common.sourced
+                        - conda-ocaml-mkdll
+                        - conda-ocaml-mkexe
+                    - ocaml
+                    - ocamlc
+                    - ocamldep
+                    - ocamllex
+                    - ocamlobjinfo
+                    - ocamlmklib
+                    - ocamlyacc
+                    - ocamlc.byte
+                    - ocamldep.byte
+                    - ocamllex.byte
+                    - ocamlobjinfo.byte
+                    - ocamlcmt
+                    - ocamlcp
+                    - ocamlmktop
+                    - ocamlprof
+                    - ocamlrun
+                    - ocamlrund
                     - if: has_native_backend
                       then:
-                        - flexlink.opt
-                    - conda-ocaml-windres
+                        - ocamlopt
+                        - ocamlc.opt
+                        - ocamldep.opt
+                        - ocamllex.opt
+                        - ocamlobjinfo.opt
+                        - ocamlopt.opt
+                        - ocamlopt.byte
+                        - ocamloptp
+                    - if: unix or c_compiler in ["vs2022", "zig"]
+                      then:
+                        - ocamlruni
+                    - if: not unix and c_compiler == "vs2022"
+                      then:
+                        - default_amd64.manifest
+                    - if: not unix
+                      then:
+                        - flexlink
+                        - flexlink.byte
+                        - if: has_native_backend
+                          then:
+                            - flexlink.opt
+                        - conda-ocaml-windres
 
-            # NATIVE only: not built when cross-compiling
-            - if: is_native
-              then:
-                - ocamldebug
-            - if: is_native and has_ocamldoc
-              then:
-                - ocamldoc
-                - ocamldoc.opt
-
-            # CROSS-COMPILER: Prefixed cross tools
-            - if: is_cross_compiler
-              then:
-                - ${{ target_triplet }}-ocamlc
-                - ${{ target_triplet }}-ocamldep
-                - ${{ target_triplet }}-ocamllex
-                - ${{ target_triplet }}-ocamlobjinfo
-                - ${{ target_triplet }}-ocamlopt
-                - ${{ target_triplet }}-ocamlmklib
-                - ${{ target_triplet }}-ocamlyacc
-                - ${{ target_triplet }}-ocamlc.opt
-                - ${{ target_triplet }}-ocamldep.opt
-                - ${{ target_triplet }}-ocamllex.opt
-                - ${{ target_triplet }}-ocamlobjinfo.opt
-                - ${{ target_triplet }}-ocamlopt.opt
-                - ${{ target_triplet }}-ocamlmklib.opt
-                - ${{ target_triplet }}-ocamlyacc.opt
-                - ${{ target_triplet }}-ocaml-ar
-                - ${{ target_triplet }}-ocaml-as
-                - ${{ target_triplet }}-ocaml-cc
-                - ${{ target_triplet }}-ocaml-ld
-                - ${{ target_triplet }}-ocaml-mkdll
-                - ${{ target_triplet }}-ocaml-mkexe
-                - ${{ target_triplet }}-ocaml-ranlib
-
-          files:
-            - etc/conda/test-files/*
-
-            # NATIVE/CROSS-TARGET: Standard layout
-            - if: is_standard_layout
-              then:
-                - etc/conda/activate.d/ocaml_activate.${{ sh }}
-                - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
-                - ${{ library }}lib/ocaml/expunge${{ xt }}
-                - ${{ library }}lib/ocaml/ld.conf
-                - ${{ library }}lib/ocaml/Makefile.config
-                - ${{ library }}lib/ocaml/runtime-launch-info
-                - ${{ library }}lib/ocaml/sys.ml.in
-                - ${{ library }}lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
-                - ${{ library }}lib/ocaml/caml/domain_state.tbl
-                - ${{ library }}lib/ocaml/caml/*.h
-                - ${{ library }}lib/ocaml/compiler-libs/*
-                - ${{ library }}lib/ocaml/dynlink/*
-                - ${{ library }}lib/ocaml/profiling/*
-                - ${{ library }}lib/ocaml/runtime_events/*
-                - ${{ library }}lib/ocaml/stdlib/*
-                - ${{ library }}lib/ocaml/str/*
-                - ${{ library }}lib/ocaml/threads/*
-                - ${{ library }}lib/ocaml/unix/*
-                - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
-                - ${{ library }}share/doc/ocaml/*
-                - if: c_compiler == "zig"
+                # NATIVE only: not built when cross-compiling
+                - if: is_native
                   then:
-                    - ${{ library }}bin/conda-ocaml-*.pdb
-                - if: unix
-                  then:
-                    - ${{ library }}share/man/man1/*
+                    - ocamldebug
                 - if: is_native and has_ocamldoc
                   then:
-                    - ${{ library }}share/man/man3/*
-                - if: unix or c_compiler == "gcc"
+                    - ocamldoc
+                    - ocamldoc.opt
+
+                # CROSS-COMPILER: Prefixed cross tools
+                - if: is_cross_compiler
                   then:
-                    - ${{ library }}lib/ocaml/libasmrun.a
-                  else:
-                    - ${{ library }}lib/ocaml/libcamlrun.lib
-                    - ${{ library }}lib/ocaml/libcamlrund.lib
-                    - ${{ library }}lib/ocaml/libcamlruni.lib
-                    - ${{ library }}lib/ocaml/libcamlruntime_eventsbyt.lib
-                    - ${{ library }}lib/ocaml/libcamlstrbyt.lib
-                    - ${{ library }}lib/ocaml/libthreads.lib
-                    - ${{ library }}lib/ocaml/libunixbyt.lib
-                    - if: has_native_backend
-                      then:
-                        - ${{ library }}lib/ocaml/libasmrun.lib
-                        - ${{ library }}lib/ocaml/libasmrund.lib
-                        - ${{ library }}lib/ocaml/libasmruni.lib
-                        - ${{ library }}lib/ocaml/libcamlruntime_eventsnat.lib
-                        - ${{ library }}lib/ocaml/libcamlstrnat.lib
-                        - ${{ library }}lib/ocaml/libcomprmarsh.lib
-                        - ${{ library }}lib/ocaml/libthreadsnat.lib
-                        - ${{ library }}lib/ocaml/libunixnat.lib
-                        - ${{ library }}lib/ocaml/std_exit.obj
-                        - ${{ library }}lib/ocaml/stdlib.lib
-                    # flexdll ships a different initer object per toolchain.
-                    - if: c_compiler == "vs2022"
-                      then:
-                        - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
-                        - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
+                    - ${{ target_triplet }}-ocamlc
+                    - ${{ target_triplet }}-ocamldep
+                    - ${{ target_triplet }}-ocamllex
+                    - ${{ target_triplet }}-ocamlobjinfo
+                    - ${{ target_triplet }}-ocamlopt
+                    - ${{ target_triplet }}-ocamlmklib
+                    - ${{ target_triplet }}-ocamlyacc
+                    - ${{ target_triplet }}-ocamlc.opt
+                    - ${{ target_triplet }}-ocamldep.opt
+                    - ${{ target_triplet }}-ocamllex.opt
+                    - ${{ target_triplet }}-ocamlobjinfo.opt
+                    - ${{ target_triplet }}-ocamlopt.opt
+                    - ${{ target_triplet }}-ocamlmklib.opt
+                    - ${{ target_triplet }}-ocamlyacc.opt
+                    - ${{ target_triplet }}-ocaml-ar
+                    - ${{ target_triplet }}-ocaml-as
+                    - ${{ target_triplet }}-ocaml-cc
+                    - ${{ target_triplet }}-ocaml-ld
+                    - ${{ target_triplet }}-ocaml-mkdll
+                    - ${{ target_triplet }}-ocaml-mkexe
+                    - ${{ target_triplet }}-ocaml-ranlib
+
+              files:
+                - etc/conda/test-files/*
+
+                # NATIVE/CROSS-TARGET: Standard layout
+                - if: is_standard_layout
+                  then:
+                    - etc/conda/activate.d/ocaml_activate.${{ sh }}
+                    - etc/conda/deactivate.d/ocaml_deactivate.${{ sh }}
+                    - ${{ library }}lib/ocaml/expunge${{ xt }}
+                    - ${{ library }}lib/ocaml/ld.conf
+                    - ${{ library }}lib/ocaml/Makefile.config
+                    - ${{ library }}lib/ocaml/runtime-launch-info
+                    - ${{ library }}lib/ocaml/sys.ml.in
+                    - ${{ library }}lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
+                    - ${{ library }}lib/ocaml/caml/domain_state.tbl
+                    - ${{ library }}lib/ocaml/caml/*.h
+                    - ${{ library }}lib/ocaml/compiler-libs/*
+                    - ${{ library }}lib/ocaml/dynlink/*
+                    - ${{ library }}lib/ocaml/profiling/*
+                    - ${{ library }}lib/ocaml/runtime_events/*
+                    - ${{ library }}lib/ocaml/stdlib/*
+                    - ${{ library }}lib/ocaml/str/*
+                    - ${{ library }}lib/ocaml/threads/*
+                    - ${{ library }}lib/ocaml/unix/*
+                    - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
+                    - ${{ library }}share/doc/ocaml/*
                     - if: c_compiler == "zig"
                       then:
-                        - ${{ library }}lib/ocaml/flexdll/flexdll_initer_mingw64arm.obj
-                        - ${{ library }}lib/ocaml/flexdll/flexdll_mingw64arm.obj
-                        - ${{ library }}lib/ocaml/flexdll/lib*.a
+                        - ${{ library }}bin/conda-ocaml-*.pdb
+                    - if: unix
+                      then:
+                        - ${{ library }}share/man/man1/*
+                    - if: is_native and has_ocamldoc
+                      then:
+                        - ${{ library }}share/man/man3/*
+                    - if: unix or c_compiler == "gcc"
+                      then:
+                        - ${{ library }}lib/ocaml/libasmrun.a
+                      else:
+                        - ${{ library }}lib/ocaml/libcamlrun.lib
+                        - ${{ library }}lib/ocaml/libcamlrund.lib
+                        - ${{ library }}lib/ocaml/libcamlruni.lib
+                        - ${{ library }}lib/ocaml/libcamlruntime_eventsbyt.lib
+                        - ${{ library }}lib/ocaml/libcamlstrbyt.lib
+                        - ${{ library }}lib/ocaml/libthreads.lib
+                        - ${{ library }}lib/ocaml/libunixbyt.lib
+                        - if: has_native_backend
+                          then:
+                            - ${{ library }}lib/ocaml/libasmrun.lib
+                            - ${{ library }}lib/ocaml/libasmrund.lib
+                            - ${{ library }}lib/ocaml/libasmruni.lib
+                            - ${{ library }}lib/ocaml/libcamlruntime_eventsnat.lib
+                            - ${{ library }}lib/ocaml/libcamlstrnat.lib
+                            - ${{ library }}lib/ocaml/libcomprmarsh.lib
+                            - ${{ library }}lib/ocaml/libthreadsnat.lib
+                            - ${{ library }}lib/ocaml/libunixnat.lib
+                            - ${{ library }}lib/ocaml/std_exit.obj
+                            - ${{ library }}lib/ocaml/stdlib.lib
+                        # flexdll ships a different initer object per toolchain.
+                        - if: c_compiler == "vs2022"
+                          then:
+                            - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
+                            - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
+                        - if: c_compiler == "zig"
+                          then:
+                            - ${{ library }}lib/ocaml/flexdll/flexdll_initer_mingw64arm.obj
+                            - ${{ library }}lib/ocaml/flexdll/flexdll_mingw64arm.obj
+                            - ${{ library }}lib/ocaml/flexdll/lib*.a
+                    - if: unix
+                      then:
+                        - ${{ library }}lib/ocaml/libasmrun_shared.so
+                        - ${{ library }}lib/ocaml/libcamlrun_shared.so
+
+                # NATIVE: Also includes ocamldoc directory
+                - if: is_native and has_ocamldoc
+                  then:
+                    - ${{ library }}lib/ocaml/ocamldoc/*
+
+                # CROSS-COMPILER: Cross-compiler layout
+                - if: is_cross_compiler
+                  then:
+                    - etc/conda/activate.d/ocaml_cross_activate.sh
+                    - etc/conda/deactivate.d/ocaml_cross_deactivate.sh
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlc
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamldep
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamllex
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlmklib
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlyacc
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlc.opt
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamldep.opt
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamllex.opt
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun_shared.so
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libcamlrun_shared.so
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/Makefile.config
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime-launch-info
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/sys.ml.in
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/domain_state.tbl
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/*.h
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/compiler-libs/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/dynlink/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/profiling/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime_events/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stdlib/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/str/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
+
+          # ----------------------------------------------------------------------
+          # Package integrity: paths, config, env vars, rpath
+          # ----------------------------------------------------------------------
+          - script:
+              - if: is_qemuable
+                then: |
+                  export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+              - if: is_native
+                then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
+              - if: is_cross_target
+                then: cd testing && ./test-package-integrity.sh cross-target
+              - if: is_cross_compiler
+                then: cd testing && ./test-package-integrity.sh cross ${{ target_triplet }}
+              - if: not (is_native or is_cross_target or is_cross_compiler)
+                then: echo "Invalid artifact" && exit 1
+            files:
+              recipe:
+                - testing/test-package-integrity.${{ sh }}
+            requirements:
+              build:
+                - ${{ m2 }}grep
+                # Native readelf/strings for inspecting target binaries
                 - if: unix
                   then:
-                    - ${{ library }}lib/ocaml/libasmrun_shared.so
-                    - ${{ library }}lib/ocaml/libcamlrun_shared.so
+                    - binutils_impl_${{ build_platform }}
+                - if: is_qemuable
+                  then: ${{ qemu_pkg }}
 
-            # NATIVE: Also includes ocamldoc directory
-            - if: is_native and has_ocamldoc
-              then:
-                - ${{ library }}lib/ocaml/ocamldoc/*
+          # ----------------------------------------------------------------------
+          # CROSS-TARGET: Cross-compiled binary architecture verification
+          # ----------------------------------------------------------------------
+          - script:
+              - if: is_cross_target
+                then: cd testing && ${{ dot }}test-cross-arch.sh ${{ target_platform }}
+                else: echo "Native build or cross-compiler - skipping cross-arch check"
+            files:
+              recipe:
+                - testing/test-cross-arch.sh
+            requirements:
+              build:
+                - ${{ m2 }}grep
+                - if: unix
+                  then:
+                    - binutils_impl_${{ build_platform }}
 
-            # CROSS-COMPILER: Cross-compiler layout
-            - if: is_cross_compiler
-              then:
-                - etc/conda/activate.d/ocaml_cross_activate.sh
-                - etc/conda/deactivate.d/ocaml_cross_deactivate.sh
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlc
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamldep
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamllex
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlmklib
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlyacc
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlc.opt
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamldep.opt
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamllex.opt
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun_shared.so
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libcamlrun_shared.so
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/Makefile.config
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime-launch-info
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/sys.ml.in
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/*.{a,cma,cmi,cmo,cmt,cmti,cmx,cmxa,ml,mli,o}
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/domain_state.tbl
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/caml/*.h
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/compiler-libs/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/dynlink/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/profiling/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime_events/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stdlib/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/str/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
-                - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
+          # ----------------------------------------------------------------------
+          # NATIVE: Tool version checks
+          # ----------------------------------------------------------------------
+          - script:
+              - if: is_native
+                then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }} ${{ native_mode }}
+                else: echo "Skipping tool version tests"
+            files:
+              recipe:
+                - testing/test-tool-versions.${{ sh }}
+            requirements:
+              build:
+                - ${{ m2 }}grep
 
-      # ----------------------------------------------------------------------
-      # Package integrity: paths, config, env vars, rpath
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_qemuable
-            then: |
-              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
-          - if: is_native
-            then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
-          - if: is_cross_target
-            then: cd testing && ./test-package-integrity.sh cross-target
-          - if: is_cross_compiler
-            then: cd testing && ./test-package-integrity.sh cross ${{ target_triplet }}
-          - if: not (is_native or is_cross_target or is_cross_compiler)
-            then: echo "Invalid artifact" && exit 1
-        files:
-          recipe:
-            - testing/test-package-integrity.${{ sh }}
-        requirements:
-          build:
-            - ${{ m2 }}grep
-            # Native readelf/strings for inspecting target binaries
-            - if: unix
-              then:
-                - binutils_impl_${{ build_platform }}
-            - if: is_qemuable
-              then: ${{ qemu_pkg }}
+          # ----------------------------------------------------------------------
+          # NATIVE: Native-only tools test (ocamldoc, ocamldebug)
+          # ----------------------------------------------------------------------
+          - script:
+              - if: is_native and unix
+                then: cd testing && ${{ dot }}test-native-only-tools.sh ${{ version }}
+                else: echo "Skipping native-only tools"
+            files:
+              recipe:
+                - testing/test-native-only-tools.sh
+            requirements:
+              build:
+                - ${{ m2 }}grep
 
-      # ----------------------------------------------------------------------
-      # CROSS-TARGET: Cross-compiled binary architecture verification
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_cross_target
-            then: cd testing && ${{ dot }}test-cross-arch.sh ${{ target_platform }}
-            else: echo "Native build or cross-compiler - skipping cross-arch check"
-        files:
-          recipe:
-            - testing/test-cross-arch.sh
-        requirements:
-          build:
-            - ${{ m2 }}grep
-            - if: unix
-              then:
-                - binutils_impl_${{ build_platform }}
+          # ----------------------------------------------------------------------
+          # Compiler wrapper validation (conda-ocaml-cc, conda-ocaml-mkexe)
+          # NO extra C compiler test dep - validates that ocaml_$platform's run dep
+          # on compiler("c") provides the triplet-prefixed binary.
+          # ----------------------------------------------------------------------
+          - script:
+              # Target binaries need user-mode emulation when the host arch differs
+              - if: is_qemuable
+                then: |
+                  export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+              - if: is_native and unix
+                then: cd testing && ./test-compiler-wrappers.sh
+              - if: is_cross_target
+                then: cd testing && ./test-compiler-wrappers.sh cross-target
+              - if: not (is_native and unix) and not is_cross_target
+                then: echo "Skipping wrapper tests"
+            files:
+              recipe:
+                - testing/test-compiler-wrappers.sh
+            requirements:
+              build:
+                - if: is_qemuable
+                  then: ${{ qemu_pkg }}
 
-      # ----------------------------------------------------------------------
-      # NATIVE: Tool version checks
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_native
-            then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }} ${{ native_mode }}
-            else: echo "Skipping tool version tests"
-        files:
-          recipe:
-            - testing/test-tool-versions.${{ sh }}
-        requirements:
-          build:
-            - ${{ m2 }}grep
+          # ----------------------------------------------------------------------
+          # CROSS-COMPILER: Activation script tests (ocaml_use_cross/ocaml_use_native)
+          # ----------------------------------------------------------------------
+          - script:
+              - if: is_cross_compiler
+                then: cd testing && ./test-cross-activation.sh
+                else: echo "Skipping cross-activation tests"
+            files:
+              recipe:
+                - testing/test-cross-activation.sh
 
-      # ----------------------------------------------------------------------
-      # NATIVE: Native-only tools test (ocamldoc, ocamldebug)
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_native and unix
-            then: cd testing && ${{ dot }}test-native-only-tools.sh ${{ version }}
-            else: echo "Skipping native-only tools"
-        files:
-          recipe:
-            - testing/test-native-only-tools.sh
-        requirements:
-          build:
-            - ${{ m2 }}grep
-
-      # ----------------------------------------------------------------------
-      # Compiler wrapper validation (conda-ocaml-cc, conda-ocaml-mkexe)
-      # NO extra C compiler test dep - validates that ocaml_$platform's run dep
-      # on compiler("c") provides the triplet-prefixed binary.
-      # ----------------------------------------------------------------------
-      - script:
-          # Target binaries need user-mode emulation when the host arch differs
-          - if: is_qemuable
-            then: |
-              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
-          - if: is_native and unix
-            then: cd testing && ./test-compiler-wrappers.sh
-          - if: is_cross_target
-            then: cd testing && ./test-compiler-wrappers.sh cross-target
-          - if: not (is_native and unix) and not is_cross_target
-            then: echo "Skipping wrapper tests"
-        files:
-          recipe:
-            - testing/test-compiler-wrappers.sh
-        requirements:
-          build:
-            - if: is_qemuable
-              then: ${{ qemu_pkg }}
-
-      # ----------------------------------------------------------------------
-      # CROSS-COMPILER: Activation script tests (ocaml_use_cross/ocaml_use_native)
-      # ----------------------------------------------------------------------
-      - script:
-          - if: is_cross_compiler
-            then: cd testing && ./test-cross-activation.sh
-            else: echo "Skipping cross-activation tests"
-        files:
-          recipe:
-            - testing/test-cross-activation.sh
-
-      # ----------------------------------------------------------------------
-      # CROSS-COMPILER: Functional tests
-      # ----------------------------------------------------------------------
-      - script:
-          # Emulator for running target binaries on the build platform
-          - if: is_qemuable
-            then: |
-              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
-          - if: is_cross_compiler
-            then: |
-              cd testing
-              ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }}
-            else: echo "Not a cross-compiler package"
-        files:
-          recipe:
-            - testing/test-cross-compilers.sh
-        requirements:
-          build:
-            - if: is_qemuable
-              then: ${{ qemu_pkg }}
-            - ${{ m2 }}file
+          # ----------------------------------------------------------------------
+          # CROSS-COMPILER: Functional tests
+          # ----------------------------------------------------------------------
+          - script:
+              # Emulator for running target binaries on the build platform
+              - if: is_qemuable
+                then: |
+                  export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+              - if: is_cross_compiler
+                then: |
+                  cd testing
+                  ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }}
+                else: echo "Not a cross-compiler package"
+            files:
+              recipe:
+                - testing/test-cross-compilers.sh
+            requirements:
+              build:
+                - if: is_qemuable
+                  then: ${{ qemu_pkg }}
+                - ${{ m2 }}file
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
