@@ -242,16 +242,12 @@ outputs:
               then:
                 - lib/ocaml/ld.conf
                 - lib/ocaml/Makefile.config
-                # runtime-launch-info contains a text header with BINDIR path that
-                # must be relocated so bytecode shebangs resolve ocamlrun correctly
-                - lib/ocaml/runtime-launch-info
 
             # --- CROSS-COMPILER: Cross-compiler lib paths ---
             - if: is_cross_compiler
               then:
                 - lib/ocaml-cross-compilers/*/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/*/lib/ocaml/Makefile.config
-                - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
         ignore:
           # --- NATIVE/CROSS-TARGET: Standard bytecode files ---
           - if: is_standard_layout
@@ -488,6 +484,11 @@ outputs:
                     - if: unix or c_compiler in ["vs2022", "zig"]
                       then:
                         - ocamlruni
+                    # Runtime-id-suffixed runtimes (plain names are symlinks).
+                    - if: unix
+                      then:
+                        - ocamlrun*-*
+                        - "*-ocamlrun*-*"
                     - if: is_vs2022
                       then:
                         - default_amd64.manifest
@@ -603,6 +604,7 @@ outputs:
                       then:
                         - ${{ library }}lib/ocaml/libasmrun_shared.so
                         - ${{ library }}lib/ocaml/libcamlrun_shared.so
+                        - ${{ library }}lib/ocaml/lib{caml,asm}run-*.so
 
                 # NATIVE: Also includes ocamldoc directory
                 - if: is_native and has_ocamldoc
@@ -645,6 +647,7 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun_shared.so
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libcamlrun_shared.so
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/lib{caml,asm}run-*.so
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/Makefile.config
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime-launch-info
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/sys.ml.in
