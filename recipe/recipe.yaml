@@ -5,7 +5,7 @@ context:
   # lanes then build the native (and for cross-target lanes the cross) compiler
   # in-lane. Set to false once they are on the channel.
   bootstrap: true
-  version: 5.4.1
+  version: 5.5.1
   flexdll_version: "0.44"
 
   dot: ${{ "./" if unix else "" }}
@@ -63,7 +63,7 @@ context:
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and (cross_build_platform == target_platform or cross_build_platform_alt == target_platform) }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   is_standard_layout: ${{ is_native or is_cross_target }}
-  # OCaml 5.4 has no native-code backend for arm64 Windows, so that target is
+  # OCaml 5.5 has no native-code backend for arm64 Windows, so that target is
   # bytecode-only whatever the toolchain: no ocamlopt, no .opt drivers and no
   # native runtime or nat libraries.
   has_native_backend: ${{ cross_target_platform_ != "win-arm64" }}
@@ -113,15 +113,13 @@ recipe:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: d4528517aaa1a44b8e2b1bc109a1ed0a5e0014f3ddc4feb8906b11a7e063e89a
+    sha256: ae47728d0a876665ccc7b745e3a8d8c9ca5ba63c4f7a11d4db6cdbd1dbeef4bb
     patches:
       # Fix header include order bug where atomic_load_acquire/atomic_store_release
       # macros are undefined when mlvalues.h is included before platform.h.
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
-      # s390x native codegen needs indirect PLT stubs routed through the GOT.
-      - patches/s390x-got-indirect-plt.patch
       # Request marshal compression only when the runtime supports it (no zstd
       # on linux-s390x), so output_value never asks an unsupported runtime.
       - patches/compression-only-when-supported.patch
