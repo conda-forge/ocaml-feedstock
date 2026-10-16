@@ -1088,8 +1088,8 @@ C_EOF
     # once make returns; bound the call with timeout so a hang is diagnosable.
     _world_timeout="${OCAML_WORLD_TIMEOUT_S:-1500}"
     _world_start=$(date +%s)
-    # header.c links without the CRT; ntdll provides wcslen, which clang does not inline.
-    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world "${COMPRESSED_MARSHALING_OVERRIDE}" HEADERLIBS="-lkernel32 -lntdll" -j"${CPU_COUNT}"; then
+    # header.c links with -nostdlib; ucrtbase (the CRT this lane links) provides wcslen. V=1 prints the full MKEXE line.
+    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world "${COMPRESSED_MARSHALING_OVERRIDE}" HEADERLIBS="-lkernel32 -lntdll -lucrtbase" V=1 -j"${CPU_COUNT}"; then
       :
     else
       _world_rc=$?
