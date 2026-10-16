@@ -786,6 +786,30 @@ STUBMLEOF
   rm -rf "${STUB_DIR}"
 
   # ---------------------------------------------------------------------------
+  # Test 15: ocamlyacc runs on the build machine (not a target-arch binary)
+  # ---------------------------------------------------------------------------
+  echo "  [15/15] ${target}-ocamlyacc on a grammar..."
+  YACC_DIR="/tmp/test_yacc_${TARGET_ID}"
+  rm -rf "${YACC_DIR}"
+  mkdir -p "${YACC_DIR}"
+  cat > "${YACC_DIR}/g.mly" << 'YACCEOF'
+%token <int> INT
+%start main
+%type <int> main
+%%
+main: INT { $1 };
+YACCEOF
+  if (cd "${YACC_DIR}" && "${PREFIX}/bin/${target}-ocamlyacc" g.mly) >/dev/null 2>&1 \
+      && [[ -s "${YACC_DIR}/g.ml" && -s "${YACC_DIR}/g.mli" ]]; then
+    echo "    [OK] ${target}-ocamlyacc generated g.ml and g.mli"
+  else
+    echo "    [FAIL] ERROR: ${target}-ocamlyacc failed to run"
+    (cd "${YACC_DIR}" && "${PREFIX}/bin/${target}-ocamlyacc" g.mly) 2>&1 | tail -5 | sed 's/^/      /' || true
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+  rm -rf "${YACC_DIR}"
+
+  # ---------------------------------------------------------------------------
   # Summary
   # ---------------------------------------------------------------------------
   if [[ ${TEST_ERRORS} -gt 0 ]]; then

@@ -1,5 +1,5 @@
 context:
-  build_number: 12
+  build_number: 13
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -274,9 +274,12 @@ outputs:
     requirements:
       run_exports:
         strong:
+          # gcc-built exes import api-ms-win-crt-* (UCRT); the m2w64 sysroot
+          # only exports libwinpthread
           - if: not unix and c_compiler == "gcc"
             then:
               - ${{ stdlib("m2w64_c") }}
+              - ucrt >=10.0.20348.0
           - if: not unix and c_compiler == "vs2022"
             then:
               - ${{ stdlib("c") }}

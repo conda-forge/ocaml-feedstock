@@ -458,6 +458,37 @@ else
     echo "  WARNING: ocamlc.opt not found"
   fi
 
+  # --- Config is opaque to other compiler-libs units ---
+  # Config bakes per-build paths; units importing its implementation with a CRC
+  # would change CRC on every rebuild. ocamlobjinfo prints an all-dash CRC for
+  # an opaque import.
+  if [[ "${MODE}" == "native" ]]; then
+    echo "Checking Config is imported without an implementation CRC..."
+    for unit in clflags location; do
+      cmx="${PREFIX}/lib/ocaml/compiler-libs/${unit}.cmx"
+      if [[ ! -f "${cmx}" ]]; then
+        echo "ERROR: ${cmx} not found"
+        exit 1
+      fi
+      config_crc=$("${PREFIX}/bin/ocamlobjinfo" "${cmx}" \
+        | awk '/^Implementations imported:/ {f=1; next} /^[^[:space:]]/ {f=0} f && $2 == "Config" {print $1}')
+      if [[ -z "${config_crc}" ]]; then
+        # clflags uses Config; location does not import its implementation
+        if [[ "${unit}" == "clflags" ]]; then
+          echo "ERROR: clflags.cmx does not list Config under implementations imported"
+          exit 1
+        fi
+        echo "  ${unit}.cmx: does not import Config"
+        continue
+      fi
+      if [[ "${config_crc}" != "${config_crc//[^-]/}" ]]; then
+        echo "ERROR: ${unit}.cmx imports Config implementation with CRC ${config_crc}"
+        exit 1
+      fi
+      echo "  ${unit}.cmx: Config imported without CRC"
+    done
+  fi
+
   # --- macOS rpath check (native/cross-compiler only, not cross-target) ---
   if [[ "$(uname)" == "Darwin" ]] && [[ -f "${OCAMLOPT_BIN}" ]] && [[ "${MODE}" != "cross-target" ]]; then
     echo "Checking macOS rpath for libzstd..."

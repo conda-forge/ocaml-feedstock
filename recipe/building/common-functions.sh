@@ -840,6 +840,18 @@ patch_checkstack_cc() {
   fi
 }
 
+# Compile utils/config with -opaque. Config bakes per-build paths, so without
+# it every unit importing Config records an implementation CRC that changes on
+# each rebuild. override keeps the flag when a caller sets OC_COMMON_COMPFLAGS
+# on the make command line.
+# Usage: patch_makefile_opaque_config
+# Operates on Makefile in the current directory
+patch_makefile_opaque_config() {
+  if ! grep -q "^utils/config.cmi" Makefile; then
+    printf '\nutils/config.cmi utils/config.cmo utils/config.cmx: override OC_COMMON_COMPFLAGS += -opaque\n' >> Makefile
+  fi
+}
+
 # Clean embedded binary paths and -L flags from Makefile.config after configure
 # Removes non-relocatable build-time tool paths baked in by configure.
 # Usage: patch_makefile_config_post_configure

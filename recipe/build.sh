@@ -388,8 +388,16 @@ build_native() {
 
   # TARGET_BINDIR/LIBDIR tell OCaml where binaries and libraries live at runtime
   # on the target; conda-forge relocates paths containing ${PREFIX}, not _native ones.
-  export TARGET_BINDIR="${PREFIX}/bin"
-  export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
+  if is_unix; then
+    export TARGET_BINDIR="${PREFIX}/bin"
+    export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
+  else
+    # Windows installs under ${PREFIX}/Library, in drive form (D:/...) because
+    # the paths are compiled into binaries that msys does not translate.
+    _win_prefix=$(cygpath -m "${PREFIX}" 2>/dev/null || echo "${PREFIX}" | sed 's#\\#/#g; s#^/\([a-zA-Z]\)/#\1:/#')
+    export TARGET_BINDIR="${_win_prefix}/Library/bin"
+    export TARGET_LIBDIR="${_win_prefix}/Library/lib/ocaml"
+  fi
 
   echo ""
   echo "  [1/4] Configuring native compiler"
@@ -397,6 +405,7 @@ build_native() {
 
   # OCaml 5.4.0 leaves CHECKSTACK_CC undefined in the Makefile
   patch_checkstack_cc
+  patch_makefile_opaque_config
 
   # MSYS2 breaks MSVC tools in Makefile variables in two ways: it converts the
   # /link flag to the filesystem path of link.exe (breaking cl.exe), and bare
@@ -461,6 +470,13 @@ build_native() {
     sed -i 's/^let ar = .*/let ar = {|conda-ocaml-ar.exe|}/' "$config_file"
     sed -i 's/^let ranlib = .*/let ranlib = {|conda-ocaml-ranlib.exe|}/' "$config_file"
     # mkexe/mkdll/mkmaindll stay unwrapped on non-unix: flexlink does the linking.
+  fi
+
+  if ! is_unix; then
+    # configure ran with the staging prefix; bake the final install paths
+    # instead (both toolchains), as on unix.
+    sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
+    sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
   fi
 
   # remove embedded paths from Makefile.config
@@ -1333,6 +1349,7 @@ TOOLWRAPPER
 
     # OCaml 5.4.0 leaves CHECKSTACK_CC undefined in the Makefile
     patch_checkstack_cc
+    patch_makefile_opaque_config
 
     echo "  [3/7] Patching config.generated.ml..."
     config_file="utils/config.generated.ml"
@@ -1612,6 +1629,15 @@ EOF
       rm -f ocamlcp ocamloptp ocamlprof
 
       rm -f ocamlcmt ocamlmktop
+
+      # ocamlyacc runs on the BUILD machine as ${target}-ocamlyacc; the one the
+      # cross build produced is a TARGET-arch executable.
+      if [[ ! -x "${OCAML_PREFIX}/bin/ocamlyacc" ]]; then
+        echo "ERROR: build-machine ocamlyacc not found at ${OCAML_PREFIX}/bin/ocamlyacc"
+        exit 1
+      fi
+      rm -f ocamlyacc ocamlyacc.opt
+      cp -L "${OCAML_PREFIX}/bin/ocamlyacc" ocamlyacc
     )
 
     rm -rf "${OCAML_CROSS_PREFIX}/man" 2>&1 || true
@@ -1930,6 +1956,7 @@ EOF
 
   # OCaml 5.4.0 leaves CHECKSTACK_CC undefined in the Makefile
   patch_checkstack_cc
+  patch_makefile_opaque_config
 
   echo "  [2/5] Patching configuration ==="
 
@@ -2168,6 +2195,19 @@ ${WIN_OCAMLLIB}
 EOF
     sed -i "s#/.*build_env/bin/##g" "${makefile_config}"
     sed -i 's#$(CC)#$(CONDA_OCAML_CC)#g' "${makefile_config}"
+
+    # Remaining text files that still name the staging dir (drive, backslash
+    # and msys spellings) get the install prefix; grep -I skips binaries.
+    _win_prefix=$(cygpath -m "${PREFIX}" 2>/dev/null || echo "${PREFIX}" | sed 's#\\#/#g; s#^/\([a-zA-Z]\)/#\1:/#')
+    _stage_fwd=$(cygpath -m "${OCAML_NATIVE_INSTALL_PREFIX}" 2>/dev/null || echo "${OCAML_NATIVE_INSTALL_PREFIX}" | sed 's#\\#/#g; s#^/\([a-zA-Z]\)/#\1:/#')
+    _stage_bs="${_stage_fwd//\//\\}"
+    _stage_msys=$(echo "${_stage_fwd}" | sed 's#^\([a-zA-Z]\):/#/\L\1/#')
+    echo "  Rewriting staging prefix in installed text files..."
+    while IFS= read -r -d '' _staged_file; do
+      sed -i -e "s#${_stage_fwd}#${_win_prefix}#g" \
+             -e "s#${_stage_bs//\\/\\\\}#${_win_prefix}#g" \
+             -e "s#${_stage_msys}#${_win_prefix}#g" "${OCAML_INSTALL_PREFIX}/${_staged_file}"
+    done < <(cd "${OCAML_NATIVE_INSTALL_PREFIX}" && grep -rIlZF -e "${_stage_fwd}" -e "${_stage_bs}" -e "${_stage_msys}" . || true)
   fi
 
   # Clean build-time paths from the final Makefile.config; this must follow

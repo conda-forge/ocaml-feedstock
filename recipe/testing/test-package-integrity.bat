@@ -120,6 +120,23 @@ if exist "%MAKEFILE_CONFIG%" (
 echo.
 
 REM =============================================================================
+REM STAGING PREFIXES IN SHIPPED FILES
+REM =============================================================================
+REM Paths compiled into binaries and libraries are invisible to -config-var, so
+REM scan the bytes of every shipped file. .cmt/.cmti record the build command
+REM line and load path, never a runtime path, so they are skipped.
+echo Scanning shipped files for build-time staging prefixes...
+set "STAGING_HITS="
+for /f "delims=" %%i in ('grep -rlaE --exclude=*.cmt --exclude=*.cmti -e "[/\\]_native_compiler" -e "[/\\]_xcross_compiler" -e "[/\\]_target_compiler" "%PREFIX%\Library\bin" "%PREFIX%\Library\lib\ocaml" 2^>nul') do set "STAGING_HITS=!STAGING_HITS! %%i"
+if defined STAGING_HITS (
+    echo ERROR: shipped files contain build-time staging prefixes:
+    echo !STAGING_HITS!
+    exit /b 1
+)
+echo   staging prefixes: none
+echo.
+
+REM =============================================================================
 REM FINAL SUMMARY
 REM =============================================================================
 echo === All package integrity tests passed ===
