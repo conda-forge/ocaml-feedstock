@@ -460,4 +460,24 @@ else
   fi
 fi
 
+# --- Staging prefixes in shipped files (all modes) ---
+# Paths compiled into binaries and libraries are invisible to -config-var when
+# the binary cannot run here, so scan the bytes of every shipped file.
+echo "Scanning shipped files for build-time staging prefixes..."
+if [[ "${MODE}" == "cross" ]]; then
+  SCAN_PATHS=("${PREFIX}/bin/${TARGET}-"* "${PREFIX}/lib/ocaml-cross-compilers/${TARGET}")
+else
+  SCAN_PATHS=("${PREFIX}/bin/oc"* "${PREFIX}/lib/ocaml")
+fi
+STAGING_RE='/_(native|xcross|target)_compiler'
+STAGING_HITS=$(grep -rlaE "${STAGING_RE}" "${SCAN_PATHS[@]}" 2>/dev/null || true)
+if [[ -n "${STAGING_HITS}" ]]; then
+  echo "ERROR: shipped files contain build-time staging prefixes:"
+  while IFS= read -r hit; do
+    echo "  ${hit}: $(grep -aoE "[^[:space:][:cntrl:]]*${STAGING_RE}[^[:space:][:cntrl:]]*" "${hit}" | head -1)"
+  done <<< "${STAGING_HITS}"
+  exit 1
+fi
+echo "  staging prefixes: none in ${#SCAN_PATHS[@]} scanned paths"
+
 echo "=== All package integrity tests passed ==="

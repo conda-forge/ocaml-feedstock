@@ -426,6 +426,16 @@ build_native() {
     # (Unix.create_process does not expand shell variables) still honor overrides.
     patch_config_generated_ml_native
 
+    # configure ran with the staging prefix; bake the final install paths
+    # instead, which conda relocates with the rest of ${PREFIX}. The staging
+    # tree does not exist until install, so the build itself never used them.
+    # Native mode only: the in-lane native of the cross modes never ships and
+    # is reused in place as a build tool, so it keeps its own staging paths.
+    if [[ "${BUILD_MODE}" == "native" ]]; then
+      sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
+      sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
+    fi
+
     # -config-var reads these from the Config module compiled from
     # config.generated.ml, not Makefile.config, so strip build-time -L here;
     # after world.opt the value is compiled in.
@@ -1143,7 +1153,8 @@ build_cross_compiler() {
   : "${OCAML_PREFIX:=${PREFIX}}"
   : "${OCAML_INSTALL_PREFIX:=${PREFIX}}"
   # Where the cross-compiler finally lives; baked into config.ml's
-  # standard_library_default and the cross Makefile.config. ${PREFIX} when the
+  # standard_library_default and bindir, the runtime's OCAML_STDLIB_DIR
+  # (TARGET_LIBDIR) and the cross Makefile.config. ${PREFIX} when the
   # staged tree is transferred there; a caller consuming the tree in place can
   # point it at the staging prefix.
   : "${OCAML_CROSS_FINAL_PREFIX:=${PREFIX}}"
@@ -1316,6 +1327,7 @@ TOOLWRAPPER
       NM="${CROSS_NM}" \
       RANLIB="${CROSS_RANLIB}" \
       STRIP="${CROSS_STRIP}" \
+      TARGET_LIBDIR="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml" \
       ac_cv_func_getentropy=no \
       ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
 
@@ -1345,6 +1357,7 @@ TOOLWRAPPER
     # path during the build); rattler-build relocates it when packaging.
     FINAL_STDLIB_PATH="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
     sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${FINAL_STDLIB_PATH}|}#" "$config_file"
+    sed -i "s#^let bindir = .*#let bindir = {|${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/bin|}#" "$config_file"
 
     # architecture is baked into the binary (arm64, power, amd64)
     sed -i "s#^let architecture = .*#let architecture = {|${CROSS_ARCH}|}#" "$config_file"
@@ -2407,6 +2420,12 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     fi
   done
 
+  # expunge (run by ocamlmktop) is a bytecode program installed outside bin/,
+  # with the same build-tree ocamlrun launcher.
+  if is_unix; then
+    fix_ocamlrun_shebang "${OCAML_INSTALL_PREFIX}/lib/ocaml/expunge"
+  fi
+
   # Install activation scripts with build-time tool substitution
   echo ""
   echo "=== Installing activation scripts ==="
@@ -2495,8 +2514,9 @@ fi
 if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   OCAML_INSTALL_PREFIX="${PREFIX}"
 
-  # Fix bytecode wrapper shebangs for cross-compiler binaries
-  for bin in "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/bin/*; do
+  # Fix bytecode wrapper shebangs for cross-compiler binaries; expunge (run by
+  # ocamlmktop) is a bytecode program installed outside bin/.
+  for bin in "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/bin/* "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/lib/ocaml/expunge; do
     [[ -f "$bin" ]] || continue
     [[ -L "$bin" ]] && continue
 
