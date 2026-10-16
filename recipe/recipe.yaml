@@ -475,10 +475,8 @@ outputs:
                       then:
                         - ocamlruni
                     # Runtime-id-suffixed runtimes (plain names are symlinks).
-                    - if: unix
-                      then:
-                        - ocamlrun*-*
-                        - "*-ocamlrun*-*"
+                    - ocamlrun*-*
+                    - "*-ocamlrun*-*"
                     - if: not unix and c_compiler == "vs2022"
                       then:
                         - default_amd64.manifest
