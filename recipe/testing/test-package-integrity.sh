@@ -245,7 +245,8 @@ if [[ "${MODE}" == "cross" ]]; then
     exit 1
   fi
   for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
-    launch_line=$(sed -n '2p' "${launcher}" | tr -d '\0')
+    # C locale: line 2 may be bytecode, which BSD tr rejects as UTF-8
+    launch_line=$(sed -n '2p' "${launcher}" | LC_ALL=C tr -d '\0')
     if [[ "${launch_line}" != 'exec "$(dirname "$0")/'*'ocamlrun" "$0" "$@"' ]]; then
       echo "ERROR: ${launcher} does not launch the cross tree's ocamlrun: ${launch_line}"
       exit 1

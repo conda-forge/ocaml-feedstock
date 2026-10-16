@@ -544,9 +544,6 @@ outputs:
                 - ${{ library }}lib/ocaml/unix/*
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
-                - if: c_compiler == "zig"
-                  then:
-                    - ${{ library }}bin/conda-ocaml-*.pdb
                 - if: unix
                   then:
                     - ${{ library }}share/man/man1/*
