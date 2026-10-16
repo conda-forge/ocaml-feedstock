@@ -1372,6 +1372,11 @@ TOOLWRAPPER
         ;;
     esac
 
+    # libtool adds -m elf64_s390 for s390x targets, which only the s390x ld
+    # accepts; with the x86_64 ld its shared-library probe fails.
+    _CONFIGURE_LD="${NATIVE_LD}"
+    [[ "${CROSS_PLATFORM}" == "linux-s390x" ]] && _CONFIGURE_LD="${CROSS_LD}"
+
     run_logged "cross-configure" ${CONFIGURE[@]} \
       -prefix="${OCAML_CROSS_PREFIX}" \
       --mandir="${OCAML_CROSS_PREFIX}"/share/man \
@@ -1381,7 +1386,7 @@ TOOLWRAPPER
       "${TARGET_CONFIG_ARGS[@]}" \
       AR="${CROSS_AR}" \
       AS="${NATIVE_AS}" \
-      LD="${NATIVE_LD}" \
+      LD="${_CONFIGURE_LD}" \
       NM="${CROSS_NM}" \
       RANLIB="${CROSS_RANLIB}" \
       STRIP="${CROSS_STRIP}" \
@@ -1518,55 +1523,8 @@ TOOLWRAPPER
       STRIP="${CROSS_STRIP}"
     )
 
-    # libtool bug: with --host=x86_64 --target=s390x, _LT_SYS_DYNAMIC_LINKER keys
-    # its -m emulation off $target but probes with the x86_64 linker, so the
-    # shared-lib check reports a false negative. s390x does support shared
-    # libraries; repair the three Makefile.config sentinels.
-    # SUPPORTS_SHARED_LIBRARIES gates building libcamlrun_shared.so and
-    # libasmrun_shared.so at all. MKDLL/MKMAINDLL use the unexpanded $(CC)
-    # -shared because Makefile.cross builds shared libraries with two compilers
-    # (host x86_64 for the cross-compiler's runtime, cross for the target runtime)
-    # and a hardcoded path would break one of them.
-    if [[ "${CROSS_PLATFORM}" == "linux-s390x" ]]; then
-      if grep -q '^SUPPORTS_SHARED_LIBRARIES=false' "Makefile.config"; then
-        sed -i "s|^SUPPORTS_SHARED_LIBRARIES=false|SUPPORTS_SHARED_LIBRARIES=true|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] SUPPORTS_SHARED_LIBRARIES -> true (libtool probe false negative)"
-      fi
-      if grep -q '^MKDLL=shared-libs-not-available' "Makefile.config"; then
-        sed -i 's|^MKDLL=shared-libs-not-available|MKDLL=$(CC) -shared|' "Makefile.config"
-        echo '  [s390x-sharedlib-fix] MKDLL -> $(CC) -shared'
-      fi
-      if grep -q '^MKMAINDLL=shared-libs-not-available' "Makefile.config"; then
-        sed -i 's|^MKMAINDLL=shared-libs-not-available|MKMAINDLL=$(CC) -shared|' "Makefile.config"
-        echo '  [s390x-sharedlib-fix] MKMAINDLL -> $(CC) -shared'
-      fi
-      # configure derives native dynlink from the same false negative; the
-      # compiler bakes native_dynlink and supports_shared_libraries from
-      # utils/config.generated.ml, patched here before the compiler is built.
-      # The same false negative (enable_shared=no) skips configure's whole linux
-      # shared-lib branch, leaving SHAREDLIB_CFLAGS empty.
-      if grep -q '^SHAREDLIB_CFLAGS=$' "Makefile.config"; then
-        sed -i "s|^SHAREDLIB_CFLAGS=$|SHAREDLIB_CFLAGS=-fPIC|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] SHAREDLIB_CFLAGS -> -fPIC"
-      fi
-      if grep -q '^NATDYNLINK=false' "Makefile.config"; then
-        sed -i "s|^NATDYNLINK=false|NATDYNLINK=true|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] NATDYNLINK -> true"
-      fi
-      if grep -q '^NATDYNLINKOPTS=$' "Makefile.config"; then
-        sed -i "s|^NATDYNLINKOPTS=$|NATDYNLINKOPTS=-Wl,-E|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] NATDYNLINKOPTS -> -Wl,-E"
-      fi
-      if grep -q '^let native_dynlink = false' "utils/config.generated.ml"; then
-        sed -i "s|^let native_dynlink = false|let native_dynlink = true|" "utils/config.generated.ml"
-        echo "  [s390x-sharedlib-fix] native_dynlink -> true (config.generated.ml)"
-      fi
-      if grep -q '^let supports_shared_libraries = false' "utils/config.generated.ml"; then
-        sed -i "s|^let supports_shared_libraries = false|let supports_shared_libraries = true|" "utils/config.generated.ml"
-        echo "  [s390x-sharedlib-fix] supports_shared_libraries -> true (config.generated.ml)"
-      fi
-    fi
-
+    # s390x shared-library support, native dynlink and SHAREDLIB_CFLAGS are
+    # derived by configure itself now that it runs with the s390x ld.
     echo "  [5/7] Building and installing cross-compiler..."
 
     # crossopt execs a target-arch ocamlc on the build machine (the
