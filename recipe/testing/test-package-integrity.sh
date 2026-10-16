@@ -264,30 +264,22 @@ else
     echo "  OCAMLLIB: not set (will use default)"
   fi
 
-  # --- runtime-launch-info BINDIR check ---
+  # --- runtime-launch-info format check ---
+  # Suffixed build: the file starts with the 4-char runtime id, followed by the
+  # launcher stub.
   echo "Checking runtime-launch-info..."
   RUNTIME_INFO="${PREFIX}/lib/ocaml/runtime-launch-info"
-  if [[ -f "${RUNTIME_INFO}" ]]; then
-    # runtime-launch-info is a BINARY file: line1="sh", line2=LIBDIR path, line3+=ocamlrun binary
-    # Only check line 2 (the text path) - the binary portion may contain build-time strings
-    # that are handled by conda's binary relocation separately
-    RUNTIME_PATH=$(head -2 "${RUNTIME_INFO}" | tail -1)
-    echo "  runtime-launch-info line 2: ${RUNTIME_PATH}"
-    if echo "${RUNTIME_PATH}" | grep -q "${PREFIX}"; then
-      echo "  runtime-launch-info: contains PREFIX"
-    fi
-    # BINDIR (line 2) is used by ocamlc at LINK TIME to construct the shebang path
-    # (#!/BINDIR/ocamlrun) baked into every bytecode executable. A wrong BINDIR means
-    # every bytecode program produced by this ocamlc will fail to launch.
-    if echo "${RUNTIME_PATH}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
-      echo "ERROR: runtime-launch-info BINDIR contains build-time staging paths"
-      echo "  This will cause bytecode executables to embed a wrong #!/.../ocamlrun shebang"
-      exit 1
-    fi
-    echo "  runtime-launch-info: clean"
-  else
-    echo "  runtime-launch-info: not found (may be OK for some versions)"
+  if [[ ! -f "${RUNTIME_INFO}" ]]; then
+    echo "ERROR: ${RUNTIME_INFO} not found"
+    exit 1
   fi
+  RUNTIME_ID="$(head -c 4 "${RUNTIME_INFO}")"
+  if [[ ! "${RUNTIME_ID}" =~ ^[0-9a-z]{4}$ ]]; then
+    echo "ERROR: runtime-launch-info does not start with a 4-char runtime id"
+    echo "  first 4 bytes: $(od -An -tx1 -N4 "${RUNTIME_INFO}")"
+    exit 1
+  fi
+  echo "  runtime-launch-info: runtime id ${RUNTIME_ID}"
 
   # --- ld.conf ---
   echo "Checking ld.conf..."
@@ -388,11 +380,13 @@ else
     fi
     echo "  native_c_libraries: clean"
 
-    # Inventory only: these are baked at configure time
+    # bindir and standard_library_default are baked into the binary; they must
+    # name the install prefix so conda relocates them.
     for var in bindir standard_library_default; do
       VAR_VALUE=$("${OCAML_RUN[@]}" -config-var "${var}" 2>/dev/null || echo "N/A")
       if echo "${VAR_VALUE}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
-        echo "  WARNING: ${var}=${VAR_VALUE} is a build-time staging path baked at configure time (tracked with #188)"
+        echo "ERROR: ${var} contains build-time staging path: ${VAR_VALUE}"
+        exit 1
       fi
     done
 
@@ -457,5 +451,27 @@ else
     fi
   fi
 fi
+
+# --- Staging prefixes in shipped files (all modes) ---
+# Paths compiled into binaries and libraries are invisible to -config-var when
+# the binary cannot run here, so scan the bytes of every shipped file.
+echo "Scanning shipped files for build-time staging prefixes..."
+if [[ "${MODE}" == "cross" ]]; then
+  SCAN_PATHS=("${PREFIX}/bin/${TARGET}-"* "${PREFIX}/lib/ocaml-cross-compilers/${TARGET}")
+else
+  SCAN_PATHS=("${PREFIX}/bin/oc"* "${PREFIX}/lib/ocaml")
+fi
+STAGING_RE='/_(native|xcross|target)_compiler'
+# .cmt/.cmti record the build command line and load path; they never name a
+# runtime path, so they are skipped.
+STAGING_HITS=$(grep -rlaE --exclude='*.cmt' --exclude='*.cmti' "${STAGING_RE}" "${SCAN_PATHS[@]}" 2>/dev/null || true)
+if [[ -n "${STAGING_HITS}" ]]; then
+  echo "ERROR: shipped files contain build-time staging prefixes:"
+  while IFS= read -r hit; do
+    echo "  ${hit}: $(grep -aoE "[^[:space:][:cntrl:]]*${STAGING_RE}[^[:space:][:cntrl:]]*" "${hit}" | head -1)"
+  done <<< "${STAGING_HITS}"
+  exit 1
+fi
+echo "  staging prefixes: none in ${#SCAN_PATHS[@]} scanned paths"
 
 echo "=== All package integrity tests passed ==="

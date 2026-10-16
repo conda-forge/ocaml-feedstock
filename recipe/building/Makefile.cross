@@ -76,6 +76,13 @@ CROSS_AR ?= $(AR)
 # wrapper (cross-ocamlmklib.sh) that uses CROSS_CC/CROSS_AR.
 CROSS_MKLIB ?= ocamlmklib
 
+# With runtime-id suffixing, the wrapper gets -suffixed (a command-line MKLIB
+# replaces upstream's "MKLIB += -suffixed") and the target's TARGET and
+# BYTECODE_RUNTIME_ID through the environment to name dll<name>-<target>-<id>.
+CROSS_MKLIB_CMD = $(CROSS_MKLIB)$(if $(filter true,$(SUFFIXING)), -suffixed)
+export CROSS_MKLIB_TARGET = $(TARGET)
+export CROSS_MKLIB_RUNTIME_ID = $(BYTECODE_RUNTIME_ID)
+
 # CAMLOPT is overridden on the command line: crossopt uses the native ocamlopt
 # from PATH, crosscompiledopt uses the cross-compiler to produce target binaries.
 CAMLOPT ?= ocamlopt
@@ -100,7 +107,7 @@ CROSS_SHARED_LIB_VARS = $(if $(CROSS_MKDLL),MKDLL='$(CROSS_MKDLL)' SUPPORTS_SHAR
 
 CROSS_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
   BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
-  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)" \
+  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB_CMD)" \
   CC="$(CROSS_CC)" AR="$(CROSS_AR)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
   MKEXE="$(CROSS_MKEXE)" MKDLL="$(CROSS_MKDLL)"
 
@@ -120,7 +127,7 @@ NATIVE_CC ?= $(CC)
 # would split into separate make arguments.
 NATIVE_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
   BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
-  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)"
+  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB_CMD)"
 
 # NATIVE_COMPILER_OVERRIDES: native compilers built with native tools; no
 # CC="$(CROSS_CC)" because native tools need the BUILD CC.
@@ -343,10 +350,12 @@ ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	# Every other .cmi compiled before the stdlib rebuild is also stale (e.g.
 	# expunge.cmi, not in any compilerlib). Sweep them all except ./stdlib (the
-	# fresh ones), ./flexdll (vendored), ./.git and ./_logs, and ./tools (its .cmx
-	# must stay paired with their .cmi). Keep `-exec rm -f {} +`: -delete implies
-	# -depth, which disables -prune and would delete ./stdlib's .cmi.
-	find . \( -path ./stdlib -o -path ./flexdll -o -path ./.git -o -path ./_logs -o -path ./tools \) -prune -o -name '*.cmi' -exec rm -f {} + >/dev/null
+	# fresh ones), ./flexdll (vendored), ./.git and ./_logs, ./tools (its .cmx
+	# must stay paired with their .cmi), and the in-lane compiler installs
+	# ./_native_compiler and ./_xcross_compiler (their stdlib.cmi must survive).
+	# Keep `-exec rm -f {} +`: -delete implies -depth, which disables -prune and
+	# would delete ./stdlib's .cmi.
+	find . \( -path ./stdlib -o -path ./flexdll -o -path ./.git -o -path ./_logs -o -path ./tools -o -path ./_native_compiler -o -path ./_xcross_compiler \) -prune -o -name '*.cmi' -exec rm -f {} + >/dev/null
 endif
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)

@@ -138,10 +138,11 @@ set /a STUB_FAILS=0
 set "STUB_LIST="
 
 REM FLEXDLL_RELOCATE=0: initer skips relocation but runs the CRT DLL entry; isolates CRT/DllMain init
-echo   LoadLibrary dllcamlstrbyt.dll...
+echo   LoadLibrary dllcamlstrbyt-*.dll...
 set "FLEXDLL_RELOCATE=0"
 for /f "delims=" %%i in ('ocamlc -where') do set "OCAMLWHERE=%%i"
-set "STR_DLL=!OCAMLWHERE!\stublibs\dllcamlstrbyt.dll"
+set "STR_DLL="
+for /f "delims=" %%i in ('dir /b "!OCAMLWHERE!\stublibs\dllcamlstrbyt-*.dll" 2^>nul') do if not defined STR_DLL set "STR_DLL=!OCAMLWHERE!\stublibs\%%i"
 echo   dll: !STR_DLL!
 set "T_OK=1"
 del t_out.txt 2>nul
