@@ -6,6 +6,22 @@ set -euo pipefail
 
 echo "=== Cross-Compiled Binary Architecture Tests ==="
 
+# binutils_impl provides triplet-prefixed tools only. PATH can also hold a
+# target-arch copy, so use the first prefixed one that runs on this host.
+build_tool() {
+  local dir cand
+  local IFS=:
+  for dir in ${PATH}; do
+    for cand in "${dir}"/*-"$1"; do
+      if [[ -x "${cand}" ]] && "${cand}" --version >/dev/null 2>&1; then
+        echo "${cand}"
+        return 0
+      fi
+    done
+  done
+  echo "$1"
+}
+
 # Get target platform from positional argument (passed by recipe.yaml)
 TARGET_PLATFORM="${1:-}"
 if [[ -z "$TARGET_PLATFORM" ]]; then
@@ -20,18 +36,23 @@ echo "Target platform: ${TARGET_PLATFORM}"
 case "${TARGET_PLATFORM}" in
   linux-aarch64)
     ARCH_CHECK="AArch64"
-    CHECK_CMD="readelf -h"
-    SHARED_EXT="so"
+    CHECK_CMD="$(build_tool readelf) -h"
     ;;
   linux-ppc64le)
     ARCH_CHECK="PowerPC64"
-    CHECK_CMD="readelf -h"
-    SHARED_EXT="so"
+    CHECK_CMD="$(build_tool readelf) -h"
+    ;;
+  linux-riscv64)
+    ARCH_CHECK="RISC-V"
+    CHECK_CMD="$(build_tool readelf) -h"
+    ;;
+  linux-s390x)
+    ARCH_CHECK="S/390"
+    CHECK_CMD="$(build_tool readelf) -h"
     ;;
   osx-arm64)
     ARCH_CHECK="arm64"
     CHECK_CMD="file"
-    SHARED_EXT="so"
     ;;
   *)
     echo "Not a cross-compilation target (${TARGET_PLATFORM}), skipping"
@@ -40,6 +61,7 @@ case "${TARGET_PLATFORM}" in
 esac
 
 echo "Expected architecture: ${ARCH_CHECK}"
+echo "Check command: ${CHECK_CMD}"
 echo ""
 
 check_binary() {
@@ -58,7 +80,7 @@ check_binary() {
     echo "FAILED"
     echo "    Expected: ${ARCH_CHECK}"
     echo "    Got:"
-    ${CHECK_CMD} "$binary" 2>/dev/null | head -5
+    ${CHECK_CMD} "$binary" | head -5
     exit 1
   fi
 }
@@ -76,13 +98,13 @@ check_binary "${PREFIX}/bin/ocamlrun" "ocamlrun"
 
 echo ""
 echo "Checking shared libraries..."
-check_binary "${PREFIX}/lib/ocaml/libasmrun_shared.${SHARED_EXT}" "libasmrun_shared.${SHARED_EXT}"
+check_binary "${PREFIX}/lib/ocaml/libasmrun_shared.so" "libasmrun_shared.so"
 
 # Check stublibs if they exist
-if ls "${PREFIX}/lib/ocaml/stublibs/"*.${SHARED_EXT} >/dev/null 2>&1; then
+if ls "${PREFIX}/lib/ocaml/stublibs/"*.so>/dev/null 2>&1; then
   echo ""
   echo "Checking stublibs..."
-  for stublib in "${PREFIX}/lib/ocaml/stublibs/"*.${SHARED_EXT}; do
+  for stublib in "${PREFIX}/lib/ocaml/stublibs/"*.so; do
     stubname=$(basename "$stublib")
     check_binary "$stublib" "stublibs/${stubname}"
   done

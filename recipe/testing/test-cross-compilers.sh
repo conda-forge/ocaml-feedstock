@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Comprehensive cross-compiler validation tests
-# Tests cross-compilers built on linux-64 and osx-64 platforms
+# Tests a cross-compiler on the platform that hosts its build
 # These tests verify the cross-compilers are correctly configured for use
 # by downstream packages like dune/opam.
 
@@ -12,9 +12,8 @@ TARGET_PLATFORM="${3:-${target_platform:-}}"
 TARGET_TRIPLE="${4:-}"
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> [build_platform] [target_platform] [target_triple]"
-  echo "  target_triple: Optional specific target to test (e.g., aarch64-conda-linux-gnu)"
-  echo "                 If omitted, tests all available targets for the build platform"
+  echo "Usage: $0 <version> <build_platform> <target_platform> <target_triple>"
+  echo "  target_triple: the cross target to test (e.g., aarch64-conda-linux-gnu)"
   exit 1
 fi
 
@@ -23,30 +22,39 @@ fi
 # ==============================================================================
 
 # Get target architecture for OCaml ARCH variable
-# Usage: get_target_arch "aarch64-conda-linux-gnu" → "arm64"
+# Usage: get_target_arch "aarch64-conda-linux-gnu" -> "arm64"
 get_target_arch() {
   local target="$1"
 
   case "${target}" in
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
+    riscv64-*) echo "riscv" ;;
+    s390x-*) echo "s390x" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
   esac
 }
 
 # Get target ID from triplet (for environment variable naming)
-# Usage: get_target_id "aarch64-conda-linux-gnu" → "AARCH64"
+# Usage: get_target_id "aarch64-conda-linux-gnu" -> "AARCH64"
 get_target_id() {
   local target="$1"
 
   case "${target}" in
     aarch64-conda-linux-gnu) echo "AARCH64" ;;
     powerpc64le-conda-linux-gnu) echo "PPC64LE" ;;
+    riscv64-conda-linux-gnu) echo "RISCV64" ;;
     arm64-apple-darwin*) echo "ARM64" ;;
     x86_64-conda-linux-gnu|x86_64-apple-darwin*) echo "X86_64" ;;
     *) echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]' ;;
   esac
+}
+
+# Print the 4-byte marshal magic that follows the 12-byte .cmi magic.
+# 8495a6bd marks a zstd-compressed payload.
+cmi_marshal_magic() {
+  od -An -tx1 -j12 -N4 "$1" | tr -d ' \n'
 }
 
 # ==============================================================================
@@ -58,9 +66,8 @@ get_target_id() {
 
 test_cross_compiler() {
   local target="$1"
-  local arch_name="$2"
-  local qemu_cmd="${3:-}"
-  local qemu_prefix="${4:-}"
+  local qemu_execve=""
+  [[ "${target}" == *-apple-darwin* ]] || qemu_execve="qemu-execve-${target%%-*}"
 
   echo ""
   echo "  ========================================================================"
@@ -75,10 +82,11 @@ test_cross_compiler() {
   OCAML_CROSS_PREFIX="${PREFIX}/lib/ocaml-cross-compilers/${target}"
   OCAML_CROSS_LIBDIR="${OCAML_CROSS_PREFIX}/lib/ocaml"
 
-  # Check if cross-compiler exists
+  # An absent cross-compiler is a build failure, not a skip: this script runs only
+  # on is_cross_compiler lanes, whose deliverable is exactly this binary.
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  ✗ SKIP: ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found at ${CROSS_OCAMLOPT}"
+    return 1
   fi
 
   # Setup macOS ARM64 SDK for linking tests
@@ -107,14 +115,19 @@ test_cross_compiler() {
 
   TEST_ERRORS=0
 
+  if [[ -n "$qemu_execve" && -z "${QEMU_LD_PREFIX:-}" ]]; then
+    echo "    [FAIL] ERROR: QEMU_LD_PREFIX not set by ${qemu_execve} activation (target sysroot missing)"
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
   # ---------------------------------------------------------------------------
   # Test 1: Version check
   # ---------------------------------------------------------------------------
   echo "  [1/13] Version check..."
   if "${CROSS_OCAMLOPT}" -version | grep -q "${VERSION}"; then
-    echo "    ✓ Version: ${VERSION}"
+    echo "    [OK] Version: ${VERSION}"
   else
-    echo "    ✗ ERROR: Version mismatch"
+    echo "    [FAIL] ERROR: Version mismatch"
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
 
@@ -125,9 +138,9 @@ test_cross_compiler() {
   # Use tr -d '\0' to strip null bytes that cause "binary file matches" errors
   CONFIG_ARCH=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^architecture:" | awk '{print $2}')
   if [[ "${CONFIG_ARCH}" == "${CROSS_ARCH}" ]]; then
-    echo "    ✓ architecture: ${CONFIG_ARCH}"
+    echo "    [OK] architecture: ${CONFIG_ARCH}"
   else
-    echo "    ✗ ERROR: architecture is '${CONFIG_ARCH}', expected '${CROSS_ARCH}'"
+    echo "    [FAIL] ERROR: architecture is '${CONFIG_ARCH}', expected '${CROSS_ARCH}'"
     echo "      This means config.generated.ml was not patched correctly!"
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
@@ -141,28 +154,27 @@ test_cross_compiler() {
   PACK_LINKER=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^native_pack_linker:" | cut -d: -f2- | xargs)
   # Cross-compilers should use target-prefixed linker
   if [[ "${PACK_LINKER}" == *"${target}-ocaml-ld"* ]] || [[ "${PACK_LINKER}" == *"conda-ocaml-ld"* ]]; then
-    echo "    ✓ native_pack_linker: ${PACK_LINKER}"
+    echo "    [OK] native_pack_linker: ${PACK_LINKER}"
   else
-    echo "    ✗ ERROR: native_pack_linker is '${PACK_LINKER}'"
+    echo "    [FAIL] ERROR: native_pack_linker is '${PACK_LINKER}'"
     echo "      Expected to contain '${target}-ocaml-ld' or 'conda-ocaml-ld'"
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
 
   # ---------------------------------------------------------------------------
   # Test 4: Toolchain wrappers use conda-ocaml-* (not hardcoded paths)
-  # Note: test-config.sh also checks asm/c_compiler/native_c_compiler in -config
-  # for cross mode. The overlap is intentional — test-config.sh runs as a
-  # separate, standalone test block in recipe.yaml (testing.files), while this
-  # test runs within the per-target cross-compiler validation loop and catches
-  # per-target regressions that the shared config check may not exercise.
+  # Note: This test runs within the per-target cross-compiler validation loop
+  # and deliberately checks asm/c_compiler/native_c_compiler in -config for
+  # cross mode. This catches per-target regressions that shared config checks
+  # may not exercise.
   # ---------------------------------------------------------------------------
   echo "  [4/13] Toolchain wrappers in -config..."
   for tool in asm c_compiler native_c_compiler; do
     TOOL_VAL=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^${tool}:" | cut -d: -f2- | xargs)
     if [[ "${TOOL_VAL}" == "conda-ocaml-"* ]]; then
-      echo "    ✓ ${tool}: ${TOOL_VAL}"
+      echo "    [OK] ${tool}: ${TOOL_VAL}"
     elif [[ "${TOOL_VAL}" == *"/build"* ]] || [[ "${TOOL_VAL}" == *"_build_env"* ]]; then
-      echo "    ✗ ERROR: ${tool} has hardcoded build path: ${TOOL_VAL}"
+      echo "    [FAIL] ERROR: ${tool} has hardcoded build path: ${TOOL_VAL}"
       TEST_ERRORS=$((TEST_ERRORS + 1))
     else
       echo "    ~ ${tool}: ${TOOL_VAL} (acceptable)"
@@ -175,9 +187,9 @@ test_cross_compiler() {
   echo "  [5/13] Library structure (dune compatibility)..."
   for lib in unix str dynlink; do
     if [[ -d "${OCAML_CROSS_LIBDIR}/${lib}" ]] && [[ -f "${OCAML_CROSS_LIBDIR}/${lib}/META" ]]; then
-      echo "    ✓ ${lib}/ with META"
+      echo "    [OK] ${lib}/ with META"
     else
-      echo "    ✗ ERROR: Missing ${lib}/ subdirectory or META file"
+      echo "    [FAIL] ERROR: Missing ${lib}/ subdirectory or META file"
       TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   done
@@ -188,9 +200,9 @@ test_cross_compiler() {
   echo "  [6/13] Required files..."
   for required in Makefile.config caml/mlvalues.h stdlib.cmxa; do
     if [[ -e "${OCAML_CROSS_LIBDIR}/${required}" ]]; then
-      echo "    ✓ ${required}"
+      echo "    [OK] ${required}"
     else
-      echo "    ✗ ERROR: Missing ${required}"
+      echo "    [FAIL] ERROR: Missing ${required}"
       TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   done
@@ -211,43 +223,69 @@ TESTEOF
     case "${CROSS_ARCH}" in
       arm64)
         if echo "$_file_output" | grep -qiE "aarch64|arm64"; then
-          echo "    ✓ Produces arm64 binaries"
+          echo "    [OK] Produces arm64 binaries"
         else
-          echo "    ✗ ERROR: Expected arm64, got: $_file_output"
+          echo "    [FAIL] ERROR: Expected arm64, got: $_file_output"
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
       power)
         if echo "$_file_output" | grep -qi "powerpc\|ppc64"; then
-          echo "    ✓ Produces ppc64 binaries"
+          echo "    [OK] Produces ppc64 binaries"
         else
-          echo "    ✗ ERROR: Expected ppc64, got: $_file_output"
+          echo "    [FAIL] ERROR: Expected ppc64, got: $_file_output"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        fi
+        ;;
+      riscv)
+        if echo "$_file_output" | grep -qi "risc-v"; then
+          echo "    [OK] Produces riscv64 binaries"
+        else
+          echo "    [FAIL] ERROR: Expected riscv64, got: $_file_output"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        fi
+        ;;
+      s390x)
+        if echo "$_file_output" | grep -qi "IBM S/390\|S/390\|s390"; then
+          echo "    [OK] Produces s390x binaries"
+        else
+          echo "    [FAIL] ERROR: Expected s390x, got: $_file_output"
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
       amd64)
         if echo "$_file_output" | grep -qi "x86-64\|x86_64"; then
-          echo "    ✓ Produces x86_64 binaries"
+          echo "    [OK] Produces x86_64 binaries"
         else
-          echo "    ✗ ERROR: Expected x86_64, got: $_file_output"
+          echo "    [FAIL] ERROR: Expected x86_64, got: $_file_output"
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
+        ;;
+      *)
+        # An unrecognised CROSS_ARCH is exactly the botched-wiring case this
+        # test exists to catch - silence here would read as a pass.
+        echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify binary architecture"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
         ;;
     esac
 
     # Execution test with QEMU if available
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      if QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
-        echo "    ✓ Execution successful (QEMU)"
+      if "${qemu_execve}" "${TEST_BIN}" 2>/dev/null | grep -q "Hello from cross-compiled"; then
+        echo "    [OK] Execution successful (QEMU)"
       else
-        echo "    ~ Execution SKIPPED (QEMU execution failed - expected on some platforms)"
+        echo "    [FAIL] ERROR: execution under QEMU failed"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: execution test: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
 
     rm -f "${TEST_BIN}" "${TEST_BIN}.o" "${TEST_BIN}.cmx" "${TEST_BIN}.cmi"
   else
-    echo "    ✗ ERROR: Cross-compilation failed"
+    echo "    [FAIL] ERROR: Cross-compilation failed"
     "${CROSS_OCAMLOPT}" -verbose -o "${TEST_BIN}" "${TEST_ML}" 2>&1 | tail -10 || true
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
@@ -270,14 +308,24 @@ TESTEOF
           case "${CROSS_ARCH}" in
             arm64)
               if echo "${rtlib_arch}" | grep -q "arm64"; then
-                echo "    ✓ ${rtname}: ${rtlib_arch}"
+                echo "    [OK] ${rtname}: ${rtlib_arch}"
               else
-                echo "    ✗ ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected arm64)"
+                echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected arm64)"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
+              fi
+              ;;
+            amd64)
+              if echo "${rtlib_arch}" | grep -q "x86_64"; then
+                echo "    [OK] ${rtname}: ${rtlib_arch}"
+              else
+                echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected x86_64)"
                 TEST_ERRORS=$((TEST_ERRORS + 1))
               fi
               ;;
             *)
-              echo "    ~ ${rtname}: ${rtlib_arch} (no check for ${CROSS_ARCH})"
+              # Silence here would read as a pass and hide a wrong-arch runtime.
+              echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+              TEST_ERRORS=$((TEST_ERRORS + 1))
               ;;
           esac
           ;;
@@ -288,22 +336,48 @@ TESTEOF
             case "${CROSS_ARCH}" in
               arm64)
                 if echo "${rtlib_arch}" | grep -qi "aarch64"; then
-                  echo "    ✓ ${rtname}: AArch64"
+                  echo "    [OK] ${rtname}: AArch64"
                 else
-                  echo "    ✗ ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
                   TEST_ERRORS=$((TEST_ERRORS + 1))
                 fi
                 ;;
               power)
                 if echo "${rtlib_arch}" | grep -qi "powerpc\|ppc64"; then
-                  echo "    ✓ ${rtname}: PowerPC64"
+                  echo "    [OK] ${rtname}: PowerPC64"
                 else
-                  echo "    ✗ ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              riscv)
+                if echo "${rtlib_arch}" | grep -qi "risc-v"; then
+                  echo "    [OK] ${rtname}: RISC-V"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              s390x)
+                if echo "${rtlib_arch}" | grep -qi "s390\|S/390"; then
+                  echo "    [OK] ${rtname}: s390x"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              amd64)
+                if echo "${rtlib_arch}" | grep -qi "x86-64\|x86_64"; then
+                  echo "    [OK] ${rtname}: x86_64"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
                   TEST_ERRORS=$((TEST_ERRORS + 1))
                 fi
                 ;;
               *)
-                echo "    ~ ${rtname}: ${rtlib_arch}"
+                # Silence here would read as a pass and hide a wrong-arch runtime.
+                echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
                 ;;
             esac
           else
@@ -335,9 +409,9 @@ CONSEOF
   # This will fail with "inconsistent assumptions over implementation Stdlib__Sys"
   # if stdlib.cmxa and unix.cmxa have different Stdlib__Sys CRC checksums
   if "${CROSS_OCAMLOPT}" -o "${CONSISTENCY_BIN}" unix.cmxa "${CONSISTENCY_TEST}" 2>/dev/null; then
-    echo "    ✓ stdlib.cmxa and unix.cmxa are consistent"
+    echo "    [OK] stdlib.cmxa and unix.cmxa are consistent"
   else
-    echo "    ✗ ERROR: Inconsistent assumptions - stdlib and unix incompatible"
+    echo "    [FAIL] ERROR: Inconsistent assumptions - stdlib and unix incompatible"
     echo "      This is the bug fixed in HISTORY.md (runtime-all .cmi regeneration)"
     "${CROSS_OCAMLOPT}" -o "${CONSISTENCY_BIN}" unix.cmxa "${CONSISTENCY_TEST}" 2>&1 | grep -i "inconsistent" || true
     TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -354,26 +428,17 @@ CONSEOF
     # They need rpath to find libzstd in ${PREFIX}/lib/
     CROSS_OCAMLOPT_BIN="${OCAML_CROSS_PREFIX}/bin/ocamlopt.opt"
     if [[ -f "${CROSS_OCAMLOPT_BIN}" ]]; then
-      # Show diagnostic info
-      echo "    Binary: ${CROSS_OCAMLOPT_BIN}"
-      echo "    Dependencies (otool -L):"
-      otool -L "${CROSS_OCAMLOPT_BIN}" 2>&1 | head -10 | sed 's/^/      /'
-
       # Check if libzstd is linked via @rpath
       if otool -L "${CROSS_OCAMLOPT_BIN}" 2>/dev/null | grep -q "@rpath/libzstd"; then
         echo "    libzstd link: @rpath/libzstd (needs rpath entry)"
-
-        # Show LC_RPATH entries
-        echo "    LC_RPATH entries (otool -l):"
-        otool -l "${CROSS_OCAMLOPT_BIN}" 2>&1 | grep -A2 "LC_RPATH" | sed 's/^/      /' || echo "      (none found)"
 
         # Verify rpath includes path to lib/
         # Accept either @executable_path or @loader_path (equivalent for executables)
         if otool -l "${CROSS_OCAMLOPT_BIN}" 2>/dev/null | grep -A2 "LC_RPATH" | grep -qE "@(executable_path|loader_path)"; then
           RPATH_VAL=$(otool -l "${CROSS_OCAMLOPT_BIN}" 2>/dev/null | grep -A2 "LC_RPATH" | grep "path" | awk '{print $2}')
-          echo "    ✓ rpath set: ${RPATH_VAL}"
+          echo "    [OK] rpath set: ${RPATH_VAL}"
         else
-          echo "    ✗ ERROR: Missing rpath entry for @executable_path or @loader_path"
+          echo "    [FAIL] ERROR: Missing rpath entry for @executable_path or @loader_path"
           echo "      Binary links @rpath/libzstd but has no rpath to find it"
           echo "      Expected: @executable_path/../../../../lib or @loader_path/../../../../lib"
           TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -397,7 +462,7 @@ CONSEOF
   #      and not the build-host prefix (e.g. x86_64 leaked into an aarch64 pkg).
   #   b) No build-time environment paths leaked (e.g. _build_env, absolute paths
   #      pointing to conda-bld/rattler-build/miniforge trees).
-  # Note: prefix=, LIBDIR=, STUBLIBDIR= contain $PREFIX which conda relocates —
+  # Note: prefix=, LIBDIR=, STUBLIBDIR= contain $PREFIX which conda relocates -
   # those are NOT bugs and are intentionally ignored here.
   # ---------------------------------------------------------------------------
   echo "  [10/13] Makefile.config toolchain + path-leak check..."
@@ -423,6 +488,10 @@ CONSEOF
         EXPECTED_PREFIX="powerpc64le"
         WRONG_PREFIX="x86_64"
         ;;
+      s390x-conda-linux-gnu)
+        EXPECTED_PREFIX="s390x"
+        WRONG_PREFIX="x86_64"
+        ;;
       arm64-apple-darwin*)
         EXPECTED_PREFIX="arm64"
         WRONG_PREFIX="x86_64"
@@ -439,12 +508,12 @@ CONSEOF
       if [[ -z "${var_value}" ]]; then
         echo "    ~ ${var_name}: (not set)"
       elif [[ "${var_value}" == "conda-ocaml-"* ]]; then
-        echo "    ✓ ${var_name}: ${var_value} (wrapper)"
+        echo "    [OK] ${var_name}: ${var_value} (wrapper)"
       elif [[ -n "${WRONG_PREFIX}" ]] && echo "${var_value}" | grep -q "${WRONG_PREFIX}"; then
-        echo "    ✗ ERROR: ${var_name}=${var_value} contains ${WRONG_PREFIX} (should be ${EXPECTED_PREFIX} or wrapper)"
+        echo "    [FAIL] ERROR: ${var_name}=${var_value} contains ${WRONG_PREFIX} (should be ${EXPECTED_PREFIX} or wrapper)"
         CONFIG_ERRORS=$((CONFIG_ERRORS + 1))
       elif [[ -n "${EXPECTED_PREFIX}" ]] && echo "${var_value}" | grep -q "${EXPECTED_PREFIX}"; then
-        echo "    ✓ ${var_name}: ${var_value} (correct target prefix)"
+        echo "    [OK] ${var_name}: ${var_value} (correct target prefix)"
       else
         echo "    ~ ${var_name}: ${var_value} (acceptable)"
       fi
@@ -453,18 +522,18 @@ CONSEOF
     # Check TOOLPREF specifically - this is critical for opam
     if [[ -n "${CONFIG_TOOLPREF}" ]]; then
       if [[ -n "${WRONG_PREFIX}" ]] && echo "${CONFIG_TOOLPREF}" | grep -q "${WRONG_PREFIX}"; then
-        echo "    ✗ ERROR: TOOLPREF=${CONFIG_TOOLPREF} contains ${WRONG_PREFIX}"
+        echo "    [FAIL] ERROR: TOOLPREF=${CONFIG_TOOLPREF} contains ${WRONG_PREFIX}"
         echo "      This will cause opam to use wrong toolchain!"
         CONFIG_ERRORS=$((CONFIG_ERRORS + 1))
       elif [[ -n "${EXPECTED_PREFIX}" ]] && echo "${CONFIG_TOOLPREF}" | grep -q "${EXPECTED_PREFIX}"; then
-        echo "    ✓ TOOLPREF: ${CONFIG_TOOLPREF} (correct)"
+        echo "    [OK] TOOLPREF: ${CONFIG_TOOLPREF} (correct)"
       else
         echo "    ~ TOOLPREF: ${CONFIG_TOOLPREF}"
       fi
     fi
 
     if [[ ${CONFIG_ERRORS} -gt 0 ]]; then
-      echo "    ✗ CRITICAL: Makefile.config has wrong toolchain for ${target}"
+      echo "    [FAIL] CRITICAL: Makefile.config has wrong toolchain for ${target}"
       echo "      Full Makefile.config toolchain section:"
       grep -E "^(AS|ASM|LD|CC|AR|RANLIB|TOOLPREF|NATIVE_CC|TARGET)=" "${MAKEFILE_CONFIG}" | sed 's/^/        /'
       TEST_ERRORS=$((TEST_ERRORS + CONFIG_ERRORS))
@@ -473,25 +542,25 @@ CONSEOF
     # --- Part B: build-time path leak check ---
     # _build_env paths are ALWAYS wrong (build env path in a host package).
     # Absolute tool paths pointing to build trees (conda-bld, rattler-build, etc.)
-    # are also wrong — tools should be bare names or conda-ocaml-* wrappers.
+    # are also wrong - tools should be bare names or conda-ocaml-* wrappers.
     LEAK_ERRORS=0
     if grep -qE "_build_env" "${MAKEFILE_CONFIG}"; then
-      echo "    ✗ ERROR: Makefile.config contains _build_env paths:"
+      echo "    [FAIL] ERROR: Makefile.config contains _build_env paths:"
       grep -E "_build_env" "${MAKEFILE_CONFIG}" | head -5 | sed 's/^/      /'
       LEAK_ERRORS=$((LEAK_ERRORS + 1))
     fi
     if grep -E "^(CPP|CC|AS|ASM|ASPP)=/" "${MAKEFILE_CONFIG}" | grep -qE "(conda-bld|rattler-build|miniforge|miniconda|/home/.*/build)"; then
-      echo "    ✗ ERROR: Makefile.config has tool paths with build-time directories:"
+      echo "    [FAIL] ERROR: Makefile.config has tool paths with build-time directories:"
       grep -E "^(CPP|CC|AS|ASM|ASPP)=/" "${MAKEFILE_CONFIG}" | grep -E "(conda-bld|rattler-build|miniforge|miniconda|/home/.*/build)" | head -3 | sed 's/^/      /'
       LEAK_ERRORS=$((LEAK_ERRORS + 1))
     fi
     if [[ ${LEAK_ERRORS} -eq 0 ]]; then
-      echo "    ✓ Makefile.config: no build-time path leaks"
+      echo "    [OK] Makefile.config: no build-time path leaks"
     else
       TEST_ERRORS=$((TEST_ERRORS + LEAK_ERRORS))
     fi
   else
-    echo "    ✗ ERROR: Makefile.config not found at ${MAKEFILE_CONFIG}"
+    echo "    [FAIL] ERROR: Makefile.config not found at ${MAKEFILE_CONFIG}"
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
 
@@ -501,9 +570,9 @@ CONSEOF
   echo "  [11/13] standard_library path verification..."
   STDLIB_PATH=$("${CROSS_OCAMLOPT}" -config 2>/dev/null | tr -d '\0' | grep -a "^standard_library:" | cut -d: -f2- | xargs)
   if [[ "${STDLIB_PATH}" == *"ocaml-cross-compilers/${target}"* ]]; then
-    echo "    ✓ standard_library: ${STDLIB_PATH}"
+    echo "    [OK] standard_library: ${STDLIB_PATH}"
   elif [[ "${STDLIB_PATH}" == *"/lib/ocaml" ]] && [[ "${STDLIB_PATH}" != *"cross-compilers"* ]]; then
-    echo "    ✗ ERROR: standard_library points to native OCaml, not cross-compiler"
+    echo "    [FAIL] ERROR: standard_library points to native OCaml, not cross-compiler"
     echo "      Path: ${STDLIB_PATH}"
     echo "      Expected: ...ocaml-cross-compilers/${target}/lib/ocaml"
     TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -553,51 +622,56 @@ MAINEOF
 
   # Step 1: Compile interface
   if ! "${CROSS_OCAMLOPT}" -c helper.mli 2>/dev/null; then
-    echo "    ✗ ERROR: Failed to compile helper.mli"
+    echo "    [FAIL] ERROR: Failed to compile helper.mli"
     "${CROSS_OCAMLOPT}" -c helper.mli 2>&1 | tail -5 | sed 's/^/      /'
     MULTIFILE_OK=0
   fi
 
   # Step 2: Compile helper module
   if [[ ${MULTIFILE_OK} -eq 1 ]] && ! "${CROSS_OCAMLOPT}" -c helper.ml 2>/dev/null; then
-    echo "    ✗ ERROR: Failed to compile helper.ml"
+    echo "    [FAIL] ERROR: Failed to compile helper.ml"
     "${CROSS_OCAMLOPT}" -c helper.ml 2>&1 | tail -5 | sed 's/^/      /'
     MULTIFILE_OK=0
   fi
 
   # Step 3: Compile main module
   if [[ ${MULTIFILE_OK} -eq 1 ]] && ! "${CROSS_OCAMLOPT}" -c main.ml 2>/dev/null; then
-    echo "    ✗ ERROR: Failed to compile main.ml"
+    echo "    [FAIL] ERROR: Failed to compile main.ml"
     "${CROSS_OCAMLOPT}" -c main.ml 2>&1 | tail -5 | sed 's/^/      /'
     MULTIFILE_OK=0
   fi
 
   # Step 4: Link everything
   if [[ ${MULTIFILE_OK} -eq 1 ]] && ! "${CROSS_OCAMLOPT}" -o "${MULTIFILE_BIN}" helper.cmx main.cmx 2>/dev/null; then
-    echo "    ✗ ERROR: Failed to link multi-file project"
+    echo "    [FAIL] ERROR: Failed to link multi-file project"
     "${CROSS_OCAMLOPT}" -o "${MULTIFILE_BIN}" helper.cmx main.cmx 2>&1 | tail -5 | sed 's/^/      /'
     MULTIFILE_OK=0
   fi
 
   if [[ ${MULTIFILE_OK} -eq 1 ]]; then
-    echo "    ✓ Multi-file compilation successful"
+    echo "    [OK] Multi-file compilation successful"
 
     # Verify with QEMU if available
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
       echo "    Testing execution (QEMU)..."
-      QEMU_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${MULTIFILE_BIN}" 2>&1 || true)
+      QEMU_OUTPUT=$("${qemu_execve}" "${MULTIFILE_BIN}" 2>&1 || true)
       if echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_CORRECT"; then
-        echo "    ✓ Computation correct under QEMU"
+        echo "    [OK] Computation correct under QEMU"
       elif echo "${QEMU_OUTPUT}" | grep -q "COMPUTATION_WRONG"; then
-        echo "    ✗ ERROR: Computation wrong - possible instruction set mismatch"
+        echo "    [FAIL] ERROR: Computation wrong - possible instruction set mismatch"
         echo "      Output: ${QEMU_OUTPUT}"
         TEST_ERRORS=$((TEST_ERRORS + 1))
       elif echo "${QEMU_OUTPUT}" | grep -q "Hello"; then
-        echo "    ~ Partial execution (computation test inconclusive)"
+        echo "    [FAIL] ERROR: Partial execution (computation test inconclusive)"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       else
-        echo "    ~ QEMU execution failed (may be platform limitation)"
+        echo "    [FAIL] ERROR: QEMU execution failed"
         echo "      Output: ${QEMU_OUTPUT}" | head -3 | sed 's/^/      /'
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: multi-file program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   else
     TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -628,21 +702,27 @@ let () =
 SYSCALLEOF
 
   if "${CROSS_OCAMLOPT}" -o "${SYSCALL_BIN}" unix.cmxa "${SYSCALL_TEST}" 2>/dev/null; then
-    echo "    ✓ Unix syscall compilation successful"
+    echo "    [OK] Unix syscall compilation successful"
 
-    if [[ -n "$qemu_cmd" ]] && command -v "$qemu_cmd" >/dev/null 2>&1; then
-      SYSCALL_OUTPUT=$(QEMU_LD_PREFIX="${qemu_prefix}" ${qemu_cmd} "${SYSCALL_BIN}" 2>&1 || true)
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
+      SYSCALL_OUTPUT=$("${qemu_execve}" "${SYSCALL_BIN}" 2>&1 || true)
       if echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_OK"; then
-        echo "    ✓ Unix syscalls work correctly under QEMU"
+        echo "    [OK] Unix syscalls work correctly under QEMU"
       elif echo "${SYSCALL_OUTPUT}" | grep -q "SYSCALL_SUSPICIOUS"; then
-        echo "    ✗ WARNING: Unix syscalls return suspicious values"
+        echo "    [FAIL] ERROR: Unix syscalls return suspicious values"
         echo "      Output: ${SYSCALL_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       else
-        echo "    ~ QEMU syscall test inconclusive"
+        echo "    [FAIL] ERROR: QEMU syscall test inconclusive"
+        echo "      Output: ${SYSCALL_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
       fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: Unix syscall program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
     fi
   else
-    echo "    ✗ ERROR: Unix syscall compilation failed"
+    echo "    [FAIL] ERROR: Unix syscall compilation failed"
     "${CROSS_OCAMLOPT}" -o "${SYSCALL_BIN}" unix.cmxa "${SYSCALL_TEST}" 2>&1 | tail -5 | sed 's/^/      /'
     TEST_ERRORS=$((TEST_ERRORS + 1))
   fi
@@ -650,16 +730,113 @@ SYSCALLEOF
   rm -f "${SYSCALL_TEST}" "${SYSCALL_BIN}" "${SYSCALL_BIN}."*
 
   # ---------------------------------------------------------------------------
+  # Test 14: C stub reading value headers (catches ARCH_BIG_ENDIAN mismatch
+  # between the installed caml/m.h and the target)
+  # ---------------------------------------------------------------------------
+  echo "  [14/14] C stub value header test..."
+  STUB_DIR="/tmp/test_stub_tag_${TARGET_ID}"
+  STUB_BIN="${STUB_DIR}/stub_tag_test"
+  mkdir -p "${STUB_DIR}"
+
+  cat > "${STUB_DIR}/stub_tag_c.c" << 'STUBCEOF'
+#include <caml/mlvalues.h>
+CAMLprim value stub_str_len(value s) {
+  if (Tag_val(s) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(s));
+}
+CAMLprim value stub_cwd_len(value v_cwd) {
+  if (Is_long(v_cwd) || Tag_val(v_cwd) != 0) return Val_int(-2);
+  if (Tag_val(Field(v_cwd, 0)) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(Field(v_cwd, 0)));
+}
+STUBCEOF
+  cat > "${STUB_DIR}/stub_tag.ml" << 'STUBMLEOF'
+type cwd = Inherit | Path of string
+external str_len : string -> int = "stub_str_len"
+external cwd_len : cwd -> int = "stub_cwd_len"
+let _ = Inherit
+let () =
+  if str_len "hello" = 5 && cwd_len (Path "hello") = 5 then print_endline "STUB_OK" else exit 1
+STUBMLEOF
+
+  if (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>/dev/null; then
+    echo "    [OK] C stub compilation successful"
+
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
+      STUB_OUTPUT=$("${qemu_execve}" "${STUB_BIN}" 2>&1 || true)
+      if echo "${STUB_OUTPUT}" | grep -q "STUB_OK"; then
+        echo "    [OK] C stub reads value headers correctly under QEMU"
+      else
+        echo "    [FAIL] ERROR: C stub str_len check failed under QEMU"
+        echo "      Output: ${STUB_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
+      fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: C stub program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
+    fi
+  else
+    echo "    [FAIL] ERROR: C stub compilation failed"
+    (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>&1 | tail -5 | sed 's/^/      /'
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
+  rm -rf "${STUB_DIR}"
+
+  # ---------------------------------------------------------------------------
+  # Test 15: .cmi written by the native (zstd-enabled) ocamlc is readable by
+  # the cross ocamlc.opt; on s390x the cross compiler must write it plain
+  # ---------------------------------------------------------------------------
+  echo "  [15/15] Native-written .cmi read by ${target}-ocamlc.opt..."
+  CMI_DIR="/tmp/test_cmi_compat_${TARGET_ID}"
+  CROSS_OCAMLC_OPT="${PREFIX}/bin/${target}-ocamlc.opt"
+  rm -rf "${CMI_DIR}"
+  mkdir -p "${CMI_DIR}"
+  echo 'val x : int' > "${CMI_DIR}/a.mli"
+  echo 'let y = A.x' > "${CMI_DIR}/b.ml"
+
+  # -nopervasives keeps Stdlib out of a.cmi's imports, so only the marshal
+  # format is under test, not native-vs-cross Stdlib CRCs.
+  if (cd "${CMI_DIR}" && ocamlc -nopervasives -c a.mli) 2>/dev/null; then
+    if [[ "$(cmi_marshal_magic "${CMI_DIR}/a.cmi")" == "8495a6bd" ]]; then
+      echo "    native a.cmi: compressed"
+    else
+      echo "    ~ native a.cmi: not compressed (decompression path not exercised)"
+    fi
+    if (cd "${CMI_DIR}" && "${CROSS_OCAMLC_OPT}" -I . -c b.ml) 2>/dev/null; then
+      echo "    [OK] ${target}-ocamlc.opt read the native a.cmi"
+      if [[ "${target}" == s390x-* ]]; then
+        if [[ "$(cmi_marshal_magic "${CMI_DIR}/b.cmi")" == "8495a6bd" ]]; then
+          echo "    [FAIL] ERROR: b.cmi written compressed; the zstd-free s390x toolchain cannot read it"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        else
+          echo "    [OK] b.cmi written uncompressed"
+        fi
+      fi
+    else
+      echo "    [FAIL] ERROR: ${target}-ocamlc.opt could not read the native a.cmi"
+      (cd "${CMI_DIR}" && "${CROSS_OCAMLC_OPT}" -I . -c b.ml) 2>&1 | tail -5 | sed 's/^/      /'
+      TEST_ERRORS=$((TEST_ERRORS + 1))
+    fi
+  else
+    echo "    [FAIL] ERROR: native ocamlc failed to compile a.mli"
+    (cd "${CMI_DIR}" && ocamlc -nopervasives -c a.mli) 2>&1 | tail -5 | sed 's/^/      /'
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
+  rm -rf "${CMI_DIR}"
+
+  # ---------------------------------------------------------------------------
   # Summary
   # ---------------------------------------------------------------------------
   if [[ ${TEST_ERRORS} -gt 0 ]]; then
     echo ""
-    echo "  ✗ FAILED: ${TEST_ERRORS} test(s) failed for ${target}"
+    echo "  [FAIL] FAILED: ${TEST_ERRORS} test(s) failed for ${target}"
     echo "    The cross-compiler may build packages that fail at runtime!"
     return 1
   else
     echo ""
-    echo "  ✓ All tests passed for ${target}"
+    echo "  [OK] All tests passed for ${target}"
     return 0
   fi
 }
@@ -682,8 +859,8 @@ test_toolchain_env_vars() {
   CROSS_OCAMLOPT="${PREFIX}/bin/${target}-ocamlopt"
 
   if [[ ! -x "${CROSS_OCAMLOPT}" ]]; then
-    echo "  ✗ SKIP: ${target} cross-compiler not found"
-    return 0
+    echo "  [FAIL] ${target} cross-compiler not found"
+    return 1
   fi
 
   # Create fake toolchain wrappers to test environment override
@@ -718,29 +895,19 @@ EOF
   # Debug: Check if ${target}-ocaml-cc exists and is executable (standalone wrapper)
   TOOLCHAIN_WRAPPER="${PREFIX}/bin/${target}-ocaml-cc"
   if [[ ! -x "${TOOLCHAIN_WRAPPER}" ]]; then
-    echo "    ✗ ERROR: ${TOOLCHAIN_WRAPPER} not found or not executable"
+    echo "    [FAIL] ERROR: ${TOOLCHAIN_WRAPPER} not found or not executable"
     echo "      Cross-compiler should have standalone toolchain wrappers"
-    ENV_TEST_PASSED=0
-    return 0
-  fi
-
-  # Debug: Check wrapper script content
-  echo "  Debug: Checking standalone toolchain wrapper..."
-  echo "    Wrapper exists: ${TOOLCHAIN_WRAPPER}"
-  if grep -q "CONDA_OCAML_${TARGET_ID}_CC" "${TOOLCHAIN_WRAPPER}" 2>/dev/null; then
-    echo "    ✓ Wrapper reads CONDA_OCAML_${TARGET_ID}_CC"
-  else
-    echo "    ✗ Wrapper does NOT read CONDA_OCAML_${TARGET_ID}_CC"
+    return 1
   fi
 
   echo "  Testing environment variable override..."
   COMPILE_OUTPUT=$("${CROSS_OCAMLOPT}" -verbose -o "/tmp/test_env_${TARGET_ID}" "${TEST_ML}" 2>&1 || true)
 
   if echo "${COMPILE_OUTPUT}" | grep -q "FAKE_TOOLCHAIN_SUCCESS"; then
-    echo "    ✓ Environment variables properly override toolchain wrappers"
+    echo "    [OK] Environment variables properly override toolchain wrappers"
     ENV_TEST_PASSED=1
   else
-    echo "    ✗ ERROR: Environment variables not being used by wrapper scripts"
+    echo "    [FAIL] ERROR: Environment variables not being used by wrapper scripts"
     echo "      This breaks dune/opam cross-compilation workflows"
     echo "    Debug: First 10 lines of compilation output:"
     echo "${COMPILE_OUTPUT}" | head -10 | sed 's/^/      /'
@@ -758,10 +925,10 @@ EOF
   rm -rf "${FAKE_TOOLCHAIN_DIR}" "${TEST_ML}" "/tmp/test_env_${TARGET_ID}"*
 
   if [[ ${ENV_TEST_PASSED} -eq 1 ]]; then
-    echo "  ✓ Environment variable tests passed"
+    echo "  [OK] Environment variable tests passed"
     return 0
   else
-    echo "  ✗ Environment variable tests failed"
+    echo "  [FAIL] Environment variable tests failed"
     return 1
   fi
 }
@@ -777,9 +944,10 @@ echo "Build platform:  ${BUILD_PLATFORM}"
 echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
 
-# Only run on native x86_64 platforms where cross-compilers are built
-if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]]; then
-  echo "Cross-compilers only built on linux-64 and osx-64, skipping"
+# Only run on platforms that host a cross-compiler build. linux-aarch64 hosts the
+# ppc64le and riscv64 cross-compilers, per cross_build_platform in recipe.yaml.
+if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "linux-aarch64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
+  echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
 fi
 
@@ -795,33 +963,8 @@ TOTAL_ERRORS=0
 if [[ -n "$TARGET_TRIPLE" ]]; then
   echo "Testing specific target: ${TARGET_TRIPLE}"
 
-  # Determine QEMU settings based on target
-  case "${TARGET_TRIPLE}" in
-    aarch64-conda-linux-gnu)
-      QEMU_CMD="qemu-execve-aarch64"
-      QEMU_PREFIX="${PREFIX}/aarch64-conda-linux-gnu/sysroot"
-      ARCH_NAME="Linux ARM64 (aarch64)"
-      ;;
-    powerpc64le-conda-linux-gnu)
-      QEMU_CMD="qemu-execve-ppc64le"
-      QEMU_PREFIX="${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"
-      ARCH_NAME="Linux PPC64LE"
-      ;;
-    arm64-apple-darwin*)
-      QEMU_CMD=""
-      QEMU_PREFIX=""
-      ARCH_NAME="macOS ARM64"
-      ;;
-    *)
-      echo "Warning: Unknown target triple ${TARGET_TRIPLE}, testing anyway..."
-      QEMU_CMD=""
-      QEMU_PREFIX=""
-      ARCH_NAME="${TARGET_TRIPLE}"
-      ;;
-  esac
-
   # Test the specified target
-  if test_cross_compiler "${TARGET_TRIPLE}" "${ARCH_NAME}" "${QEMU_CMD}" "${QEMU_PREFIX}"; then
+  if test_cross_compiler "${TARGET_TRIPLE}"; then
     :
   else
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
@@ -834,67 +977,8 @@ if [[ -n "$TARGET_TRIPLE" ]]; then
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
   fi
 else
-  # No specific target - test all available targets for the build platform
-
-  # Linux x86_64: test aarch64 and ppc64le cross-compilers
-  if [[ "$BUILD_PLATFORM" == "linux-64" ]]; then
-    # Test aarch64 cross-compiler
-    if test_cross_compiler \
-      "aarch64-conda-linux-gnu" \
-      "Linux ARM64 (aarch64)" \
-      "qemu-execve-aarch64" \
-      "${PREFIX}/aarch64-conda-linux-gnu/sysroot"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for aarch64
-    if test_toolchain_env_vars "aarch64-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test ppc64le cross-compiler
-    if test_cross_compiler \
-      "powerpc64le-conda-linux-gnu" \
-      "Linux PPC64LE" \
-      "qemu-execve-ppc64le" \
-      "${PREFIX}/powerpc64le-conda-linux-gnu/sysroot"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for ppc64le
-    if test_toolchain_env_vars "powerpc64le-conda-linux-gnu"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
-
-  # macOS x86_64: test arm64 cross-compiler
-  if [[ "$BUILD_PLATFORM" == "osx-64" ]]; then
-    # Test arm64 cross-compiler (no QEMU for macOS)
-    if test_cross_compiler \
-      "arm64-apple-darwin20.0.0" \
-      "macOS ARM64" \
-      "" \
-      ""; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-
-    # Test environment variable override for arm64
-    if test_toolchain_env_vars "arm64-apple-darwin20.0.0"; then
-      :
-    else
-      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
-    fi
-  fi
+  echo "ERROR: no target triple supplied (argument 4); nothing to test"
+  exit 1
 fi
 
 echo ""

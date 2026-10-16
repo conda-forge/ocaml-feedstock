@@ -43,7 +43,7 @@ run_logged() {
   else
     local rc=$?
     echo "${indent} FAILED (${rc}) - see ${logfile##*/}"
-    tail -100 "${logfile}" | sed "s/^/${indent} /"
+    tail -400 "${logfile}" | sed "s/^/${indent} /"
     return ${rc}
   fi
 }
@@ -52,11 +52,17 @@ run_logged() {
 # Requires: NEEDS_DL variable to be set (1 = add -ldl)
 apply_cross_patches() {
   cp "${RECIPE_DIR}"/building/Makefile.cross .
-  patch -N -p0 < "${RECIPE_DIR}"/building/tmp_Makefile.patch > /dev/null 2>&1 || true
+  local mk_patch="${RECIPE_DIR}/building/cross-makefile.patch"
+  # A second call on the same tree finds the patch already applied; skip it
+  if ! patch -R -p0 -f -s --dry-run < "${mk_patch}" > /dev/null 2>&1; then
+    if ! patch -N -p0 -f < "${mk_patch}" > /dev/null; then
+      echo "ERROR: cross-makefile.patch did not apply"
+      return 1
+    fi
+  fi
 
   # Fix dynlink "inconsistent assumptions" error:
   # Use otherlibrariesopt-cross target which calls dynlink-allopt with proper CAMLOPT/BEST_OCAMLOPT
-  sed -i 's/otherlibrariesopt ocamltoolsopt/otherlibrariesopt-cross ocamltoolsopt/g' Makefile.cross
   sed -i 's/\$(MAKE) otherlibrariesopt /\$(MAKE) otherlibrariesopt-cross /g' Makefile.cross
 
   if [[ "${NEEDS_DL:-0}" == "1" ]]; then
@@ -110,13 +116,14 @@ find_tool() {
 # ==============================================================================
 
 # Get target ID from triplet (for CONDA_OCAML_<TARGET_ID>_* variables)
-# Usage: get_target_id "aarch64-conda-linux-gnu" → "AARCH64"
+# Usage: get_target_id "aarch64-conda-linux-gnu" -> "AARCH64"
 get_target_id() {
   local target="$1"
   
   case "${target}" in
     aarch64-conda-linux-gnu) echo "AARCH64" ;;
     powerpc64le-conda-linux-gnu) echo "PPC64LE" ;;
+    riscv64-conda-linux-gnu) echo "RISCV64" ;;
     arm64-apple-darwin*) echo "ARM64" ;;
     x86_64-conda-linux-gnu|x86_64-apple-darwin*) echo "X86_64" ;;
     *) echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]' ;;
@@ -124,27 +131,31 @@ get_target_id() {
 }
 
 # Get target architecture for OCaml ARCH variable
-# Usage: get_target_arch "aarch64-conda-linux-gnu" → "arm64"
+# Usage: get_target_arch "aarch64-conda-linux-gnu" -> "arm64"
 get_target_arch() {
   local target="$1"
   
   case "${target}" in
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
+    riscv64-*) echo "riscv" ;;
+    s390x-*) echo "s390x" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
   esac
 }
 
 # Get target platform from triplet
-# Usage: get_target_platform "aarch64-conda-linux-gnu" → "linux-aarch64"
+# Usage: get_target_platform "aarch64-conda-linux-gnu" -> "linux-aarch64"
 get_target_platform() {
   local target="$1"
-  
+
   case "${target}" in
     aarch64-*) echo "linux-aarch64" ;;
     arm64-*) echo "osx-arm64" ;;
     powerpc64le-*) echo "linux-ppc64le" ;;
+    riscv64-*) echo "linux-riscv64" ;;
+    s390x-*) echo "linux-s390x" ;;
     x86_64-conda-linux-gnu) echo "linux-64" ;;
     x86_64-apple-darwin*) echo "osx-64" ;;
     *) echo "amd64" ;;  # default
@@ -331,8 +342,8 @@ sanitize_and_export_cross_flags() {
 }
 
 # Get target architecture from conda target triplet or platform
-# Usage: get_arch_from_triplet "aarch64-conda-linux-gnu" → "aarch64"
-# Usage: get_arch_from_platform "linux-aarch64" → "aarch64"
+# Usage: get_arch_from_triplet "aarch64-conda-linux-gnu" -> "aarch64"
+# Usage: get_arch_from_platform "linux-aarch64" -> "aarch64"
 get_arch_for_sanitization() {
   local input="$1"
 
@@ -342,6 +353,9 @@ get_arch_for_sanitization() {
       ;;
     powerpc64le-*|linux-ppc64le|ppc64le-*)
       echo "powerpc64le"
+      ;;
+    riscv64-*|linux-riscv64)
+      echo "riscv64"
       ;;
     x86_64-*|linux-64|osx-64)
       echo "x86_64"
@@ -369,17 +383,33 @@ setup_cflags_ldflags() {
   [[ "${target}" != "linux-"* ]] && [[ "${target}" != "osx-"* ]] && target="nonunix-${target#*-}"
   
   case "${name}_${native}_${target}" in
-    NATIVE_osx-64_osx-64|NATIVE_osx-arm64_osx-arm64|NATIVE_linux-64_linux-64|NATIVE_nonunix-64_nonunix-64)
+    NATIVE_osx-64_osx-64|NATIVE_osx-arm64_osx-arm64|NATIVE_linux-64_linux-64|NATIVE_linux-aarch64_linux-aarch64|NATIVE_nonunix-64_nonunix-64|NATIVE_nonunix-arm64_nonunix-arm64)
       # Native build: use environment CFLAGS (set by conda-build for this platform)
       export "${name}_CFLAGS=${CFLAGS:-}"
       export "${name}_LDFLAGS=${LDFLAGS:-}"
       ;;
-    CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le)
+    CROSS_linux-64_linux-aarch64|CROSS_linux-64_linux-ppc64le|CROSS_linux-aarch64_linux-ppc64le)
       # Cross-compiling FOR Linux aarch64/ppc64le
       # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted with
       # mixed build/target flags that cause -march=nocona on aarch64 cross-compiler
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
+      ;;
+    CROSS_linux-64_linux-riscv64|CROSS_linux-aarch64_linux-riscv64)
+      # Cross-compiling FOR Linux riscv64
+      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted with
+      # mixed build/target flags
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${PREFIX}/include"
+      # -Wl,--allow-shlib-undefined: target libzstd.so references pthread_create/pthread_join@GLIBC_2.34, which the cross ocamlc.opt/ocamlopt.opt link otherwise rejects
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib -Wl,--allow-shlib-undefined"
+      ;;
+    CROSS_linux-64_linux-s390x|CROSS_linux-aarch64_linux-s390x)
+      # Cross-compiling FOR Linux s390x
+      # -fno-plt emits GOT-indirect calls for libc, avoiding a
+      # _dl_runtime_resolve_vx PLT trampoline that corrupts OCaml's fiber heap stack
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -march=z13 -mzarch -fno-plt -isystem ${PREFIX}/include"
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -L${PREFIX}/lib"
+      export "${name}_ASPPFLAGS=-march=z13 -mzarch -fno-plt"
       ;;
     CROSS_osx-64_osx-arm64)
       # Cross-compiling FOR macOS ARM64 (on osx-64)
@@ -389,6 +419,13 @@ setup_cflags_ldflags() {
       export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
       export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs${ARM64_SYSROOT:+ -isysroot ${ARM64_SYSROOT}}"
       ;;
+    CROSS_osx-arm64_osx-64)
+      # Cross-compiling FOR macOS x86_64 (on osx-arm64)
+      # ALWAYS use clean generic flags - conda-build's CFLAGS is often corrupted
+      # The host SDK already carries the x86_64 slice, so no sysroot download here.
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -O2 -pipe -isystem ${PREFIX}/include${CONDA_BUILD_SYSROOT:+ -isysroot ${CONDA_BUILD_SYSROOT}}"
+      export "${name}_LDFLAGS=-fuse-ld=lld -L${PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs${CONDA_BUILD_SYSROOT:+ -isysroot ${CONDA_BUILD_SYSROOT}}"
+      ;;
     NATIVE_osx-64_osx-arm64)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
       # MUST include -L${BUILD_PREFIX}/lib for zstd - PREFIX has ARM64 libs!
@@ -397,9 +434,22 @@ setup_cflags_ldflags() {
       export "${name}_CFLAGS=-march=core2 -mtune=haswell -mssse3 -ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
       ;;
-    NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le)
+    NATIVE_osx-arm64_osx-64)
+      # Native OCaml build during cross-platform CI (runs on the arm64 BUILD machine)
+      # MUST include -L${BUILD_PREFIX}/lib for zstd - PREFIX has x86_64 libs!
+      # CRITICAL: Also strip -L$PREFIX from global LDFLAGS (conda-build sets it with x86_64 paths)
+      export LDFLAGS="-L${BUILD_PREFIX}/lib ${LDFLAGS//-L${PREFIX}\/lib/}"
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -O2 -pipe -isystem ${BUILD_PREFIX}/include"
+      export "${name}_LDFLAGS=-fuse-ld=lld -L${BUILD_PREFIX}/lib -Wl,-headerpad_max_install_names -Wl,-dead_strip_dylibs"
+      ;;
+    NATIVE_linux-64_linux-aarch64|NATIVE_linux-64_linux-ppc64le|NATIVE_linux-64_linux-riscv64)
       # Native OCaml build during cross-platform CI (runs on x86_64 BUILD machine)
       export "${name}_CFLAGS=-march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem ${BUILD_PREFIX}/include"
+      export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib"
+      ;;
+    NATIVE_linux-aarch64_linux-ppc64le|NATIVE_linux-aarch64_linux-riscv64|NATIVE_linux-aarch64_linux-s390x)
+      # Native OCaml build during cross-platform CI (runs on the aarch64 BUILD machine)
+      export "${name}_CFLAGS=-ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O2 -ffunction-sections -pipe -isystem ${BUILD_PREFIX}/include"
       export "${name}_LDFLAGS=-Wl,-O2 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,--disable-new-dtags -Wl,--gc-sections -Wl,-rpath,${BUILD_PREFIX}/lib -Wl,-rpath-link,${BUILD_PREFIX}/lib -L${BUILD_PREFIX}/lib"
       ;;
     CROSS_linux-64_linux-64|CROSS_osx-64_osx-64|CROSS_nonunix-*|*)
@@ -471,16 +521,30 @@ setup_toolchain() {
        _MKEXE="$(basename "${_CC}") -Wl,-E -ldl"
       ;;
     *-mingw32)
-       _AR=$(find_tool "${target}-ar" true)
-       _AS=$(find_tool "${target}-as" true)
-       _CC=$(find_tool "${target}-gcc" true)
-       _LD=$(find_tool "${target}-ld" true)
-       _NM=$(find_tool "${target}-nm" true)
-       _RANLIB=$(find_tool "${target}-ranlib" true)
-       _STRIP=$(find_tool "${target}-strip" true)
+       # zig ships <triplet>-zig-<tool> wrappers and exports these; m2w64 ships the
+       # GNU names. zig has no nm or strip, which the MSVC arm below also leaves empty.
+       _AR="${ZIG_AR:-$(find_tool "${target}-ar" true)}"
+       _AS="${ZIG_ASM:-$(find_tool "${target}-as" true)}"
+       _CC="${ZIG_CC:-$(find_tool "${target}-gcc" true)}"
+       _LD="${ZIG_LLD:-$(find_tool "${target}-ld" true)}"
+       _RANLIB="${ZIG_RANLIB:-$(find_tool "${target}-ranlib" true)}"
+       # zig exports Windows paths and make runs these through /bin/sh, which eats
+       # the backslashes; find_tool already returns forward slashes so this is a no-op there
+       _AR="${_AR//\\//}"
+       _AS="${_AS//\\//}"
+       _CC="${_CC//\\//}"
+       _LD="${_LD//\\//}"
+       _RANLIB="${_RANLIB//\\//}"
+       if [[ -n "${ZIG_CC:-}" ]]; then
+         _NM=""
+         _STRIP=""
+       else
+         _NM=$(find_tool "${target}-nm" true)
+         _STRIP=$(find_tool "${target}-strip" true)
+       fi
 
        _ASM=$(basename "${_AS}")
-  
+
        _MKDLL="$(basename "${_CC}")"
        _MKEXE="$(basename "${_CC}")"
       ;;
@@ -514,7 +578,8 @@ setup_toolchain() {
 
   # Export all
   export "${name}_AR=${_AR}" "${name}_AS=${_AS}" "${name}_CC=${_CC}" "${name}_RANLIB=${_RANLIB}"
-  export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP}" "${name}_LD=${_LD}"
+  # STRIP defaults to ':' so an empty strip stays a harmless no-op when passed as a make variable
+  export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP:-:}" "${name}_LD=${_LD}"
   export "${name}_ASM=${_ASM}" "${name}_MKDLL=${_MKDLL}" "${name}_MKEXE=${_MKEXE}"
 }
 
@@ -615,6 +680,7 @@ WRAPPER
 clean_makefile_config() {
   local config_file="$1"
   local prefix="$2"
+  local keep='@@OCAML_RELOC_L@@'
 
   [[ -f "${config_file}" ]] || return 0
 
@@ -623,6 +689,14 @@ clean_makefile_config() {
     "rattler-build" "conda-bld" "build_artifacts" "placehold"
     "host_env" "build_env" "_build_env" "feedstock"
   )
+
+  # Paths under the prefix are relocatable: conda rewrites the prefix at install
+  # time, and the prefix itself contains marker substrings during the build.
+  # Mask every occurrence of the prefix string (-L, -Wl,-rpath, plain paths) so
+  # no marker rule below sees it; restored after the whole-line deletion.
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "s|${prefix}|${keep}|g" "${config_file}"
+  fi
 
   # Remove -L and -Wl,-L paths containing build directories
   sed -i 's|-L/[^ ]*/lib ||g' "${config_file}"
@@ -633,7 +707,7 @@ clean_makefile_config() {
 
   # CRITICAL: Remove CONFIGURE_ARGS - it contains build-time paths
   sed -i '/^CONFIGURE_ARGS=/d' "${config_file}"
-  echo "CONFIGURE_ARGS=# Removed - contained build-time paths" >> "${config_file}"
+  echo "CONFIGURE_ARGS=" >>"${config_file}"
 
   # Replace absolute /home/ paths with prefix
   sed -i "s|/home/[^/]*/feedstock_root[^[:space:]]*|${prefix}|g" "${config_file}"
@@ -651,8 +725,12 @@ clean_makefile_config() {
     sed -i "\\|^/[^[:space:]]*${marker}|d" "${config_file}"
   done
 
-  # Delete orphaned lines that are only the prefix
+  # Delete orphaned lines that are only the prefix, in either form: the bare
+  # prefix emitted by the rewrites above, or the masked prefix from rule 1.
   sed -i '/^'"${prefix//\//\\/}"'$/d' "${config_file}"
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "/^${keep}$/d" "${config_file}"
+  fi
   sed -i '\|^/home/[^/]*/feedstock|d' "${config_file}"
 
   # Final grep-based cleanup for any remaining build markers
@@ -665,6 +743,10 @@ clean_makefile_config() {
     else
       rm -f "${temp_file}"
     fi
+  fi
+
+  if [[ -n "${prefix:-}" ]]; then
+    sed -i "s|${keep}|${prefix}|g" "${config_file}"
   fi
 
   # OCaml 5.4+: Strip $(LDFLAGS) from MKEXE/MKDLL/MKMAINDLL.
@@ -696,7 +778,7 @@ clean_runtime_launch_info() {
   #
   # Format:
   #   Line 1: launch method ("sh" or "exe") + \n
-  #   Line 2: BINDIR path + \000 + \n    ← null-terminated! This is intentional.
+  #   Line 2: BINDIR path + \000 + \n    <- null-terminated! This is intentional.
   #   Rest:   compiled stub binary (header.exe)
   #
   # BINDIR is used by ocamlc at LINK TIME to construct #!/BINDIR/ocamlrun shebangs
@@ -764,11 +846,26 @@ patch_checkstack_cc() {
 # Operates on Makefile.config in the current directory
 patch_makefile_config_post_configure() {
   local config_file="Makefile.config"
+  local keep='@@OCAML_RELOC_L@@'
 
-  sed -i  's#-fdebug-prefix-map=[^ ]*##g' "${config_file}"
-  sed -i  's#-link\s+-L[^ ]*##g' "${config_file}"                             # Remove flexlink's "-link -L..." patterns
-  sed -i  's#-L[^ ]*##g' "${config_file}"                                     # Remove standalone -L paths
-  # These would be found in BUILD_PREFIX and fail relocation
+  sed -i 's#-fdebug-prefix-map=[^ ]*##g' "${config_file}"
+
+  # configure bakes in -L paths that do not exist for a consumer of the
+  # installed package. Paths under PREFIX are the exception: conda rewrites
+  # PREFIX at install time, and -L${PREFIX}/lib is what keeps zstd resolvable
+  # for -output-complete-exe links. Protect those, strip the rest, restore.
+  if [[ -n "${PREFIX:-}" ]]; then
+    sed -i "s#-L${PREFIX}#${keep}#g" "${config_file}"
+  fi
+  # flexlink "-link -L..." pairs go first, so removing the -L does not leave
+  # an orphaned "-link" behind.
+  sed -i 's#-link[[:space:]][[:space:]]*-L[^ ]*##g' "${config_file}"
+  sed -i 's#-Wl,-L[^ ]*##g' "${config_file}"
+  sed -i 's#-L[^ ]*##g' "${config_file}"
+  if [[ -n "${PREFIX:-}" ]]; then
+    sed -i "s#${keep}#-L${PREFIX}#g" "${config_file}"
+  fi
+
   # Remove prepended binaries path (could be BUILD_PREFIX non-relocatable)
   # Simple commands: CC, AS, ASM, ASPP, STRIP (line ends with binary name)
   sed -Ei 's#^(CC|AS|ASM|ASPP|STRIP)=/.*/([^/]+)$#\1=\2#' "${config_file}"
@@ -787,6 +884,14 @@ patch_makefile_config_post_configure() {
 #   dest_bin_dir - destination bin directory (e.g., ${BUILD_PREFIX}/bin or ${PREFIX}/bin)
 install_conda_ocaml_wrappers() {
   local dest_bin_dir="$1"
+
+  # conda-ocaml-common.sourced is a SOURCED shared library, not an executable
+  # tool: installed at 644 (not 755) into the same dir the wrappers land in,
+  # so each wrapper's `. "$(dirname "$0")/conda-ocaml-common.sourced"`
+  # resolves at runtime (wrappers are exec'd from PATH by
+  # ocamlopt/dune/flexlink in the installed prefix, not sourced by the
+  # build).
+  install -m 644 "${RECIPE_DIR}/scripts/conda-ocaml-common.sourced" "${dest_bin_dir}/conda-ocaml-common.sourced"
 
   for wrapper in conda-ocaml-cc conda-ocaml-as conda-ocaml-ar conda-ocaml-ld conda-ocaml-ranlib conda-ocaml-mkexe conda-ocaml-mkdll; do
     install -m 755 "${RECIPE_DIR}/scripts/${wrapper}" "${dest_bin_dir}/${wrapper}"
@@ -939,20 +1044,35 @@ check_unix_crc() {
   local threads_cmxa="$3"
   local label="$4"
 
+  # ocamlobjinfo may be a TARGET binary (cross lanes) or a build-arch one;
+  # run-target.sh wraps it in qemu only when its ELF machine differs from
+  # the build machine's.
+  local -a _runner=(bash "${RECIPE_DIR}/building/run-target.sh")
+
   # Extract Unix implementation CRC from unix.cmxa
+  local unix_out
+  if ! unix_out=$("${_runner[@]}" "${ocamlobjinfo_path}" "${unix_cmxa}"); then
+    echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${unix_cmxa}"
+    exit 1
+  fi
   local unix_crc
-  unix_crc=$("${ocamlobjinfo_path}" "${unix_cmxa}" 2>&1 \
+  unix_crc=$(echo "${unix_out}" \
     | grep -A1 "^Name: Unix$" | grep "CRC of implementation" | awk '{print $NF}')
 
   # Extract what threads.cmxa expects from Unix (implementation CRC)
   # Must scope to "Implementations imported" section to avoid matching interface CRCs
+  local threads_out
+  if ! threads_out=$("${_runner[@]}" "${ocamlobjinfo_path}" "${threads_cmxa}"); then
+    echo "    [FAIL] ${label}: ${ocamlobjinfo_path} failed on ${threads_cmxa}"
+    exit 1
+  fi
   local threads_crc
-  threads_crc=$("${ocamlobjinfo_path}" "${threads_cmxa}" 2>&1 \
+  threads_crc=$(echo "${threads_out}" \
     | sed -n '/^Implementations imported:/,/^[A-Z]/p' \
     | grep -E "^\s+[a-f0-9]+\s+Unix$" | awk '{print $1}' | head -1)
 
   if [[ "${unix_crc}" == "${threads_crc}" && -n "${unix_crc}" ]]; then
-    echo "    [PASS] ${label}: unix CRC match (${unix_crc})"
+    echo "    [OK] ${label}: unix CRC match (${unix_crc})"
   else
     echo "    [FAIL] ${label}: unix CRC mismatch"
     echo "           unix.cmxa    CRC: ${unix_crc:-<empty>}"
