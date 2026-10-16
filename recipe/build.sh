@@ -1269,7 +1269,7 @@ TOOLWRAPPER
     if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
       TARGET_ZSTD_ENV="zstd_${CROSS_PLATFORM}"
       echo "  Installing target-arch zstd for ${CROSS_PLATFORM}..."
-      conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
+      conda create -n "${TARGET_ZSTD_ENV}" --platform "${CROSS_PLATFORM}" -c conda-forge --override-channels -y zstd --quiet 2>&1 | grep -v "^INFO:" || true
       CONDA_ENVS_DIR=$(conda info --json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['envs_dirs'][0])")
       TARGET_ZSTD_LIB="${CONDA_ENVS_DIR}/${TARGET_ZSTD_ENV}/lib"
       TARGET_ZSTD_LIBS="-L${TARGET_ZSTD_LIB} -lzstd"
