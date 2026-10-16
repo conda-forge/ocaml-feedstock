@@ -562,7 +562,9 @@ EOF
     # non-unix: fix flexlink toolchain detection; the chain follows the target architecture
     local flexdll_chain=mingw64
     [[ "${target_platform}" == "win-arm64" ]] && flexdll_chain=mingw64arm
-    sed -i "s/^TOOLCHAIN.*/TOOLCHAIN=${flexdll_chain}/" "$config_file"
+    # TOOLCHAIN keeps configure's value (mingw) on win-64: stdlib/Makefile tests it
+    # against the literal "mingw" to link the header without the CRT.
+    [[ "${target_platform}" == "win-arm64" ]] && sed -i "s/^TOOLCHAIN.*/TOOLCHAIN=${flexdll_chain}/" "$config_file"
     sed -i "s/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=${flexdll_chain}/" "$config_file"
 
     # $(addprefix -link ,$(OC_LDFLAGS)) generates garbage when empty; guard it
@@ -1355,7 +1357,7 @@ TOOLWRAPPER
     echo "  [2/7] Configuring for ${target}..."
     # PKG_CONFIG=false forces a plain "-lzstd" instead of "-L/long/path -lzstd".
     # CC is not passed as an arg: configure needs the BUILD compiler.
-    # ac_cv_func_getentropy=no: the glibc 2.17 sysroot lacks getentropy.
+    # ac_cv_func_getentropy/strlcpy=no: the glibc sysroot lacks getentropy and strlcpy.
     # CFLAGS/LDFLAGS are overridden because conda-build sets them for the TARGET
     # but configure needs BUILD flags to compile the cross-compiler binary; they
     # are env vars since OCaml 5.4.0 rejects them as configure args.
@@ -1392,6 +1394,7 @@ TOOLWRAPPER
       STRIP="${CROSS_STRIP}" \
       TARGET_LIBDIR="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml" \
       ac_cv_func_getentropy=no \
+      ac_cv_func_strlcpy=no \
       ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
 
     # Leaving these set lets crossopt pick up NATIVE values from the environment
@@ -1976,7 +1979,7 @@ EOF
   )
 
   if [[ "${target_platform}" == "linux-"* ]]; then
-    CONFIG_ARGS+=(ac_cv_func_getentropy=no)
+    CONFIG_ARGS+=(ac_cv_func_getentropy=no ac_cv_func_strlcpy=no)
   fi
 
   # conda-ocaml-* wrappers are needed during the build
