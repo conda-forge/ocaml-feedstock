@@ -799,6 +799,7 @@ TOOLWRAPPER
       CROSSOPT_ARGS=(
         "${CROSS_TOOLCHAIN_ARGS[@]}"
         CAMLOPT=ocamlopt
+        V=1
         CROSS_MKLIB="${RECIPE_DIR}/building/cross-ocamlmklib.sh"
         LIBDIR="${OCAML_CROSS_LIBDIR}"
         ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
@@ -815,7 +816,9 @@ TOOLWRAPPER
         NATIVE_STDLIB="${NATIVE_STDLIB}"
       )
 
-      run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
+      # Serialized: Makefile.cross deletes utils/*.cmi and middle_end/*.cmi mid-build,
+      # which races with parallel compile jobs and corrupts what a concurrent ocamlc reads
+      run_logged "crossopt" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j1
 
       # --- Install crossopt ---
       echo "  [6/7] Installing cross-compiler via 'make installcross'..."

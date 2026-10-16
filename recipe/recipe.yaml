@@ -17,13 +17,13 @@ context:
   # Derive triplet from cross_target_platform_
   target_triplet: >-
     ${{
-      "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                  else
-      "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"             else
-      "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"             else
-      "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                    else
-      "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                 else
-      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc" else
-      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else                                                 
+      "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                          else
+      "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"                     else
+      "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"                     else
+      "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                            else
+      "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                         else
+      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc"    else
+      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else
       "unknown"
     }}
   # Which platform builds cross-compilers for each target
@@ -57,6 +57,13 @@ context:
   # with no signal that it is doing so.
   # ===========================================================================
   bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in [] }}
+
+  # ===========================================================================
+  # QEMU emulation for cross-target execution tests (linux targets only)
+  # ===========================================================================
+  qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
+  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le"]) and (cross_target_platform_ != build_platform) }}
+  qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=12"]') if is_qemuable else '' }}
 
 recipe:
   name: ocaml-packages
@@ -238,6 +245,10 @@ outputs:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
                 - sysroot_${{ cross_target_platform_ }} ${{ c_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
+                # crossopt emulates target binaries on the build machine; empty
+                # on lanes where is_qemuable is false, so inert there.
+                - if: is_qemuable
+                  then: ${{ qemu_pkg }}
               else:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ c_compiler_version }}*
 
@@ -245,6 +256,9 @@ outputs:
         - if: is_cross_target
           then:
             - zstd
+            # run-target.sh emulates target binaries during crossopt
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
             - if: build_number == 0
               then:
                 - ocaml_${{ build_platform }} >=5.4
@@ -529,6 +543,9 @@ outputs:
       # Package integrity: paths, config, env vars, rpath
       # ----------------------------------------------------------------------
       - script:
+          - if: is_qemuable
+            then: |
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
           - if: is_native
             then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
           - if: is_cross_target
@@ -541,16 +558,14 @@ outputs:
           recipe:
             - testing/test-package-integrity.${{ sh }}
         requirements:
-          run:
-            # Use _impl to avoid activation script noise in test output
+          build:
+            - ${{ m2 }}grep
+            # Native readelf/strings for inspecting target binaries
             - if: unix
               then:
-                - binutils_impl_${{ target_platform }}
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}file
-                - ${{ m2 }}grep
+                - binutils_impl_${{ build_platform }}
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
 
       # ----------------------------------------------------------------------
       # CROSS-TARGET: Cross-compiled binary architecture verification
@@ -563,27 +578,25 @@ outputs:
           recipe:
             - testing/test-cross-arch.sh
         requirements:
-          run:
+          build:
+            - ${{ m2 }}grep
             - if: unix
               then:
-                - binutils_impl_${{ target_platform }}
+                - binutils_impl_${{ build_platform }}
 
       # ----------------------------------------------------------------------
       # NATIVE: Tool version checks
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and not arm64
-            then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }}
+          - if: is_native
+            then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }} ${{ native_mode }}
             else: echo "Skipping tool version tests"
         files:
           recipe:
             - testing/test-tool-versions.${{ sh }}
         requirements:
-          run:
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}grep
+          build:
+            - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
       # NATIVE: Native-only tools test (ocamldoc, ocamldebug)
@@ -596,11 +609,8 @@ outputs:
           recipe:
             - testing/test-native-only-tools.sh
         requirements:
-          run:
-            # Use native grep on arm64 since no QEMU
-            - if: not arm64
-              then:
-                - ${{ m2 }}grep
+          build:
+            - ${{ m2 }}grep
 
       # ----------------------------------------------------------------------
       # Compiler wrapper validation (conda-ocaml-cc, conda-ocaml-mkexe)
@@ -608,15 +618,23 @@ outputs:
       # on compiler("c") provides the triplet-prefixed binary.
       # ----------------------------------------------------------------------
       - script:
-          - if: is_native and unix and not arm64
+          # Target binaries need user-mode emulation when the host arch differs
+          - if: is_qemuable
+            then: |
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+          - if: is_native and unix
             then: cd testing && ./test-compiler-wrappers.sh
           - if: is_cross_target
             then: cd testing && ./test-compiler-wrappers.sh cross-target
-          - if: not (is_native and unix and not arm64) and not is_cross_target
+          - if: not (is_native and unix) and not is_cross_target
             then: echo "Skipping wrapper tests"
         files:
           recipe:
             - testing/test-compiler-wrappers.sh
+        requirements:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
 
       # ----------------------------------------------------------------------
       # CROSS-COMPILER: Activation script tests (ocaml_use_cross/ocaml_use_native)
@@ -633,6 +651,10 @@ outputs:
       # CROSS-COMPILER: Functional tests
       # ----------------------------------------------------------------------
       - script:
+          # Emulator for running target binaries on the build platform
+          - if: is_qemuable
+            then: |
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
           - if: is_cross_compiler
             then: |
               cd testing
@@ -642,7 +664,9 @@ outputs:
           recipe:
             - testing/test-cross-compilers.sh
         requirements:
-          run:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
             - ${{ m2 }}file
 
   # ==========================================================================
@@ -675,23 +699,39 @@ outputs:
       # Basic toolchain verification
       # ----------------------------------------------------------------------
       - script:
-          - if: not arm64
+          - if: is_qemuable
+            then: |
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+              command -v "${OCAML_QEMU}" >/dev/null || { echo "[FAIL] ${OCAML_QEMU} not found on PATH" >&2; exit 1; }
+              qemu-execve-${{ qemu_arch }} "$(command -v ocamlopt${{ xt }})" -version && echo "ocaml-compiler toolchain ready"
+          - if: not is_qemuable and has_native_backend
             then: ocamlopt${{ xt }} -version && echo "ocaml-compiler toolchain ready"
-            else: echo "Skip on arm64"
+          - if: not is_qemuable and not has_native_backend
+            then: ocamlc${{ xt }} -version && echo "ocaml-compiler toolchain ready"
+        requirements:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
 
       # ----------------------------------------------------------------------
       # Compilation tests (requires C toolchain)
-      # Linux cross-targets can run via QEMU, only osx-arm64 cross skipped
       # ----------------------------------------------------------------------
       - script:
-          - if: not arm64
-            then: cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }}
-            else: echo "Skipping compilation tests (osx-arm64 cross-target, no QEMU)"
+          # Target binaries need user-mode emulation when the host arch differs
+          - if: is_qemuable
+            then: |
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+          - cd testing && ${{ dot }}test-compilation.${{ sh }} ${{ version }} ${{ native_mode }}
         files:
           recipe:
             - testing/test-compilation.${{ sh }}
+            - if: unix
+              then:
+                - testing/test-helpers.sh
         requirements:
-          run:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
             - ${{ m2 }}file
             - ${{ m2 }}grep
 
@@ -700,26 +740,42 @@ outputs:
       # unix only - no .bat companion
       # ----------------------------------------------------------------------
       - script:
+          # Target binaries need user-mode emulation when the host arch differs
+          - if: is_qemuable
+            then: |
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+              command -v "${OCAML_QEMU}" >/dev/null || { echo "[FAIL] ${OCAML_QEMU} not found on PATH" >&2; exit 1; }
           - if: unix
             then: cd testing && ./test-compiler-libs-link.sh ${{ version }}
             else: echo "Skipping compiler-libs link test (needs unix)"
         files:
           recipe:
             - testing/test-compiler-libs-link.sh
+            - testing/test-helpers.sh
+        requirements:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
 
       # ----------------------------------------------------------------------
       # CONDA_OCAML_* toolchain variable tests
-      # Linux cross-targets can run via QEMU, only osx-arm64 cross skipped
       # ----------------------------------------------------------------------
       - script:
-          - if: not arm64
-            then: cd testing && ${{ dot }}test-toolchain-vars.${{ sh }}
-            else: echo "Skipping toolchain var tests (osx-arm64 cross-target, no QEMU)"
+          # Target binaries need user-mode emulation when the host arch differs
+          - if: is_qemuable
+            then: |
+              export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
+          - cd testing && ${{ dot }}test-toolchain-vars.${{ sh }} ${{ native_mode }}
         files:
           recipe:
             - testing/test-toolchain-vars.${{ sh }}
+            - if: unix
+              then:
+                - testing/test-helpers.sh
         requirements:
-          run:
+          build:
+            - if: is_qemuable
+              then: ${{ qemu_pkg }}
             - ${{ m2 }}grep
 
 about:

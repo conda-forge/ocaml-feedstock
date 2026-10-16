@@ -82,6 +82,40 @@ else
 fi
 rm -f /tmp/mkexe_test /tmp/mkexe_test.o /tmp/mkexe_test.c /tmp/mkexe_err.txt
 
+# Test 4: the cc/mkexe wrappers inject -L<prefix>/lib
+# ocaml_exec_selfguarded derives <prefix> from the wrapper's own location and
+# appends -L<prefix>/lib so zstd resolves without a baked-in build path.
+# A regression here shows up only as a link failure in a downstream package,
+# so assert the flag directly using a stub tool that echoes its arguments.
+echo "Test 4: wrappers inject -L<prefix>/lib"
+ECHO_TOOL="$(mktemp /tmp/ocaml_echo_tool.XXXXXX)"
+cat > "${ECHO_TOOL}" << 'EOF'
+#!/usr/bin/env bash
+echo "$@"
+EOF
+chmod +x "${ECHO_TOOL}"
+
+for pair in "conda-ocaml-cc:CONDA_OCAML_CC" "conda-ocaml-mkexe:CONDA_OCAML_MKEXE"; do
+  wrapper="${pair%%:*}"
+  var="${pair##*:}"
+  wrapper_path="$(command -v "${wrapper}" 2>/dev/null || true)"
+  if [[ -z "${wrapper_path}" ]]; then
+    echo "  FAIL: ${wrapper} not found in PATH"
+    ERRORS=$((ERRORS + 1))
+    continue
+  fi
+  expected_lib="$(cd "$(dirname "${wrapper_path}")/.." && pwd -P)/lib"
+  observed="$(env "${var}=${ECHO_TOOL}" "${wrapper}" probe.o 2>/dev/null || true)"
+  if [[ "${observed}" == *"-L${expected_lib}"* ]]; then
+    echo "  PASS: ${wrapper} injected -L${expected_lib}"
+  else
+    echo "  FAIL: ${wrapper} did not inject -L${expected_lib}"
+    echo "        got: ${observed}"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+rm -f "${ECHO_TOOL}"
+
 if [[ $ERRORS -gt 0 ]]; then
   echo "=== FAILED: ${ERRORS} wrapper test(s) failed ==="
   exit 1
