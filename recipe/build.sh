@@ -1929,6 +1929,11 @@ EOF
   local config_file="utils/config.generated.ml"
   [[ -n "${CROSS_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${CROSS_MODEL}|}#" "$config_file"
 
+  # configure ran with the staging prefix; bake the final install paths instead,
+  # which conda relocates with the rest of ${PREFIX}.
+  sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${PREFIX}/lib/ocaml|}#" "$config_file"
+  sed -i "s#^let bindir = .*#let bindir = {|${PREFIX}/bin|}#" "$config_file"
+
   # Apply Makefile.cross patches
   apply_cross_patches
 
@@ -2045,7 +2050,9 @@ EOF
   echo "  [4/5] Building crosscompiledruntime ==="
 
   # point build_config.h at the target
-  sed -i "s#${BUILD_PREFIX}/lib/ocaml#${OCAML_INSTALL_PREFIX}/lib/ocaml#g" runtime/build_config.h
+  # (OCAML_STDLIB_DIR is the final ${PREFIX}, not the staging prefix)
+  sed -i "s#${BUILD_PREFIX}/lib/ocaml#${PREFIX}/lib/ocaml#g" runtime/build_config.h
+  sed -i "s#${OCAML_INSTALL_PREFIX}#${PREFIX}#g" runtime/build_config.h
   sed -i "s#${build_alias}#${host_alias}#g" runtime/build_config.h
 
   (
@@ -2306,6 +2313,13 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   # with the target BINDIR ($PREFIX/bin).
   echo "  Cleaning build-time paths from final runtime-launch-info..."
   clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
+
+  # Any other installed text file (META, scripts, ...) that still names the
+  # staging prefix; grep -I skips binaries, which are left untouched.
+  echo "  Rewriting staging prefix in installed text files..."
+  while IFS= read -r -d '' _staged_file; do
+    sed -i "s#${OCAML_TARGET_INSTALL_PREFIX}#${OCAML_INSTALL_PREFIX}#g" "${OCAML_INSTALL_PREFIX}/${_staged_file}"
+  done < <(cd "${OCAML_TARGET_INSTALL_PREFIX}" && grep -rIlZF -- "${OCAML_TARGET_INSTALL_PREFIX}" . || true)
 fi
 
 # --- post-processing: native and cross-target modes ---
