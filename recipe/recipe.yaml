@@ -26,6 +26,7 @@ context:
       "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                         else
       "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc"    else
       "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else
+      "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and c_compiler == "zig" else
       "unknown"
     }}
   # Which platform builds cross-compilers for each target. Empty for a target
@@ -57,8 +58,13 @@ context:
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and (cross_build_platform == target_platform or cross_build_platform_alt == target_platform) }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   is_standard_layout: ${{ is_native or is_cross_target }}
-  has_native_backend: ${{ true }}
-  has_ocamldoc: ${{ true }}
+  # OCaml 5.4 has no native-code backend for arm64 Windows, so that target is
+  # bytecode-only whatever the toolchain: no ocamlopt, no .opt drivers and no
+  # native runtime or nat libraries.
+  has_native_backend: ${{ cross_target_platform_ != "win-arm64" }}
+  # ocamldoc is configured out on win-arm64: its man-page rule deadlocks under
+  # the arm64 runtime.
+  has_ocamldoc: ${{ cross_target_platform_ != "win-arm64" }}
   # Mode string handed to the test scripts so they skip native-only probes.
   native_mode: ${{ "native" if has_native_backend else "bytecode" }}
 
@@ -114,11 +120,38 @@ source:
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
+      # Teaches configure to accept the aarch64-w64-mingw32 triple and select
+      # the mingw64arm flexdll chain.
+      - if: cross_target_platform_ == "win-arm64"
+        then: patches/add-aarch64-w64-mingw32-support.patch
+      # clang defines __GNUC__ but its __builtin_setjmp is unusable on Windows,
+      # so the MPR#7638 GCC branch has to exclude it.
+      - if: not unix
+        then: patches/fix-clang-mingw64-setjmp.patch
   - if: not unix
     then:
       url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
       sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
       target_directory: flexdll
+      patches:
+        # Adds the mingw64arm chain and build target to flexdll.
+        - if: cross_target_platform_ == "win-arm64"
+          then: patches/flexdll-add-mingw64arm-support.patch
+        # Modern windres rejects the FLEXDLL_FULL_VERSION macro expansion in
+        # version.rc VALUE entries.
+        - patches/flexdll-version-rc-windres-syntax-fix.patch
+        # OCaml's root Makefile expects .obj aliases for the mingw64 chain;
+        # flexdll only produces .o. Its context lines come from the mingw64arm
+        # patch above, so it carries the same selector.
+        - if: cross_target_platform_ == "win-arm64"
+          then: patches/flexdll-makefile-obj-extension-for-mingw64.patch
+        # Guards flexdll's parse-time ocamlopt -version / -where shell probes
+        # so they can be supplied via env.
+        - patches/flexdll-makefile-skip-ocamlopt-probes.patch
+        # flexlink emits ARM64 section relocs in descending order, which
+        # lld-link turns into a stray out-of-order .reloc block.
+        - if: cross_target_platform_ == "win-arm64"
+          then: patches/flexdll-arm64-sort-coff-relocs.patch
   - if: not unix and c_compiler == "vs2022"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
@@ -266,7 +299,12 @@ outputs:
         - ${{ m2 }}make
         - ${{ m2 }}sed
         - ${{ m2 }}tar
-        - binutils
+        # no win-arm64 build exists; that lane is bytecode-only and needs no native binutils
+        - if: build_platform != "win-arm64"
+          then: binutils
+        - if: cross_target_platform_ == "win-arm64"
+          then:
+            - zig_win-arm64 0.17.*
 
         # --- CROSS-COMPILER: Target platform toolchain ---
         # Guard (cross_target_platform_ != build_platform) prevents self-referenced cycle detection
@@ -428,7 +466,7 @@ outputs:
                     - ocamlopt.opt
                     - ocamlopt.byte
                     - ocamloptp
-                - if: unix or c_compiler == "vs2022"
+                - if: unix or c_compiler in ["vs2022", "zig"]
                   then:
                     - ocamlruni
                 - if: not unix and c_compiler == "vs2022"
@@ -503,6 +541,9 @@ outputs:
                 - ${{ library }}lib/ocaml/unix/*
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
+                - if: c_compiler == "zig"
+                  then:
+                    - ${{ library }}bin/conda-ocaml-*.pdb
                 - if: unix
                   then:
                     - ${{ library }}share/man/man1/*
@@ -537,6 +578,11 @@ outputs:
                       then:
                         - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
                         - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
+                    - if: c_compiler == "zig"
+                      then:
+                        - ${{ library }}lib/ocaml/flexdll/flexdll_initer_mingw64arm.obj
+                        - ${{ library }}lib/ocaml/flexdll/flexdll_mingw64arm.obj
+                        - ${{ library }}lib/ocaml/flexdll/lib*.a
                 - if: unix
                   then:
                     - ${{ library }}lib/ocaml/libasmrun_shared.so
@@ -776,6 +822,11 @@ outputs:
             - if: unix
               then:
                 - testing/test-helpers.sh
+            - if: not unix
+              then:
+                - testing/run-with-timeout.ps1
+                - testing/load-dll.ps1
+                - testing/pe_reloc_check.ml
         requirements:
           build:
             - if: is_qemuable

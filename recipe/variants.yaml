@@ -3,6 +3,9 @@ c_compiler:
     then:
       - vs2022
       - gcc
+  - if: not unix and arm64
+    then:
+      - zig
 
 c_compiler_version:
   - if: s390x
@@ -18,3 +21,4 @@ cross_target_platform_:
   - osx-64
   - osx-arm64
   - win-64
+  - win-arm64
