@@ -83,8 +83,18 @@ printf 'print_endline "Hello World"\n' > hi.ml
 echo "=== Testing bytecode compilation ==="
 run_target ocamlc -o hi hi.ml
 
-# Verify direct bytecode execution (shebang must work)
-if ! run_target ./hi | grep -q "Hello World"; then
+# Native lanes execute the bytecode file directly (shebang must work). Under
+# emulation the #! launcher is a native sh that cannot start target binaries,
+# so the file is run through the target ocamlrun instead.
+run_bytecode() {
+  if [[ -n "${OCAML_QEMU:-}" ]]; then
+    run_target ocamlrun "$@"
+  else
+    run_target "$@"
+  fi
+}
+
+if ! run_bytecode ./hi | grep -q "Hello World"; then
   echo "  [FAIL] bytecode direct execution failed (shebang broken?)"
   echo "  Checking runtime-launch-info runtime id..."
   if [[ -f "${PREFIX}/lib/ocaml/runtime-launch-info" ]]; then
@@ -104,8 +114,8 @@ head -n 2 hi | cat -v | cut -c1-200
 # Test bytecode portability (run from different directory)
 mkdir -p tmp
 cp hi tmp
-export -f run_target
-assert_contains "bytecode portability" "Hello World" bash -c 'cd tmp && run_target ./hi'
+export -f run_target run_bytecode
+assert_contains "bytecode portability" "Hello World" bash -c 'cd tmp && run_bytecode ./hi'
 rm -f ./hi
 
 # Test bytecode compiler via ocamlrun
@@ -160,7 +170,7 @@ assert_contains "multi-file native" "From Lib" run_target ./multi
 echo "=== Testing bytecode compiler via ocamlrun ==="
 printf 'print_endline "Hi CF"\n' > hi.ml
 run_target ocamlrun "${OCAML_PREFIX}/bin/ocamlc.byte" -o hi hi.ml
-assert_contains "full bytecode compile via ocamlrun" "Hi CF" run_target ./hi
+assert_contains "full bytecode compile via ocamlrun" "Hi CF" run_bytecode ./hi
 
 # 7. Complete executable test (used by Dune bootstrap)
 # This exercises: ocamlc -output-complete-exe -I +unix unix.cma ...

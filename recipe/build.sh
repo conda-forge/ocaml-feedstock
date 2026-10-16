@@ -484,7 +484,6 @@ EOF
     # Native mode only: the in-lane native of the cross modes never ships and
     # is reused in place as a build tool, so it keeps its own staging paths.
     if [[ "${BUILD_MODE}" == "native" ]]; then
-      sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
       sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
     fi
 
@@ -562,9 +561,6 @@ EOF
     # non-unix: fix flexlink toolchain detection; the chain follows the target architecture
     local flexdll_chain=mingw64
     [[ "${target_platform}" == "win-arm64" ]] && flexdll_chain=mingw64arm
-    # TOOLCHAIN keeps configure's value (mingw) on win-64: stdlib/Makefile tests it
-    # against the literal "mingw" to link the header without the CRT.
-    [[ "${target_platform}" == "win-arm64" ]] && sed -i "s/^TOOLCHAIN.*/TOOLCHAIN=${flexdll_chain}/" "$config_file"
     sed -i "s/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=${flexdll_chain}/" "$config_file"
 
     # $(addprefix -link ,$(OC_LDFLAGS)) generates garbage when empty; guard it
@@ -1392,7 +1388,6 @@ TOOLWRAPPER
       NM="${CROSS_NM}" \
       RANLIB="${CROSS_RANLIB}" \
       STRIP="${CROSS_STRIP}" \
-      TARGET_LIBDIR="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml" \
       ac_cv_func_getentropy=no \
       ac_cv_func_strlcpy=no \
       ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
@@ -1420,10 +1415,8 @@ TOOLWRAPPER
       -e "s#^let mkdll = .*#let mkdll = {|${target}-ocaml-mkdll|}#" \
       -e "s#^let mkmaindll = .*#let mkmaindll = {|${target}-ocaml-mkdll|}#" \
       "$config_file"
-    # Use the final install path, not OCAML_CROSS_LIBDIR (a work/_xcross_compiler
-    # path during the build); rattler-build relocates it when packaging.
-    FINAL_STDLIB_PATH="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
-    sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${FINAL_STDLIB_PATH}|}#" "$config_file"
+    # Use the final install path, not a work/_xcross_compiler path during the
+    # build; rattler-build relocates it when packaging.
     sed -i "s#^let bindir = .*#let bindir = {|${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/bin|}#" "$config_file"
 
     # architecture is baked into the binary (arm64, power, amd64)
@@ -2008,9 +2001,8 @@ EOF
   local config_file="utils/config.generated.ml"
   [[ -n "${CROSS_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${CROSS_MODEL}|}#" "$config_file"
 
-  # configure ran with the staging prefix; bake the final install paths instead,
+  # configure ran with the staging prefix; bake the final bindir instead,
   # which conda relocates with the rest of ${PREFIX}.
-  sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${PREFIX}/lib/ocaml|}#" "$config_file"
   sed -i "s#^let bindir = .*#let bindir = {|${PREFIX}/bin|}#" "$config_file"
 
   # Apply Makefile.cross patches
