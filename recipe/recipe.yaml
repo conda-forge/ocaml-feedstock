@@ -1,6 +1,6 @@
 context:
-  build_number: 17
-  version: 5.4.0
+  build_number: 0
+  version: 5.4.1
   flexdll_version: "0.44"
 
   dot: ${{ "./" if unix else "" }}
@@ -109,7 +109,7 @@ recipe:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
+    sha256: d4528517aaa1a44b8e2b1bc109a1ed0a5e0014f3ddc4feb8906b11a7e063e89a
     patches:
       # Fix header include order bug where atomic_load_acquire/atomic_store_release
       # macros are undefined when mlvalues.h is included before platform.h.
