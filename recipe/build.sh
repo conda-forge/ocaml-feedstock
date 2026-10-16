@@ -395,7 +395,8 @@ build_native() {
   # TARGET_BINDIR/LIBDIR tell OCaml where binaries and libraries live at runtime
   # on the target; conda-forge relocates paths containing ${PREFIX}, not _native ones.
   if is_unix; then
-    export TARGET_BINDIR="${PREFIX}/bin"
+    # An in-lane native stage overrides TARGET_BINDIR to its own staging bin.
+    export TARGET_BINDIR="${TARGET_BINDIR:-${PREFIX}/bin}"
     export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
   else
     # Windows installs under ${PREFIX}/Library, in drive form (D:/...) because
@@ -443,8 +444,12 @@ build_native() {
     # configure ran with the staging prefix; bake the final install paths
     # instead, which conda relocates with the rest of ${PREFIX}. The staging
     # tree does not exist until install, so the build itself never used them.
-    sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
-    sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
+    # Native mode only: the in-lane native of the cross modes never ships and
+    # is reused in place as a build tool, so it keeps its own staging paths.
+    if [[ "${BUILD_MODE}" == "native" ]]; then
+      sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
+      sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
+    fi
 
     # -config-var reads these from the Config module compiled from
     # config.generated.ml, not Makefile.config, so strip build-time -L here;
@@ -2122,7 +2127,7 @@ EOF
 
   # point build_config.h at the target
   # (OCAML_STDLIB_DIR is the final ${PREFIX}, not the staging prefix)
-  sed -i "s#${BUILD_PREFIX}/lib/ocaml#${PREFIX}/lib/ocaml#g" runtime/build_config.h
+  sed -i "s#${OCAML_PREFIX}/lib/ocaml#${PREFIX}/lib/ocaml#g" runtime/build_config.h
   sed -i "s#${OCAML_INSTALL_PREFIX}#${PREFIX}#g" runtime/build_config.h
   sed -i "s#${build_alias}#${host_alias}#g" runtime/build_config.h
 
@@ -2200,6 +2205,31 @@ STRIPDEBUG
   echo "  Installed: ${OCAML_INSTALL_PREFIX}"
 }
 
+# --- build_native_in_lane(): same-version native OCaml staged in SRC_DIR ---
+# OCaml configure refuses to build a cross compiler from a native of another
+# version, so cross lanes build their own. The tree is used in place and never
+# transferred to ${PREFIX}.
+build_native_in_lane() {
+  local _native_prefix="${SRC_DIR}/_native_compiler"
+
+  echo ""
+  echo "=== Building native OCaml in-lane ==="
+  (
+    OCAML_INSTALL_PREFIX="${_native_prefix}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
+    export TARGET_BINDIR="${_native_prefix}/bin"
+    build_native
+  )
+
+  # The cross-mode activation step must not source native values.
+  rm -f "${SRC_DIR}/_native_compiler_env.sh"
+
+  if [[ ! -x "${_native_prefix}/bin/ocamlc" ]]; then
+    echo "ERROR: in-lane native build produced no ${_native_prefix}/bin/ocamlc"
+    exit 1
+  fi
+  echo "In-lane native OCaml: $("${_native_prefix}/bin/ocamlc" -version) at ${_native_prefix}"
+}
+
 # --- mode: native ---
 if [[ "${BUILD_MODE}" == "native" ]]; then
   OCAML_NATIVE_INSTALL_PREFIX="${SRC_DIR}"/_native_compiler
@@ -2273,7 +2303,14 @@ fi
 
 # --- mode: cross-compiler ---
 if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
-  # Native OCaml comes from BUILD_PREFIX (the ocaml_$build_platform dependency).
+  # Native OCaml comes from BUILD_PREFIX (the ocaml_$build_platform dependency),
+  # or from an in-lane build when that package is not yet published.
+  if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
+    build_native_in_lane
+    NATIVE_PREFIX="${SRC_DIR}/_native_compiler"
+  else
+    NATIVE_PREFIX="${BUILD_PREFIX}"
+  fi
 
   # build_cross_compiler needs the NATIVE_* variables (NATIVE_CC, SAK_*, etc.)
   setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
@@ -2281,7 +2318,7 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
 
   OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
   (
-    export OCAML_PREFIX="${BUILD_PREFIX}"
+    export OCAML_PREFIX="${NATIVE_PREFIX}"
     export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
     OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     build_cross_compiler
@@ -2331,9 +2368,18 @@ fi
 if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   CROSS_TARGET="${OCAML_TARGET_TRIPLET}"
 
-  if [[ "${OCAML_BOOTSTRAP_IN_LANE:-0}" == "1" ]]; then
+  # Native OCaml comes from BUILD_PREFIX (the ocaml_$build_platform dependency),
+  # or from an in-lane build when that package is not yet published.
+  if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
+    build_native_in_lane
+    NATIVE_PREFIX="${SRC_DIR}/_native_compiler"
+  else
+    NATIVE_PREFIX="${BUILD_PREFIX}"
+  fi
+
+  if [[ "${OCAML_CROSS_COMPILER_IN_LANE:-0}" == "1" ]]; then
     # This target has no published ocaml_<target> cross-compiler to depend on
-    # (see recipe.yaml, bootstrap_in_lane), so build one here. The tree is
+    # (see recipe.yaml, cross_compiler_in_lane), so build one here. The tree is
     # consumed in place and never transferred to ${PREFIX}, which is why
     # OCAML_CROSS_FINAL_PREFIX points at the staging prefix.
     OCAML_XCROSS_INSTALL_PREFIX="${SRC_DIR}"/_xcross_compiler
@@ -2350,7 +2396,7 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
       # cannot leak into build_cross_target.
       setup_toolchain "NATIVE" "${CONDA_TOOLCHAIN_BUILD}"
       setup_cflags_ldflags "NATIVE" "${build_platform:-${target_platform}}" "${target_platform}"
-      export OCAML_PREFIX="${BUILD_PREFIX}"
+      export OCAML_PREFIX="${NATIVE_PREFIX}"
       export OCAML_CROSS_FINAL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}"
       export OCAMLLIB="${OCAML_PREFIX}/lib/ocaml"
       OCAML_INSTALL_PREFIX="${OCAML_XCROSS_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
@@ -2379,12 +2425,12 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
 
   OCAML_TARGET_INSTALL_PREFIX="${SRC_DIR}"/_target_compiler
   (
-    export OCAML_PREFIX="${BUILD_PREFIX}"
+    export OCAML_PREFIX="${NATIVE_PREFIX}"
     export CROSS_COMPILER_PREFIX="${CROSS_COMPILER_SOURCE}"
     # A -g bytecode link records the directory of every linked .cma/.cmo in
     # the DBUG section (bytelink.ml link_compunit), here the cross stdlib.
     # Map the in-lane staging stdlib onto the installed one.
-    if [[ "${OCAML_BOOTSTRAP_IN_LANE:-0}" == "1" ]]; then
+    if [[ "${OCAML_CROSS_COMPILER_IN_LANE:-0}" == "1" ]]; then
       export BUILD_PATH_PREFIX_MAP="${PREFIX}/lib/ocaml=${CROSS_COMPILER_DIR}/lib/ocaml"
     fi
     OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
