@@ -280,9 +280,13 @@ outputs:
             then:
               - ${{ stdlib("m2w64_c") }}
               - ucrt >=10.0.20348.0
+          # the vs runtime packages, without the vs activation package that
+          # stdlib("c") would pull into every downstream host env
           - if: not unix and c_compiler == "vs2022"
             then:
-              - ${{ stdlib("c") }}
+              - vc >=14.3,<15
+              - vc14_runtime >=14.44.35208
+              - ucrt >=10.0.20348.0
         strong_constraints:
           - if: not unix
             then:
