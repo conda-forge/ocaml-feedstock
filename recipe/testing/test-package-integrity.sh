@@ -226,6 +226,33 @@ if [[ "${MODE}" == "cross" ]]; then
   done
   echo "  ${TARGET}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}: all present"
 
+  # --- Bytecode launchers ---
+  # The cross tree's bytecode tools run on its own BUILD-arch ocamlrun, so the
+  # package works without a native ocaml installed.
+  echo "Checking cross bytecode launchers..."
+  CROSS_OCAMLRUN="${CROSS_PREFIX}/bin/ocamlrun"
+  if [[ ! -x "${CROSS_OCAMLRUN}" ]]; then
+    echo "ERROR: ${CROSS_OCAMLRUN} not found or not executable"
+    exit 1
+  fi
+  if ! "${CROSS_OCAMLRUN}" -version; then
+    echo "ERROR: ${CROSS_OCAMLRUN} does not run on this host"
+    exit 1
+  fi
+  if "${STRINGS}" "${CROSS_OCAMLRUN}" | grep -q "rattler-build_"; then
+    echo "ERROR: ocamlrun contains build-time paths"
+    "${STRINGS}" "${CROSS_OCAMLRUN}" | grep "rattler-build_" | head -5
+    exit 1
+  fi
+  for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
+    launch_line=$(sed -n '2p' "${launcher}" | tr -d '\0')
+    if [[ "${launch_line}" != 'exec "$(dirname "$0")/'*'ocamlrun" "$0" "$@"' ]]; then
+      echo "ERROR: ${launcher} does not launch the cross tree's ocamlrun: ${launch_line}"
+      exit 1
+    fi
+    echo "  ${launcher##*/}: ${launch_line}"
+  done
+
   # --- ocamlmklib compiler resolution ---
   # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir
   echo "Checking ${TARGET}-ocamlmklib compiler resolution..."

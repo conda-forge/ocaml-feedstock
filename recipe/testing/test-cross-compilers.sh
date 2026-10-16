@@ -10,10 +10,12 @@ VERSION="${1:-}"
 BUILD_PLATFORM="${2:-${build_platform:-}}"
 TARGET_PLATFORM="${3:-${target_platform:-}}"
 TARGET_TRIPLE="${4:-}"
+TEST_MODE="${5:-standalone}"
 
 if [[ -z "$VERSION" ]]; then
-  echo "Usage: $0 <version> <build_platform> <target_platform> <target_triple>"
+  echo "Usage: $0 <version> <build_platform> <target_platform> <target_triple> [standalone|native-interop]"
   echo "  target_triple: the cross target to test (e.g., aarch64-conda-linux-gnu)"
+  echo "  native-interop: only the checks that need the native ocaml on PATH"
   exit 1
 fi
 
@@ -784,10 +786,39 @@ STUBMLEOF
   rm -rf "${STUB_DIR}"
 
   # ---------------------------------------------------------------------------
-  # Test 15: .cmi written by the native (zstd-enabled) ocamlc is readable by
-  # the cross ocamlc.opt; on s390x the cross compiler must write it plain
+  # Summary
   # ---------------------------------------------------------------------------
-  echo "  [15/15] Native-written .cmi read by ${target}-ocamlc.opt..."
+  if [[ ${TEST_ERRORS} -gt 0 ]]; then
+    echo ""
+    echo "  [FAIL] FAILED: ${TEST_ERRORS} test(s) failed for ${target}"
+    echo "    The cross-compiler may build packages that fail at runtime!"
+    return 1
+  else
+    echo ""
+    echo "  [OK] All tests passed for ${target}"
+    return 0
+  fi
+}
+
+# ==============================================================================
+# Native interop: needs the native ocaml for the build platform, which the
+# cross-compiler package does not depend on, so it runs as its own test.
+# ==============================================================================
+
+test_native_cmi_interop() {
+  local target="$1"
+  TARGET_ID=$(get_target_id "${target}")
+  TEST_ERRORS=0
+
+  # ---------------------------------------------------------------------------
+  # .cmi written by the native (zstd-enabled) ocamlc is readable by the cross
+  # ocamlc.opt; on s390x the cross compiler must write it plain
+  # ---------------------------------------------------------------------------
+  echo "  Native-written .cmi read by ${target}-ocamlc.opt..."
+  if ! command -v ocamlc >/dev/null 2>&1; then
+    echo "    [FAIL] ERROR: native ocamlc not on PATH"
+    return 1
+  fi
   CMI_DIR="/tmp/test_cmi_compat_${TARGET_ID}"
   CROSS_OCAMLC_OPT="${PREFIX}/bin/${target}-ocamlc.opt"
   rm -rf "${CMI_DIR}"
@@ -959,9 +990,22 @@ fi
 
 TOTAL_ERRORS=0
 
+if [[ "${TEST_MODE}" == "native-interop" ]]; then
+  [[ -n "$TARGET_TRIPLE" ]] || { echo "ERROR: no target triple supplied (argument 4)"; exit 1; }
+  if ! test_native_cmi_interop "${TARGET_TRIPLE}"; then
+    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+  fi
 # If TARGET_TRIPLE is specified, test only that target
-if [[ -n "$TARGET_TRIPLE" ]]; then
+elif [[ -n "$TARGET_TRIPLE" ]]; then
   echo "Testing specific target: ${TARGET_TRIPLE}"
+
+  # The package must work on its own; a native ocaml here would mask that.
+  for native_tool in ocamlrun ocamlc; do
+    if [[ -e "${PREFIX}/bin/${native_tool}" ]]; then
+      echo "  [FAIL] ${PREFIX}/bin/${native_tool} present: the standalone test env must not hold a native ocaml"
+      TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+  done
 
   # Test the specified target
   if test_cross_compiler "${TARGET_TRIPLE}"; then

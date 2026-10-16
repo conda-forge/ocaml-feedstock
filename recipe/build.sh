@@ -1578,6 +1578,7 @@ TOOLWRAPPER
     if [[ "${target_platform}" == "osx"* ]]; then
       echo "  Verifying rpath for macOS cross-compiler binaries..."
       verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib"
+      verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib" ocamlrun
 
       # silence rattler-build overlinking warnings
       bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
@@ -1602,8 +1603,10 @@ EOF
       # toplevel and REPL
       rm -f ocaml
 
-      # bytecode interpreters (the cross-compiler produces native code)
-      rm -f ocamlrun ocamlrund ocamlruni
+      # Debug and instrumented interpreters. A packaged cross-compiler keeps the
+      # BUILD-arch ocamlrun to run its own bytecode tools (ocamlmklib, expunge).
+      rm -f ocamlrund ocamlruni
+      [[ "${BUILD_MODE}" == "cross-compiler" ]] || rm -f ocamlrun
 
       # profiling tools
       rm -f ocamlcp ocamloptp ocamlprof
@@ -2467,7 +2470,8 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   OCAML_INSTALL_PREFIX="${PREFIX}"
 
   # Fix bytecode wrapper shebangs for cross-compiler binaries; expunge (run by
-  # ocamlmktop) is a bytecode program installed outside bin/.
+  # ocamlmktop) is a bytecode program installed outside bin/. The bin/ tools
+  # pick up the sibling BUILD-arch ocamlrun shipped there.
   for bin in "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/bin/* "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/lib/ocaml/expunge; do
     [[ -f "$bin" ]] || continue
     [[ -L "$bin" ]] && continue
@@ -2476,6 +2480,14 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
       if is_unix; then
         fix_ocamlrun_shebang "$bin" "${SRC_DIR}"/_logs/shebang.log 2>&1 || { cat "${SRC_DIR}"/_logs/shebang.log; exit 1; }
       fi
+    fi
+  done
+
+  # expunge sits in lib/ocaml, two levels below the cross tree's ocamlrun
+  for cross_dir in "${OCAML_INSTALL_PREFIX}"/lib/ocaml-cross-compilers/*/; do
+    [[ -x "${cross_dir}bin/ocamlrun" ]] || { echo "ERROR: no ocamlrun in ${cross_dir}bin"; exit 1; }
+    if [[ -f "${cross_dir}lib/ocaml/expunge" ]]; then
+      sed -i '2s|^exec ocamlrun |exec "$(dirname "$0")/../../bin/ocamlrun" |' "${cross_dir}lib/ocaml/expunge"
     fi
   done
 

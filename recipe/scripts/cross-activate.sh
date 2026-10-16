@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# Cross-compiler activation for ocaml_$target (installed alongside native ocaml_$build)
+# Cross-compiler activation for ocaml_$target (standalone, or alongside native ocaml_$build)
 #
 # Provides functions to swap between native and cross-compiler toolchains:
 #   ocaml_use_cross   - switch CONDA_OCAML_* to cross-compiler tools
