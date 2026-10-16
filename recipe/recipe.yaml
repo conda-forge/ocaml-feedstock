@@ -1,5 +1,5 @@
 context:
-  build_number: 13
+  build_number: 14
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -393,7 +393,9 @@ outputs:
                   then:
                     - ${{ cc }}_${{ target_platform }} >=14
                   else:
-                    - ${{ compiler("c") }}
+                    - if: not (not unix and c_compiler == "vs2022")
+                      then:
+                        - ${{ compiler("c") }}
             - if: osx
               then:
                 - lld >=${{ c_compiler_version }}
@@ -418,6 +420,12 @@ outputs:
         - if: osx
           then:
             - lld >=${{ c_compiler_version }}
+        # The vs2022 activation runs vcvars. As a run dep it lands in every env
+        # holding ocaml (build and host) and runs twice, overflowing cmd.exe,
+        # so consumers bring compiler("c") themselves.
+        - if: is_standard_layout and not unix and c_compiler == "vs2022"
+          then:
+            - ${{ compiler("c") }}
 
     # ========================================================================
     # TESTS
@@ -853,6 +861,8 @@ outputs:
               then: ${{ qemu_pkg }}
             - ${{ m2 }}file
             - ${{ m2 }}grep
+            - if: not unix and c_compiler == "vs2022"
+              then: ${{ compiler("c") }}
 
       # ----------------------------------------------------------------------
       # compiler-libs native link (issue #132)
@@ -896,6 +906,8 @@ outputs:
             - if: is_qemuable
               then: ${{ qemu_pkg }}
             - ${{ m2 }}grep
+            - if: not unix and c_compiler == "vs2022"
+              then: ${{ compiler("c") }}
 
 about:
   homepage: https://ocaml.org/
