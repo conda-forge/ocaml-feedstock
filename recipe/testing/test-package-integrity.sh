@@ -470,7 +470,9 @@ else
   SCAN_PATHS=("${PREFIX}/bin/oc"* "${PREFIX}/lib/ocaml")
 fi
 STAGING_RE='/_(native|xcross|target)_compiler'
-STAGING_HITS=$(grep -rlaE "${STAGING_RE}" "${SCAN_PATHS[@]}" 2>/dev/null || true)
+# .cmt/.cmti record the build command line and load path; they never name a
+# runtime path, so they are skipped.
+STAGING_HITS=$(grep -rlaE --exclude='*.cmt' --exclude='*.cmti' "${STAGING_RE}" "${SCAN_PATHS[@]}" 2>/dev/null || true)
 if [[ -n "${STAGING_HITS}" ]]; then
   echo "ERROR: shipped files contain build-time staging prefixes:"
   while IFS= read -r hit; do
