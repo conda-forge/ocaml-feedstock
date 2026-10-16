@@ -388,11 +388,13 @@ else
     fi
     echo "  native_c_libraries: clean"
 
-    # Inventory only: these are baked at configure time
+    # bindir and standard_library_default are baked into the binary; they must
+    # name the install prefix so conda relocates them.
     for var in bindir standard_library_default; do
       VAR_VALUE=$("${OCAML_RUN[@]}" -config-var "${var}" 2>/dev/null || echo "N/A")
       if echo "${VAR_VALUE}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
-        echo "  WARNING: ${var}=${VAR_VALUE} is a build-time staging path baked at configure time (tracked with #188)"
+        echo "ERROR: ${var} contains build-time staging path: ${VAR_VALUE}"
+        exit 1
       fi
     done
 
