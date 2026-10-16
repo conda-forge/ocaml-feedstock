@@ -42,13 +42,17 @@ else
   echo "  PASS: ocaml_use_native defined"
 fi
 
-# Test 5: Native values are backed up
+# Test 5: Native values are backed up. Empty without a native ocaml in the
+# env, so check the backup is defined and matches the live value.
 echo "Test 5: Native values backed up"
-if [[ -z "${_OCAML_NATIVE_CC:-}" ]]; then
-  echo "  FAIL: _OCAML_NATIVE_CC not set (native backup missing)"
+if [[ -z "${_OCAML_NATIVE_CC+set}" ]]; then
+  echo "  FAIL: _OCAML_NATIVE_CC not defined (native backup missing)"
+  ERRORS=$((ERRORS + 1))
+elif [[ "${_OCAML_NATIVE_CC}" != "${CONDA_OCAML_CC:-}" ]]; then
+  echo "  FAIL: _OCAML_NATIVE_CC='${_OCAML_NATIVE_CC}' differs from CONDA_OCAML_CC='${CONDA_OCAML_CC:-}'"
   ERRORS=$((ERRORS + 1))
 else
-  echo "  PASS: _OCAML_NATIVE_CC=${_OCAML_NATIVE_CC}"
+  echo "  PASS: _OCAML_NATIVE_CC='${_OCAML_NATIVE_CC}'"
 fi
 
 # Test 6: Swap to cross mode and verify
@@ -61,7 +65,10 @@ if [[ "${OCAML_CROSS_MODE}" != "cross" ]]; then
 else
   echo "  PASS: OCAML_CROSS_MODE=cross"
 fi
-# CONDA_OCAML_CC should have changed (unless native and cross happen to use same compiler)
+if [[ -z "${CONDA_OCAML_CC:-}" ]]; then
+  echo "  FAIL: CONDA_OCAML_CC empty after ocaml_use_cross"
+  ERRORS=$((ERRORS + 1))
+fi
 echo "  CONDA_OCAML_CC=${CONDA_OCAML_CC:-<unset>} (was ${NATIVE_CC})"
 
 # Test 7: OCAMLLIB points to cross-compiler path

@@ -226,6 +226,34 @@ if [[ "${MODE}" == "cross" ]]; then
   done
   echo "  ${TARGET}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}: all present"
 
+  # --- Bytecode launchers ---
+  # The cross tree's bytecode tools run on its own BUILD-arch ocamlrun, so the
+  # package works without a native ocaml installed.
+  echo "Checking cross bytecode launchers..."
+  CROSS_OCAMLRUN="${CROSS_PREFIX}/bin/ocamlrun"
+  if [[ ! -x "${CROSS_OCAMLRUN}" ]]; then
+    echo "ERROR: ${CROSS_OCAMLRUN} not found or not executable"
+    exit 1
+  fi
+  if ! "${CROSS_OCAMLRUN}" -version; then
+    echo "ERROR: ${CROSS_OCAMLRUN} does not run on this host"
+    exit 1
+  fi
+  if "${STRINGS}" "${CROSS_OCAMLRUN}" | grep -q "rattler-build_"; then
+    echo "ERROR: ocamlrun contains build-time paths"
+    "${STRINGS}" "${CROSS_OCAMLRUN}" | grep "rattler-build_" | head -5
+    exit 1
+  fi
+  for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
+    # C locale: line 2 may be bytecode, which BSD tr rejects as UTF-8
+    launch_line=$(sed -n '2p' "${launcher}" | LC_ALL=C tr -d '\0')
+    if [[ "${launch_line}" != 'exec "$(dirname "$0")/'*'ocamlrun" "$0" "$@"' ]]; then
+      echo "ERROR: ${launcher} does not launch the cross tree's ocamlrun: ${launch_line}"
+      exit 1
+    fi
+    echo "  ${launcher##*/}: ${launch_line}"
+  done
+
   # --- ocamlmklib compiler resolution ---
   # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir
   echo "Checking ${TARGET}-ocamlmklib compiler resolution..."
@@ -429,6 +457,37 @@ else
     echo "  ocamlc.opt binary: clean"
   else
     echo "  WARNING: ocamlc.opt not found"
+  fi
+
+  # --- Config is opaque to other compiler-libs units ---
+  # Config bakes per-build paths; units importing its implementation with a CRC
+  # would change CRC on every rebuild. ocamlobjinfo prints an all-dash CRC for
+  # an opaque import.
+  if [[ "${MODE}" == "native" ]]; then
+    echo "Checking Config is imported without an implementation CRC..."
+    for unit in clflags location; do
+      cmx="${PREFIX}/lib/ocaml/compiler-libs/${unit}.cmx"
+      if [[ ! -f "${cmx}" ]]; then
+        echo "ERROR: ${cmx} not found"
+        exit 1
+      fi
+      config_crc=$("${PREFIX}/bin/ocamlobjinfo" "${cmx}" \
+        | awk '/^Implementations imported:/ {f=1; next} /^[^[:space:]]/ {f=0} f && $2 == "Config" {print $1}')
+      if [[ -z "${config_crc}" ]]; then
+        # clflags uses Config; location does not import its implementation
+        if [[ "${unit}" == "clflags" ]]; then
+          echo "ERROR: clflags.cmx does not list Config under implementations imported"
+          exit 1
+        fi
+        echo "  ${unit}.cmx: does not import Config"
+        continue
+      fi
+      if [[ "${config_crc}" != "${config_crc//[^-]/}" ]]; then
+        echo "ERROR: ${unit}.cmx imports Config implementation with CRC ${config_crc}"
+        exit 1
+      fi
+      echo "  ${unit}.cmx: Config imported without CRC"
+    done
   fi
 
   # --- macOS rpath check (native/cross-compiler only, not cross-target) ---

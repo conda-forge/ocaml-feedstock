@@ -840,6 +840,18 @@ patch_checkstack_cc() {
   fi
 }
 
+# Compile utils/config with -opaque. Config bakes per-build paths, so without
+# it every unit importing Config records an implementation CRC that changes on
+# each rebuild. override keeps the flag when a caller sets OC_COMMON_COMPFLAGS
+# on the make command line.
+# Usage: patch_makefile_opaque_config
+# Operates on Makefile in the current directory
+patch_makefile_opaque_config() {
+  if ! grep -q "^utils/config.cmi" Makefile; then
+    printf '\nutils/config.cmi utils/config.cmo utils/config.cmx: override OC_COMMON_COMPFLAGS += -opaque\n' >> Makefile
+  fi
+}
+
 # Clean embedded binary paths and -L flags from Makefile.config after configure
 # Removes non-relocatable build-time tool paths baked in by configure.
 # Usage: patch_makefile_config_post_configure
@@ -925,16 +937,18 @@ setup_dyld_fallback() {
 # ==============================================================================
 
 # Verify and fix rpath for macOS binaries that use @rpath/libzstd
-# Usage: verify_macos_rpath <binary_dir> <rpath_value>
+# Usage: verify_macos_rpath <binary_dir> <rpath_value> [glob]
 # Parameters:
-#   binary_dir  - directory containing *.opt binaries to check
+#   binary_dir  - directory containing the binaries to check
 #   rpath_value - rpath to add if missing (e.g. "@loader_path/../lib" or
 #                 "@loader_path/../../../../lib")
+#   glob        - binaries to check (default: *.opt)
 verify_macos_rpath() {
   local binary_dir="$1"
   local rpath_value="$2"
+  local glob="${3:-*.opt}"
 
-  for binary in "${binary_dir}"/*.opt; do
+  for binary in "${binary_dir}"/${glob}; do
     if [[ -f "${binary}" ]]; then
       # Check if libzstd is linked via @rpath
       if otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then

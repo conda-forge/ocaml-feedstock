@@ -1,5 +1,5 @@
 context:
-  build_number: 12
+  build_number: 13
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -274,12 +274,19 @@ outputs:
     requirements:
       run_exports:
         strong:
+          # gcc-built exes import api-ms-win-crt-* (UCRT); the m2w64 sysroot
+          # only exports libwinpthread
           - if: not unix and c_compiler == "gcc"
             then:
               - ${{ stdlib("m2w64_c") }}
+              - ucrt >=10.0.20348.0
+          # the vs runtime packages, without the vs activation package that
+          # stdlib("c") would pull into every downstream host env
           - if: not unix and c_compiler == "vs2022"
             then:
-              - ${{ stdlib("c") }}
+              - vc >=14.3,<15
+              - vc14_runtime >=14.44.35208
+              - ucrt >=10.0.20348.0
         strong_constraints:
           - if: not unix
             then:
@@ -392,16 +399,10 @@ outputs:
                 - lld >=${{ c_compiler_version }}
                 - llvm-tools >=${{ c_compiler_version }}
 
-        # --- CROSS-COMPILER ONLY: Include full toolchain ---
-        # Like gcc_linux-aarch64 depends on native gcc, our cross-compiler depends
-        # on native OCaml - downstream compiler("ocaml") resolves to the cross-compiler
-        # which needs native ocaml/ocamlc in PATH for tools like findlib/dune.
-        # Native OCaml for the build platform - can't use pin_subpackage because
-        # the build_platform output may not be in the same CI job (e.g., osx cross
-        # built on linux). Use version pin instead.
-        - if: is_cross_compiler
-          then:
-            - ocaml_${{ build_platform }} ${{ version }}.*
+        # --- CROSS-COMPILER ONLY: target C toolchain ---
+        # No native OCaml run dep: the cross tree ships its own BUILD-arch
+        # ocamlrun for its bytecode tools. A downstream build that also needs the
+        # native compiler (dune, findlib) requests ocaml_<build_platform> itself.
         - if: is_cross_compiler and (linux or osx)
           then:
             - if: linux
@@ -543,9 +544,6 @@ outputs:
                 - ${{ library }}lib/ocaml/unix/*
                 - ${{ library }}lib/ocaml/stublibs/dll*.${{ so }}
                 - ${{ library }}share/doc/ocaml/*
-                - if: c_compiler == "zig"
-                  then:
-                    - ${{ library }}bin/conda-ocaml-*.pdb
                 - if: unix
                   then:
                     - ${{ library }}share/man/man1/*
@@ -612,6 +610,7 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamllex.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
@@ -764,6 +763,25 @@ outputs:
             - if: is_qemuable
               then: ${{ qemu_pkg }}
             - ${{ m2 }}file
+
+      # ----------------------------------------------------------------------
+      # CROSS-COMPILER: .cmi interop with the native compiler, the one check
+      # that needs ocaml_<build_platform>, which is not a run dep
+      # ----------------------------------------------------------------------
+      - script:
+          - if: is_cross_compiler
+            then: |
+              cd testing
+              ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }} native-interop
+            else: echo "Not a cross-compiler package"
+        files:
+          recipe:
+            - testing/test-cross-compilers.sh
+        requirements:
+          run:
+            - if: is_cross_compiler
+              then:
+                - ocaml_${{ build_platform }} ${{ version }}.*
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
