@@ -2360,6 +2360,12 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   (
     export OCAML_PREFIX="${NATIVE_PREFIX}"
     export CROSS_COMPILER_PREFIX="${CROSS_COMPILER_SOURCE}"
+    # A -g bytecode link records the directory of every linked .cma/.cmo in
+    # the DBUG section (bytelink.ml link_compunit), here the cross stdlib.
+    # Map the in-lane staging stdlib onto the installed one.
+    if [[ "${OCAML_CROSS_COMPILER_IN_LANE:-0}" == "1" ]]; then
+      export BUILD_PATH_PREFIX_MAP="${PREFIX}/lib/ocaml=${CROSS_COMPILER_DIR}/lib/ocaml"
+    fi
     OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     build_cross_target
   )
