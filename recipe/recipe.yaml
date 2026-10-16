@@ -20,8 +20,9 @@ context:
       "x86_64-conda-linux-gnu"      if cross_target_platform_ == "linux-64"                          else
       "aarch64-conda-linux-gnu"     if cross_target_platform_ == "linux-aarch64"                     else
       "powerpc64le-conda-linux-gnu" if cross_target_platform_ == "linux-ppc64le"                     else
+      "riscv64-conda-linux-gnu"     if cross_target_platform_ == "linux-riscv64"                     else
       "s390x-conda-linux-gnu"       if cross_target_platform_ == "linux-s390x"                       else
-      "x86_64-apple-darwin13.4.0"  if cross_target_platform_ == "osx-64"                            else
+      "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                            else
       "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                         else
       "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc"    else
       "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else
@@ -32,7 +33,7 @@ context:
   # target builds nowhere.
   cross_build_platform: >-
     ${{
-      "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-s390x"]                  else
+      "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] else
       "linux-64"      if cross_target_platform_ in ["linux-aarch64"]                                 else
       "osx-arm64"     if cross_target_platform_ == "osx-64"                                          else
       "osx-64"        if cross_target_platform_ == "osx-arm64"                                       else
@@ -44,8 +45,9 @@ context:
   # two-host test lives in is_cross_compiler, where the expression is inline and
   # keeps its boolean type.
   cross_build_platform_alt: >-
-    ${{ "linux-64" if cross_target_platform_ in ["linux-ppc64le", "linux-s390x"] else "" }}
+    ${{ "linux-64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] else "" }}
 
+  cross_stdlib_version: ${{ "2.39" if cross_target_platform_ == "linux-riscv64" else c_stdlib_version | default("2.17") }}
   cross_c_compiler_version: ${{ "14" if cross_target_platform_ == "linux-s390x" else c_compiler_version | default("") }}
 
   # ===========================================================================
@@ -68,13 +70,14 @@ context:
   # MAINTAINED LIST: prune a target once its cross-compiler is published on
   # conda-forge FOR THIS LANE'S BUILD PLATFORM. Nothing self-corrects, so a
   # stale entry means that lane keeps building its own cross-compiler forever
-  # with no signal that it is doing so. linux-ppc64le stays listed because no
-  # ocaml_linux-ppc64le is published for its linux-aarch64 build platform yet.
+  # with no signal that it is doing so. linux-ppc64le and linux-riscv64 stay
+  # listed because no ocaml_linux-ppc64le or ocaml_linux-riscv64 is published for
+  # their linux-aarch64 build platform yet.
   # linux-s390x stays listed because its
   # gcc 14 toolchain cannot share an environment with the gcc 15 build-platform
   # ocaml its published cross-compiler requires.
   # ===========================================================================
-  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-s390x"] }}
+  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] }}
 
   # ===========================================================================
   # zstd (marshal compression) support. Off only for linux-s390x, which has no
@@ -87,7 +90,7 @@ context:
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
   qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
-  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le", "linux-s390x"]) and (cross_target_platform_ != build_platform) }}
+  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le", "linux-riscv64", "linux-s390x"]) and (cross_target_platform_ != build_platform) }}
   qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=12"]') if is_qemuable else '' }}
 
 recipe:
@@ -277,7 +280,7 @@ outputs:
             - if: linux
               then:
                 - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
-                - sysroot_${{ cross_target_platform_ }} ${{ c_stdlib_version }}.*
+                - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
                 # crossopt emulates target binaries on the build machine; empty
                 # on lanes where is_qemuable is false, so inert there.

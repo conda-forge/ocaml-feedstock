@@ -42,6 +42,10 @@ case "${TARGET_PLATFORM}" in
     ARCH_CHECK="PowerPC64"
     CHECK_CMD="$(build_tool readelf) -h"
     ;;
+  linux-riscv64)
+    ARCH_CHECK="RISC-V"
+    CHECK_CMD="$(build_tool readelf) -h"
+    ;;
   linux-s390x)
     ARCH_CHECK="S/390"
     CHECK_CMD="$(build_tool readelf) -h"

@@ -1117,6 +1117,7 @@ EOF
           arm64) _expected="arm64|ARM64|AArch64|aarch64" ;;
           aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
           power) _expected="PowerPC|ppc64" ;;
+          riscv) _expected="RISC-V|RISCV|riscv" ;;
           s390x) _expected="IBM S/390|S/390|s390" ;;
           amd64) _expected="x86_64|amd64" ;;
           *) _expected="${CROSS_ARCH}" ;;
@@ -1404,6 +1405,12 @@ EOF
   fi
   if [[ -n "${CROSS_MKDLL:-}" ]]; then
     export "CONDA_OCAML_${_tgt_id}_MKDLL=${CROSS_MKDLL}"
+  fi
+  # riscv64: the shipped per-triplet ocaml-mkexe wrapper invokes the linker
+  # without LDFLAGS, defaulting to --no-allow-shlib-undefined, which rejects
+  # target libzstd.so's pthread_create/pthread_join@GLIBC_2.34 references.
+  if [[ "${CROSS_ARCH}" == "riscv" ]]; then
+    export "CONDA_OCAML_${_tgt_id}_MKEXE=${CROSS_CC} ${CROSS_LDFLAGS} -Wl,-E -ldl -Wl,--no-as-needed -lm -Wl,--as-needed"
   fi
 
   echo "  [3/5] Building crosscompiledopt ==="

@@ -29,6 +29,7 @@ get_target_arch() {
   case "${target}" in
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
+    riscv64-*) echo "riscv" ;;
     s390x-*) echo "s390x" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
@@ -43,6 +44,7 @@ get_target_id() {
   case "${target}" in
     aarch64-conda-linux-gnu) echo "AARCH64" ;;
     powerpc64le-conda-linux-gnu) echo "PPC64LE" ;;
+    riscv64-conda-linux-gnu) echo "RISCV64" ;;
     arm64-apple-darwin*) echo "ARM64" ;;
     x86_64-conda-linux-gnu|x86_64-apple-darwin*) echo "X86_64" ;;
     *) echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]' ;;
@@ -235,6 +237,14 @@ TESTEOF
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
+      riscv)
+        if echo "$_file_output" | grep -qi "risc-v"; then
+          echo "    [OK] Produces riscv64 binaries"
+        else
+          echo "    [FAIL] ERROR: Expected riscv64, got: $_file_output"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        fi
+        ;;
       s390x)
         if echo "$_file_output" | grep -qi "IBM S/390\|S/390\|s390"; then
           echo "    [OK] Produces s390x binaries"
@@ -335,6 +345,14 @@ TESTEOF
               power)
                 if echo "${rtlib_arch}" | grep -qi "powerpc\|ppc64"; then
                   echo "    [OK] ${rtname}: PowerPC64"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              riscv)
+                if echo "${rtlib_arch}" | grep -qi "risc-v"; then
+                  echo "    [OK] ${rtname}: RISC-V"
                 else
                   echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
                   TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -927,7 +945,7 @@ echo "Target platform: ${TARGET_PLATFORM:-same as build}"
 echo ""
 
 # Only run on platforms that host a cross-compiler build. linux-aarch64 hosts the
-# ppc64le cross-compiler, per cross_build_platform in recipe.yaml.
+# ppc64le and riscv64 cross-compilers, per cross_build_platform in recipe.yaml.
 if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "linux-aarch64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
   echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
