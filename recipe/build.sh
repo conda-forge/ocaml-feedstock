@@ -1118,6 +1118,7 @@ EOF
           aarch64) _expected="AArch64|aarch64|arm64|ARM64" ;;
           power) _expected="PowerPC|ppc64" ;;
           s390x) _expected="IBM S/390|S/390|s390" ;;
+          amd64) _expected="x86_64|amd64" ;;
           *) _expected="${CROSS_ARCH}" ;;
         esac
         if ! echo "$_arch_info" | grep -qiE "$_expected"; then

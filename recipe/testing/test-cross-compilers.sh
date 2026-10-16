@@ -304,6 +304,14 @@ TESTEOF
                 TEST_ERRORS=$((TEST_ERRORS + 1))
               fi
               ;;
+            amd64)
+              if echo "${rtlib_arch}" | grep -q "x86_64"; then
+                echo "    [OK] ${rtname}: ${rtlib_arch}"
+              else
+                echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch} (expected x86_64)"
+                TEST_ERRORS=$((TEST_ERRORS + 1))
+              fi
+              ;;
             *)
               # Silence here would read as a pass and hide a wrong-arch runtime.
               echo "    [FAIL] ERROR: Unrecognised CROSS_ARCH '${CROSS_ARCH}', cannot verify ${rtname}"
@@ -335,6 +343,14 @@ TESTEOF
               s390x)
                 if echo "${rtlib_arch}" | grep -qi "s390\|S/390"; then
                   echo "    [OK] ${rtname}: s390x"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              amd64)
+                if echo "${rtlib_arch}" | grep -qi "x86-64\|x86_64"; then
+                  echo "    [OK] ${rtname}: x86_64"
                 else
                   echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
                   TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -912,7 +928,7 @@ echo ""
 
 # Only run on platforms that host a cross-compiler build. linux-aarch64 hosts the
 # ppc64le cross-compiler, per cross_build_platform in recipe.yaml.
-if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "linux-aarch64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]]; then
+if [[ "$BUILD_PLATFORM" != "linux-64" ]] && [[ "$BUILD_PLATFORM" != "linux-aarch64" ]] && [[ "$BUILD_PLATFORM" != "osx-64" ]] && [[ "$BUILD_PLATFORM" != "osx-arm64" ]]; then
   echo "No cross-compiler is built on ${BUILD_PLATFORM}, skipping"
   exit 0
 fi
