@@ -1,5 +1,9 @@
 context:
   build_number: 0
+  # True while this version's ocaml_<x> packages are not yet published: cross
+  # lanes then build the native (and for cross-target lanes the cross) compiler
+  # in-lane. Flipped to false once 5.4.1 is published.
+  bootstrap: true
   version: 5.4.1
   flexdll_version: "0.44"
 
@@ -73,10 +77,14 @@ context:
   native_mode: ${{ "native" if has_native_backend else "bytecode" }}
 
   # ===========================================================================
-  # Targets whose cross-compiler is built in this lane instead of coming from a
-  # published ocaml_<target> package. One condition drives both the
-  # is_cross_target build requirement and the build.sh cross-target branch, so
-  # the two cannot disagree.
+  # Same-version native OCaml built in this lane instead of taken from the
+  # build-platform ocaml_<x> package: OCaml configure refuses to build a cross
+  # compiler from a native of a different version. Active while bootstrap.
+  #
+  # Cross-target lanes whose cross-compiler is built in this lane instead of
+  # coming from a published ocaml_<target> package. One condition drives both
+  # the is_cross_target build requirement and the build.sh cross-target branch,
+  # so the two cannot disagree.
   # MAINTAINED LIST: prune a target once its cross-compiler is published on
   # conda-forge FOR THIS LANE'S BUILD PLATFORM. Nothing self-corrects, so a
   # stale entry means that lane keeps building its own cross-compiler forever
@@ -87,7 +95,8 @@ context:
   # gcc 14 toolchain cannot share an environment with the gcc 15 build-platform
   # ocaml its published cross-compiler requires.
   # ===========================================================================
-  bootstrap_in_lane: ${{ is_cross_target and cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] }}
+  native_in_lane: ${{ (is_cross_compiler or is_cross_target) and bootstrap }}
+  cross_compiler_in_lane: ${{ is_cross_target and (bootstrap or cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"]) }}
 
   # ===========================================================================
   # zstd (marshal compression) support. Off only for linux-s390x, which has no
@@ -223,7 +232,8 @@ outputs:
         env:
           OCAML_TARGET_PLATFORM: "${{ cross_target_platform_ }}"
           OCAML_TARGET_TRIPLET: "${{ target_triplet }}"
-          OCAML_BOOTSTRAP_IN_LANE: "${{ 1 if bootstrap_in_lane else 0 }}"
+          OCAML_NATIVE_IN_LANE: "${{ 1 if native_in_lane else 0 }}"
+          OCAML_CROSS_COMPILER_IN_LANE: "${{ 1 if cross_compiler_in_lane else 0 }}"
           OCAML_HAS_ZSTD: "${{ 1 if has_zstd else 0 }}"
           # Executes some target binaries on the build machine (e.g. tools/ocamlobjinfo.opt)
           # under qemu-user. Empty on lanes where is_qemuable is false, so inert there.
@@ -331,10 +341,8 @@ outputs:
         # Guard (cross_target_platform_ != build_platform) prevents self-referenced cycle detection
         - if: is_cross_compiler and (linux or osx) and (cross_target_platform_ != build_platform)
           then:
-            - if: build_number == 0
+            - if: not native_in_lane
               then:
-                - ocaml_${{ build_platform }} >=5.4
-              else:
                 - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
             - if: linux
               then:
@@ -356,17 +364,17 @@ outputs:
             # run-target.sh emulates target binaries during crossopt
             - if: is_qemuable
               then: ${{ qemu_pkg }}
-            - if: build_number == 0
+            - if: not native_in_lane
               then:
-                - ocaml_${{ build_platform }} >=5.4
-                - if: not bootstrap_in_lane
-                  then:
-                    - ocaml_${{ target_platform }} >=5.4
-              else:
                 - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
-                - if: not bootstrap_in_lane
-                  then:
-                    - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
+            - if: not cross_compiler_in_lane
+              then:
+                - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
+            # the in-lane native stage needs the build-platform C compiler,
+            # which otherwise arrives through ocaml_<build_platform>'s run deps
+            - if: native_in_lane and (linux or osx)
+              then:
+                - ${{ cc }}_${{ build_platform }} ${{ c_compiler_version }}*
 
         # --- non-unix-specific ---
         - if: not unix
