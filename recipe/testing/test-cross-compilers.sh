@@ -29,6 +29,7 @@ get_target_arch() {
   case "${target}" in
     aarch64-*|arm64-*) echo "arm64" ;;
     powerpc64le-*) echo "power" ;;
+    s390x-*) echo "s390x" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
   esac
@@ -46,6 +47,12 @@ get_target_id() {
     x86_64-conda-linux-gnu|x86_64-apple-darwin*) echo "X86_64" ;;
     *) echo "${target}" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]' ;;
   esac
+}
+
+# Print the 4-byte marshal magic that follows the 12-byte .cmi magic.
+# 8495a6bd marks a zstd-compressed payload.
+cmi_marshal_magic() {
+  od -An -tx1 -j12 -N4 "$1" | tr -d ' \n'
 }
 
 # ==============================================================================
@@ -228,6 +235,14 @@ TESTEOF
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
+      s390x)
+        if echo "$_file_output" | grep -qi "IBM S/390\|S/390\|s390"; then
+          echo "    [OK] Produces s390x binaries"
+        else
+          echo "    [FAIL] ERROR: Expected s390x, got: $_file_output"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        fi
+        ;;
       amd64)
         if echo "$_file_output" | grep -qi "x86-64\|x86_64"; then
           echo "    [OK] Produces x86_64 binaries"
@@ -312,6 +327,14 @@ TESTEOF
               power)
                 if echo "${rtlib_arch}" | grep -qi "powerpc\|ppc64"; then
                   echo "    [OK] ${rtname}: PowerPC64"
+                else
+                  echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
+                  TEST_ERRORS=$((TEST_ERRORS + 1))
+                fi
+                ;;
+              s390x)
+                if echo "${rtlib_arch}" | grep -qi "s390\|S/390"; then
+                  echo "    [OK] ${rtname}: s390x"
                 else
                   echo "    [FAIL] ERROR: ${rtname} has wrong architecture: ${rtlib_arch}"
                   TEST_ERRORS=$((TEST_ERRORS + 1))
@@ -429,6 +452,10 @@ CONSEOF
         ;;
       powerpc64le-conda-linux-gnu)
         EXPECTED_PREFIX="powerpc64le"
+        WRONG_PREFIX="x86_64"
+        ;;
+      s390x-conda-linux-gnu)
+        EXPECTED_PREFIX="s390x"
         WRONG_PREFIX="x86_64"
         ;;
       arm64-apple-darwin*)
@@ -667,6 +694,103 @@ SYSCALLEOF
   fi
 
   rm -f "${SYSCALL_TEST}" "${SYSCALL_BIN}" "${SYSCALL_BIN}."*
+
+  # ---------------------------------------------------------------------------
+  # Test 14: C stub reading value headers (catches ARCH_BIG_ENDIAN mismatch
+  # between the installed caml/m.h and the target)
+  # ---------------------------------------------------------------------------
+  echo "  [14/14] C stub value header test..."
+  STUB_DIR="/tmp/test_stub_tag_${TARGET_ID}"
+  STUB_BIN="${STUB_DIR}/stub_tag_test"
+  mkdir -p "${STUB_DIR}"
+
+  cat > "${STUB_DIR}/stub_tag_c.c" << 'STUBCEOF'
+#include <caml/mlvalues.h>
+CAMLprim value stub_str_len(value s) {
+  if (Tag_val(s) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(s));
+}
+CAMLprim value stub_cwd_len(value v_cwd) {
+  if (Is_long(v_cwd) || Tag_val(v_cwd) != 0) return Val_int(-2);
+  if (Tag_val(Field(v_cwd, 0)) != String_tag) return Val_int(-1);
+  return Val_int((int) caml_string_length(Field(v_cwd, 0)));
+}
+STUBCEOF
+  cat > "${STUB_DIR}/stub_tag.ml" << 'STUBMLEOF'
+type cwd = Inherit | Path of string
+external str_len : string -> int = "stub_str_len"
+external cwd_len : cwd -> int = "stub_cwd_len"
+let _ = Inherit
+let () =
+  if str_len "hello" = 5 && cwd_len (Path "hello") = 5 then print_endline "STUB_OK" else exit 1
+STUBMLEOF
+
+  if (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>/dev/null; then
+    echo "    [OK] C stub compilation successful"
+
+    if [[ -n "$qemu_execve" ]] && command -v "$qemu_execve" >/dev/null 2>&1; then
+      STUB_OUTPUT=$("${qemu_execve}" "${STUB_BIN}" 2>&1 || true)
+      if echo "${STUB_OUTPUT}" | grep -q "STUB_OK"; then
+        echo "    [OK] C stub reads value headers correctly under QEMU"
+      else
+        echo "    [FAIL] ERROR: C stub str_len check failed under QEMU"
+        echo "      Output: ${STUB_OUTPUT}"
+        TEST_ERRORS=$((TEST_ERRORS + 1))
+      fi
+    elif [[ -n "$qemu_execve" ]]; then
+      echo "    [FAIL] ERROR: C stub program: ${qemu_execve} not found on PATH"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
+    fi
+  else
+    echo "    [FAIL] ERROR: C stub compilation failed"
+    (cd "${STUB_DIR}" && "${CROSS_OCAMLOPT}" -o "${STUB_BIN}" stub_tag_c.c stub_tag.ml) 2>&1 | tail -5 | sed 's/^/      /'
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
+  rm -rf "${STUB_DIR}"
+
+  # ---------------------------------------------------------------------------
+  # Test 15: .cmi written by the native (zstd-enabled) ocamlc is readable by
+  # the cross ocamlc.opt; on s390x the cross compiler must write it plain
+  # ---------------------------------------------------------------------------
+  echo "  [15/15] Native-written .cmi read by ${target}-ocamlc.opt..."
+  CMI_DIR="/tmp/test_cmi_compat_${TARGET_ID}"
+  CROSS_OCAMLC_OPT="${PREFIX}/bin/${target}-ocamlc.opt"
+  rm -rf "${CMI_DIR}"
+  mkdir -p "${CMI_DIR}"
+  echo 'val x : int' > "${CMI_DIR}/a.mli"
+  echo 'let y = A.x' > "${CMI_DIR}/b.ml"
+
+  # -nopervasives keeps Stdlib out of a.cmi's imports, so only the marshal
+  # format is under test, not native-vs-cross Stdlib CRCs.
+  if (cd "${CMI_DIR}" && ocamlc -nopervasives -c a.mli) 2>/dev/null; then
+    if [[ "$(cmi_marshal_magic "${CMI_DIR}/a.cmi")" == "8495a6bd" ]]; then
+      echo "    native a.cmi: compressed"
+    else
+      echo "    ~ native a.cmi: not compressed (decompression path not exercised)"
+    fi
+    if (cd "${CMI_DIR}" && "${CROSS_OCAMLC_OPT}" -I . -c b.ml) 2>/dev/null; then
+      echo "    [OK] ${target}-ocamlc.opt read the native a.cmi"
+      if [[ "${target}" == s390x-* ]]; then
+        if [[ "$(cmi_marshal_magic "${CMI_DIR}/b.cmi")" == "8495a6bd" ]]; then
+          echo "    [FAIL] ERROR: b.cmi written compressed; the zstd-free s390x toolchain cannot read it"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        else
+          echo "    [OK] b.cmi written uncompressed"
+        fi
+      fi
+    else
+      echo "    [FAIL] ERROR: ${target}-ocamlc.opt could not read the native a.cmi"
+      (cd "${CMI_DIR}" && "${CROSS_OCAMLC_OPT}" -I . -c b.ml) 2>&1 | tail -5 | sed 's/^/      /'
+      TEST_ERRORS=$((TEST_ERRORS + 1))
+    fi
+  else
+    echo "    [FAIL] ERROR: native ocamlc failed to compile a.mli"
+    (cd "${CMI_DIR}" && ocamlc -nopervasives -c a.mli) 2>&1 | tail -5 | sed 's/^/      /'
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
+  rm -rf "${CMI_DIR}"
 
   # ---------------------------------------------------------------------------
   # Summary
