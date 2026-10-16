@@ -50,6 +50,18 @@ run_target() {
           "${OCAML_QEMU}" "$(dirname "$script")/ocamlrun" "$script" "$@"
           return
         fi
+        # A 5.5 bytecode launcher starts with #!/bin/sh and names ocamlrun;
+        # run it as the target ocamlrun (next to the file, else on PATH).
+        if [[ "${interp}" == /bin/sh || "${interp}" == /usr/bin/sh ]] && grep -a -q ocamlrun "$script"; then
+          local orun
+          orun="$(dirname "$script")/ocamlrun"
+          [[ -x "${orun}" ]] || orun=$(type -P -- ocamlrun || true)
+          if [[ -n "${orun}" ]]; then
+            echo "[qemu] sh bytecode launcher ${script} -> ${orun}" >&2
+            "${OCAML_QEMU}" "${orun}" "$script" "$@"
+            return
+          fi
+        fi
         echo "[FAIL] ${script}: native interpreter ${interp} cannot run target binaries under emulation" >&2
         return 126
       fi
