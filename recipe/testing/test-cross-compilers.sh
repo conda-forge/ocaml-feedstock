@@ -237,14 +237,6 @@ TESTEOF
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;
-      amd64)
-        if echo "$_file_output" | grep -qi "x86-64\|x86_64"; then
-          echo "    [OK] Produces x86_64 binaries"
-        else
-          echo "    [FAIL] ERROR: Expected x86_64, got: $_file_output"
-          TEST_ERRORS=$((TEST_ERRORS + 1))
-        fi
-        ;;
       riscv)
         if echo "$_file_output" | grep -qi "risc-v"; then
           echo "    [OK] Produces riscv64 binaries"
@@ -258,6 +250,14 @@ TESTEOF
           echo "    [OK] Produces s390x binaries"
         else
           echo "    [FAIL] ERROR: Expected s390x, got: $_file_output"
+          TEST_ERRORS=$((TEST_ERRORS + 1))
+        fi
+        ;;
+      amd64)
+        if echo "$_file_output" | grep -qi "x86-64\|x86_64"; then
+          echo "    [OK] Produces x86_64 binaries"
+        else
+          echo "    [FAIL] ERROR: Expected x86_64, got: $_file_output"
           TEST_ERRORS=$((TEST_ERRORS + 1))
         fi
         ;;

@@ -10,6 +10,8 @@ context:
   sh: ${{ "sh" if unix else "bat" }}
   so: ${{ "so" if unix else "dll" }}
   xt: ${{ "" if unix else ".exe" }}
+  # Indirection so the autotick bot's compiler-stub regex only rewrites this line
+  cc: ${{ c_compiler }}
 
   # ===========================================================================
   # GCC-style derived values (not variant keys - keeps filenames clean)
@@ -25,9 +27,9 @@ context:
       "s390x-conda-linux-gnu"       if cross_target_platform_ == "linux-s390x"                       else
       "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                            else
       "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                         else
-      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and c_compiler == "gcc"    else
-      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and c_compiler == "vs2022" else
-      "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and c_compiler == "zig" else
+      "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and cc == "gcc"    else
+      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and cc == "vs2022" else
+      "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and cc == "zig" else
       "unknown"
     }}
   # Which platform builds cross-compilers for each target. Empty for a target
@@ -169,7 +171,7 @@ outputs:
   - package:
       name: ocaml
     build:
-      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_experimental_${{ build_number }}
+      string: ${{ cc ~ "_" if not unix }}h${{ hash }}_experimental_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       noarch: generic
       script: echo "OCaml metapackage"
@@ -205,7 +207,7 @@ outputs:
   - package:
       name: ocaml_${{ cross_target_platform_ }}
     build:
-      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_experimental_${{ build_number }}
+      string: ${{ cc ~ "_" if not unix }}h${{ hash }}_experimental_${{ build_number }}
       script:
         file: build.sh
         env:
@@ -280,7 +282,7 @@ outputs:
         strong_constraints:
           - if: not unix
             then:
-              - ocaml_${{ cross_target_platform_ }} * ${{ c_compiler }}_*
+              - ocaml_${{ cross_target_platform_ }} * ${{ cc }}_*
       build:
         # --- Common build deps (all cases) ---
         - if: not unix and c_compiler == "gcc"
@@ -316,7 +318,7 @@ outputs:
                 - ocaml_${{ build_platform }} ${{ version }}.*
             - if: linux
               then:
-                - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
+                - ${{ cc }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
                 - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
                 - binutils_impl_${{ cross_target_platform_ }}
                 # crossopt emulates target binaries on the build machine; empty
@@ -324,7 +326,7 @@ outputs:
                 - if: is_qemuable
                   then: ${{ qemu_pkg }}
               else:
-                - ${{ c_compiler }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
+                - ${{ cc }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
 
         # --- CROSS-TARGET: Bootstrap compiler for cross-compilation ---
         - if: is_cross_target
@@ -381,7 +383,7 @@ outputs:
                 # toolchain stops at gcc 14 and must co-install with this package.
                 - if: linux
                   then:
-                    - ${{ c_compiler }}_${{ target_platform }} >=14
+                    - ${{ cc }}_${{ target_platform }} >=14
                   else:
                     - ${{ compiler("c") }}
             - if: osx
@@ -770,7 +772,7 @@ outputs:
   - package:
       name: ocaml-compiler
     build:
-      string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_experimental_${{ build_number }}
+      string: ${{ cc ~ "_" if not unix }}h${{ hash }}_experimental_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       script: echo "Toolchain meta-package"
     requirements:

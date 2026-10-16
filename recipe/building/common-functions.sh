@@ -577,8 +577,8 @@ setup_toolchain() {
   esac
 
   # Export all
-  # STRIP defaults to ':' so an empty strip stays a harmless no-op when passed as a make variable
   export "${name}_AR=${_AR}" "${name}_AS=${_AS}" "${name}_CC=${_CC}" "${name}_RANLIB=${_RANLIB}"
+  # STRIP defaults to ':' so an empty strip stays a harmless no-op when passed as a make variable
   export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP:-:}" "${name}_LD=${_LD}"
   export "${name}_ASM=${_ASM}" "${name}_MKDLL=${_MKDLL}" "${name}_MKEXE=${_MKEXE}"
 }
