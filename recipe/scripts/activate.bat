@@ -22,6 +22,23 @@
 @set "PATH=%OCAMLLIB%\stublibs;%PATH%"
 @set "CAML_LD_LIBRARY_PATH=%OCAMLLIB%\stublibs"
 
+@REM During a conda build the host prefix libraries go first on OCAMLPATH
+@if not "%CONDA_BUILD%"=="1" goto :ocaml_path_done
+@if not defined PREFIX goto :ocaml_path_done
+@if /I "%PREFIX%"=="%CONDA_PREFIX%" goto :ocaml_path_done
+@set "_OCAML_HOST_LIB=%PREFIX%\Library\lib\ocaml"
+@if defined LIBRARY_PREFIX set "_OCAML_HOST_LIB=%LIBRARY_PREFIX%\lib\ocaml"
+@echo ";%OCAMLPATH%;"| findstr /L /I /C:";%_OCAML_HOST_LIB%;" >nul && goto :ocaml_path_done
+@set "_OCAML_OCAMLPATH_BACKUP=%OCAMLPATH%"
+@set "_OCAML_OCAMLPATH_PREPENDED=1"
+@if not defined OCAMLPATH goto :ocaml_path_only
+@set "OCAMLPATH=%_OCAML_HOST_LIB%;%OCAMLPATH%"
+@goto :ocaml_path_done
+:ocaml_path_only
+@set "OCAMLPATH=%_OCAML_HOST_LIB%"
+:ocaml_path_done
+@set "_OCAML_HOST_LIB="
+
 @REM OCaml toolchain configuration
 @REM These are used by ocamlopt for assembling and linking native code
 @REM @CC@, @AS@, etc. are replaced at build time with actual tools used

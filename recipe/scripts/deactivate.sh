@@ -17,6 +17,15 @@ if [[ -n "${_OCAML_OCAML_PREFIX_CONDA_BACKUP:-}" ]]; then
     unset _OCAML_OCAML_PREFIX_CONDA_BACKUP
 fi
 
+if [[ -n "${_OCAML_OCAMLPATH_CONDA_BACKUP+x}" ]]; then
+    if [[ -n "${_OCAML_OCAMLPATH_CONDA_BACKUP}" ]]; then
+        export OCAMLPATH="${_OCAML_OCAMLPATH_CONDA_BACKUP}"
+    else
+        unset OCAMLPATH
+    fi
+    unset _OCAML_OCAMLPATH_CONDA_BACKUP
+fi
+
 # macOS: Restore DYLD_FALLBACK_LIBRARY_PATH
 if [[ -n "${_OCAML_DYLD_FALLBACK_LIBRARY_PATH_BACKUP+x}" ]]; then
     if [[ -n "${_OCAML_DYLD_FALLBACK_LIBRARY_PATH_BACKUP}" ]]; then

@@ -6,6 +6,17 @@ export _OCAML_OCAML_PREFIX_CONDA_BACKUP="${OCAML_PREFIX:-}"
 export OCAML_PREFIX="${CONDA_PREFIX}"
 export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
 
+# During a conda build the host prefix libraries go first on OCAMLPATH
+if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ]; then
+  case ":${OCAMLPATH:-}:" in
+    *":${PREFIX}/lib/ocaml:"*) ;;
+    *)
+      export _OCAML_OCAMLPATH_CONDA_BACKUP="${OCAMLPATH:-}"
+      export OCAMLPATH="${PREFIX}/lib/ocaml${OCAMLPATH:+:${OCAMLPATH}}"
+      ;;
+  esac
+fi
+
 # OCaml toolchain configuration
 # These are used by ocamlopt for assembling and linking native code
 # @CC@, @AS@, etc. are replaced at build time with actual tools used
