@@ -1,5 +1,5 @@
 context:
-  build_number: 17
+  build_number: 18
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -664,6 +664,8 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt.${{ so }}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads.${{ so }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 

@@ -10,7 +10,9 @@ TARGET="$1"
 export CONDA_PREFIX="${PREFIX:-${CONDA_PREFIX}}"
 ACTIVATE="${CONDA_PREFIX}/etc/conda/activate.d/ocaml_cross_activate.sh"
 DEACTIVATE="${CONDA_PREFIX}/etc/conda/deactivate.d/ocaml_cross_deactivate.sh"
-SHIMS="${CONDA_PREFIX}/lib/ocaml-cross-compilers/${TARGET}/shims"
+CROSS="${CONDA_PREFIX}/lib/ocaml-cross-compilers/${TARGET}"
+SHIMS="${CROSS}/shims"
+CROSS_LIB="${CROSS}/lib/ocaml"
 
 case "${TARGET}" in
   aarch64-*|arm64-*) EXPECTED_ARCH="arm64";  FILE_RE="aarch64|arm64" ;;
@@ -33,6 +35,19 @@ shims_on_path() {
   done
   echo "${_n}"
 }
+
+# Count OCAMLPATH entries equal to the cross library dir
+cross_lib_on_ocamlpath() {
+  local _n=0 _entry
+  local IFS=:
+  for _entry in ${OCAMLPATH:-}; do
+    [[ "${_entry}" == "${CROSS_LIB}" ]] && _n=$((_n + 1))
+  done
+  echo "${_n}"
+}
+
+ORIG_OCAMLPATH_SET="${OCAMLPATH+x}"
+ORIG_OCAMLPATH="${OCAMLPATH:-}"
 
 echo "Test 1: activation switches to cross mode"
 export CONDA_BUILD_CROSS_COMPILATION=1
@@ -107,13 +122,77 @@ else
   ERRORS=$((ERRORS + 1))
 fi
 
-echo "Test 7: deactivation removes the launcher dir"
+echo "Test 7: the cross library is first on OCAMLPATH"
+if [[ "${OCAMLPATH:-}" == "${CROSS_LIB}" || "${OCAMLPATH:-}" == "${CROSS_LIB}:"* ]] && \
+   [[ "$(cross_lib_on_ocamlpath)" == "1" ]]; then
+  echo "  PASS: OCAMLPATH=${OCAMLPATH}"
+else
+  echo "  FAIL: OCAMLPATH='${OCAMLPATH:-<unset>}' (expected ${CROSS_LIB} first, once)"
+  ERRORS=$((ERRORS + 1))
+fi
+
+echo "Test 8: ocaml_use_native drops the cross library, ocaml_use_cross restores it once"
+ocaml_use_native
+_native_n=$(cross_lib_on_ocamlpath)
+ocaml_use_cross
+ocaml_use_cross
+if [[ "${_native_n}" == "0" && "$(cross_lib_on_ocamlpath)" == "1" ]] && \
+   [[ "${OCAMLPATH:-}" == "${CROSS_LIB}" || "${OCAMLPATH:-}" == "${CROSS_LIB}:"* ]]; then
+  echo "  PASS: native=0 entries, cross=1 entry first"
+else
+  echo "  FAIL: native=${_native_n} entries, cross OCAMLPATH='${OCAMLPATH:-<unset>}'"
+  ERRORS=$((ERRORS + 1))
+fi
+
+echo "Test 9: ocaml_use_cross moves the launcher dir back to the front"
+WORK=$(mktemp -d)
+printf '#!/bin/sh\nexit 0\n' > "${WORK}/ocamlopt"
+chmod +x "${WORK}/ocamlopt"
+export PATH="${WORK}:${PATH}"
+_warn=$(ocaml_cross_check 2>&1 >/dev/null)
+ocaml_use_cross
+_first="${PATH%%:*}"
+_after=$(ocaml_cross_check 2>&1 >/dev/null)
+if [[ -n "${_warn}" && -z "${_after}" && "${_first}" == "${SHIMS}" && "$(shims_on_path)" == "1" ]]; then
+  echo "  PASS: warned while shadowed, ${SHIMS} first and once after ocaml_use_cross"
+else
+  echo "  FAIL: warn='${_warn}' after='${_after}' first='${_first}' count=$(shims_on_path)"
+  ERRORS=$((ERRORS + 1))
+fi
+_p=":${PATH}:"
+_p="${_p//":${WORK}:"/:}"
+_p="${_p#:}"
+export PATH="${_p%:}"
+rm -rf "${WORK}"
+
+echo "Test 10: a Unix bytecode program runs on the cross tree's ocamlrun"
+WORK=$(mktemp -d)
+echo 'let () = ignore (Unix.getpid ()); print_string "unix-ok"' > "${WORK}/t.ml"
+_out=$(cd "${WORK}" && PATH="${SHIMS}:/usr/bin:/bin" \
+  ocamlc -I +unix unix.cma t.ml -o t.byte 2>&1 && \
+  PATH="${SHIMS}:/usr/bin:/bin" "${CROSS}/bin/ocamlrun" t.byte 2>&1 || true)
+if [[ "${_out}" == "unix-ok" ]]; then
+  echo "  PASS: ${CROSS}/bin/ocamlrun loaded the unix stubs"
+else
+  echo "  FAIL: printed '${_out}' (expected 'unix-ok')"
+  ls "${CROSS_LIB}/stublibs" 2>&1 | sed 's/^/    /'
+  ERRORS=$((ERRORS + 1))
+fi
+rm -rf "${WORK}"
+
+echo "Test 11: deactivation removes the launcher dir and restores OCAMLPATH"
 # shellcheck disable=SC1090
 source "${DEACTIVATE}"
 if [[ "$(shims_on_path)" == "0" && -z "${OCAML_CROSS_MODE:-}" ]]; then
   echo "  PASS: PATH and OCAML_CROSS_MODE restored"
 else
   echo "  FAIL: PATH has ${SHIMS} $(shims_on_path) times, OCAML_CROSS_MODE='${OCAML_CROSS_MODE:-}'"
+  ERRORS=$((ERRORS + 1))
+fi
+if [[ "${OCAMLPATH+x}" == "${ORIG_OCAMLPATH_SET}" && "${OCAMLPATH:-}" == "${ORIG_OCAMLPATH}" ]]; then
+  echo "  PASS: OCAMLPATH restored to '${OCAMLPATH-<unset>}'"
+else
+  echo "  FAIL: OCAMLPATH='${OCAMLPATH-<unset>}' (expected '${ORIG_OCAMLPATH}', set='${ORIG_OCAMLPATH_SET}')"
   ERRORS=$((ERRORS + 1))
 fi
 

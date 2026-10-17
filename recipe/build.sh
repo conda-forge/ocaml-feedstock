@@ -2319,6 +2319,20 @@ EOF
       echo "    Fixed: lib/ocaml-cross-compilers/${triplet}/lib/ocaml/ld.conf"
     fi
 
+    # Bytecode linked by the cross ocamlc runs on the BUILD machine under the
+    # cross tree's ocamlrun, which loads stubs via the ld.conf above: ship the
+    # BUILD-arch stubs of the native ocaml in BUILD_PREFIX, not the target-arch
+    # ones from make install.
+    _native_stublibs="${BUILD_PREFIX}/lib/ocaml/stublibs"
+    if ! compgen -G "${_native_stublibs}/dll*.so" >/dev/null; then
+      echo "ERROR: no BUILD-arch bytecode stubs in ${_native_stublibs}"
+      exit 1
+    fi
+    mkdir -p "${cross_dir}lib/ocaml/stublibs"
+    rm -f "${cross_dir}lib/ocaml/stublibs/"dll*.so
+    cp -L "${_native_stublibs}/"dll*.so "${cross_dir}lib/ocaml/stublibs/"
+    echo "    Stubs: $(cd "${cross_dir}lib/ocaml/stublibs" && echo dll*.so)"
+
     # runtime-launch-info is binary: use the binary-safe cleanup
     runtime_info="${cross_dir}/lib/ocaml/runtime-launch-info"
     if [[ -f "$runtime_info" ]]; then
