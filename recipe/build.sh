@@ -2333,6 +2333,27 @@ EOF
     cp -L "${_native_stublibs}/"dll*.so "${cross_dir}lib/ocaml/stublibs/"
     echo "    Stubs: $(cd "${cross_dir}lib/ocaml/stublibs" && echo dll*.so)"
 
+    # The ocamlrun from make install is built against the --target configured
+    # runtime headers, not the ones these stubs were compiled with; loading them
+    # into it crashes. Ship the native ocamlrun the stubs belong to instead.
+    _native_ocamlrun="${BUILD_PREFIX}/bin/ocamlrun"
+    if [[ ! -x "${_native_ocamlrun}" ]] || [[ "$(head -c 2 "${_native_ocamlrun}")" == "#!" ]]; then
+      echo "ERROR: ${_native_ocamlrun} is missing or not a binary"
+      exit 1
+    fi
+    rm -f "${cross_dir}bin/ocamlrun"
+    cp -L "${_native_ocamlrun}" "${cross_dir}bin/ocamlrun"
+    chmod 755 "${cross_dir}bin/ocamlrun"
+    # Its rpath reaches lib/ only from bin/; on linux the rattler-build relink
+    # adds $ORIGIN/../../../../lib for the new location.
+    if [[ "${target_platform}" == osx-* ]] && otool -L "${cross_dir}bin/ocamlrun" | grep -q "@rpath/libzstd"; then
+      if ! otool -l "${cross_dir}bin/ocamlrun" | grep -A2 LC_RPATH | grep -qF "@loader_path/../../../../lib"; then
+        install_name_tool -add_rpath "@loader_path/../../../../lib" "${cross_dir}bin/ocamlrun"
+        codesign -f -s - "${cross_dir}bin/ocamlrun" 2>/dev/null || true
+      fi
+    fi
+    echo "    Runtime: ${cross_dir}bin/ocamlrun from ${_native_ocamlrun}"
+
     # runtime-launch-info is binary: use the binary-safe cleanup
     runtime_info="${cross_dir}/lib/ocaml/runtime-launch-info"
     if [[ -f "$runtime_info" ]]; then

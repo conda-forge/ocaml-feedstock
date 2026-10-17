@@ -116,6 +116,19 @@ if [[ -x "${SHIMS}/ocaml" ]]; then
     echo "  FAIL: ${SHIMS}/ocaml printed '${_out}' (expected 'shim-ok')"
     ERRORS=$((ERRORS + 1))
   fi
+  # #load of unix.cma loads the unix stubs into the toplevel's ocamlrun
+  cat > "${WORK}/top_unix.ml" << 'EOF'
+#directory "+unix";;
+#load "unix.cma";;
+print_string (if Sys.file_exists (Unix.getcwd ()) then "toplevel-unix-ok" else "bad");;
+EOF
+  _out=$(cd "${WORK}" && env -u CAML_LD_LIBRARY_PATH PATH="${SHIMS}:/usr/bin:/bin" "${SHIMS}/ocaml" top_unix.ml 2>&1; echo " exit=$?")
+  if [[ "${_out}" == "toplevel-unix-ok exit=0" ]]; then
+    echo "  PASS: ${SHIMS}/ocaml loaded unix.cma"
+  else
+    echo "  FAIL: ${SHIMS}/ocaml with unix.cma printed '${_out}' (expected 'toplevel-unix-ok exit=0')"
+    ERRORS=$((ERRORS + 1))
+  fi
   rm -rf "${WORK}"
 else
   echo "  FAIL: ${SHIMS}/ocaml missing or not executable"
