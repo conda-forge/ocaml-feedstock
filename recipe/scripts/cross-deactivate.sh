@@ -9,12 +9,12 @@ fi
 unset _OCAML_CROSS_OCAMLPATH_UNSET
 
 if [ "${_OCAML_OCAMLPATH_CONDA_BACKUP+x}" = "x" ]; then
-  if [ -n "${_OCAML_OCAMLPATH_CONDA_BACKUP}" ]; then
-    export OCAMLPATH="${_OCAML_OCAMLPATH_CONDA_BACKUP}"
-  else
+  if [ "${_OCAML_OCAMLPATH_CONDA_WAS_UNSET:-}" = "1" ]; then
     unset OCAMLPATH
+  else
+    export OCAMLPATH="${_OCAML_OCAMLPATH_CONDA_BACKUP}"
   fi
-  unset _OCAML_OCAMLPATH_CONDA_BACKUP
+  unset _OCAML_OCAMLPATH_CONDA_BACKUP _OCAML_OCAMLPATH_CONDA_WAS_UNSET
 fi
 
 unset -f ocaml_use_cross 2>/dev/null || true
