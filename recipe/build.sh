@@ -2383,19 +2383,6 @@ EOF
     fi
     echo "    Runtime: ${cross_dir}bin/ocamlrun from ${_native_ocamlrun}"
 
-    # The toplevel from the cross build links compiler-libs configured for the
-    # target and segfaults on #load of any library with C stubs. It runs on the
-    # BUILD machine, so ship the native toplevel these stubs belong to.
-    _native_toplevel="${BUILD_PREFIX}/bin/ocaml"
-    if [[ ! -f "${_native_toplevel}" ]] || ! tail -c 12 "${_native_toplevel}" | grep -q 'Caml1999X'; then
-      echo "ERROR: ${_native_toplevel} is missing or not a bytecode executable"
-      exit 1
-    fi
-    rm -f "${cross_dir}bin/ocaml"
-    cp -L "${_native_toplevel}" "${cross_dir}bin/ocaml"
-    chmod 755 "${cross_dir}bin/ocaml"
-    echo "    Toplevel: ${cross_dir}bin/ocaml from ${_native_toplevel}"
-
     # runtime-launch-info is binary: use the binary-safe cleanup
     runtime_info="${cross_dir}/lib/ocaml/runtime-launch-info"
     if [[ -f "$runtime_info" ]]; then
@@ -2686,8 +2673,8 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     chmod +x "${_CROSS_SHIMS}/${tool}"
   done
   # dune looks for `ocaml` beside `ocamlc` to evaluate OCaml-syntax dune files;
-  # the cross tree's BUILD-arch bytecode toplevel runs on its BUILD-arch
-  # ocamlrun (the file's #! line is a build-time path).
+  # the cross tree's own bytecode toplevel runs on its BUILD-arch ocamlrun
+  # (the file's #! line is a build-time path).
   printf '#!/bin/sh\n_t="$(cd "$(dirname "$0")/.." && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$_t/bin/ocaml" "$@"\n' > "${_CROSS_SHIMS}/ocaml"
   chmod +x "${_CROSS_SHIMS}/ocaml"
   # dune's boot looks for the generators beside the ocamlc it resolved.
