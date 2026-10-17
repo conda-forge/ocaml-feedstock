@@ -164,6 +164,20 @@ test_cross_compiler() {
   fi
 
   # ---------------------------------------------------------------------------
+  # Test 3b: native dynlink enabled on linux targets (dune installs .cmxs)
+  # ---------------------------------------------------------------------------
+  if [[ "${target}" == *-linux-* ]]; then
+    echo "  [3b/13] native_dynlink in -config..."
+    NATDYN=$("${CROSS_OCAMLOPT}" -config | tr -d '\0' | grep -a "^native_dynlink:" | awk '{print $2}')
+    if [[ "${NATDYN}" == "true" ]]; then
+      echo "    [OK] native_dynlink: ${NATDYN}"
+    else
+      echo "    [FAIL] ERROR: native_dynlink is '${NATDYN}', expected 'true'"
+      TEST_ERRORS=$((TEST_ERRORS + 1))
+    fi
+  fi
+
+  # ---------------------------------------------------------------------------
   # Test 4: Toolchain wrappers use conda-ocaml-* (not hardcoded paths)
   # Note: This test runs within the per-target cross-compiler validation loop
   # and deliberately checks asm/c_compiler/native_c_compiler in -config for

@@ -1499,6 +1499,31 @@ TOOLWRAPPER
         sed -i 's|^MKMAINDLL=shared-libs-not-available|MKMAINDLL=$(CC) -shared|' "Makefile.config"
         echo '  [s390x-sharedlib-fix] MKMAINDLL -> $(CC) -shared'
       fi
+      # configure derives native dynlink from the same false negative; the
+      # compiler bakes native_dynlink and supports_shared_libraries from
+      # utils/config.generated.ml, patched here before the compiler is built.
+      # The same false negative (enable_shared=no) skips configure's whole linux
+      # shared-lib branch, leaving SHAREDLIB_CFLAGS empty.
+      if grep -q '^SHAREDLIB_CFLAGS=$' "Makefile.config"; then
+        sed -i "s|^SHAREDLIB_CFLAGS=$|SHAREDLIB_CFLAGS=-fPIC|" "Makefile.config"
+        echo "  [s390x-sharedlib-fix] SHAREDLIB_CFLAGS -> -fPIC"
+      fi
+      if grep -q '^NATDYNLINK=false' "Makefile.config"; then
+        sed -i "s|^NATDYNLINK=false|NATDYNLINK=true|" "Makefile.config"
+        echo "  [s390x-sharedlib-fix] NATDYNLINK -> true"
+      fi
+      if grep -q '^NATDYNLINKOPTS=$' "Makefile.config"; then
+        sed -i "s|^NATDYNLINKOPTS=$|NATDYNLINKOPTS=-Wl,-E|" "Makefile.config"
+        echo "  [s390x-sharedlib-fix] NATDYNLINKOPTS -> -Wl,-E"
+      fi
+      if grep -q '^let native_dynlink = false' "utils/config.generated.ml"; then
+        sed -i "s|^let native_dynlink = false|let native_dynlink = true|" "utils/config.generated.ml"
+        echo "  [s390x-sharedlib-fix] native_dynlink -> true (config.generated.ml)"
+      fi
+      if grep -q '^let supports_shared_libraries = false' "utils/config.generated.ml"; then
+        sed -i "s|^let supports_shared_libraries = false|let supports_shared_libraries = true|" "utils/config.generated.ml"
+        echo "  [s390x-sharedlib-fix] supports_shared_libraries -> true (config.generated.ml)"
+      fi
     fi
 
     echo "  [5/7] Building and installing cross-compiler..."
