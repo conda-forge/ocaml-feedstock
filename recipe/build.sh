@@ -38,6 +38,12 @@ if [[ ${CONDA_BUILD_CROSS_COMPILATION:-"0"} == "1" ]]; then
   echo ""
   echo "=== Sanitizing CFLAGS/LDFLAGS for ${_target_arch} ==="
   sanitize_and_export_cross_flags "${_target_arch}"
+
+  # A cross ocaml_<target> in BUILD_PREFIX self-activates; this build wires
+  # its compilers explicitly, so start from the native toolchain.
+  if [[ "${OCAML_CROSS_MODE:-}" == "cross" ]] && declare -F ocaml_use_native >/dev/null; then
+    ocaml_use_native
+  fi
 fi
 
 # Platform detection (must be after sourcing common-functions.sh for is_unix)
@@ -2565,6 +2571,17 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   _CROSS_RANLIB=$(_extract_default "RANLIB")
   _CROSS_MKEXE=$(_extract_default "MKEXE")
   _CROSS_MKDLL=$(_extract_default "MKDLL")
+
+  # Bare-name launchers that ocaml_use_cross puts on PATH, so plain
+  # `ocamlopt` (dune) reaches the cross compiler. Exec scripts, not symlinks:
+  # the <triplet>-* wrappers locate their prefix from $0.
+  _CROSS_SHIMS="${PREFIX}/lib/ocaml-cross-compilers/${_CROSS_TARGET}/shims"
+  mkdir -p "${_CROSS_SHIMS}"
+  for tool in ocamlc ocamlc.opt ocamldep ocamldep.opt ocamlmklib ocamlobjinfo ocamlopt ocamlopt.opt; do
+    [[ -x "${PREFIX}/bin/${_CROSS_TARGET}-${tool}" ]] || { echo "ERROR: no ${_CROSS_TARGET}-${tool} for the ${tool} launcher"; exit 1; }
+    printf '#!/bin/sh\nexec "$(dirname "$0")/../../../../bin/%s-%s" "$@"\n' "${_CROSS_TARGET}" "${tool}" > "${_CROSS_SHIMS}/${tool}"
+    chmod +x "${_CROSS_SHIMS}/${tool}"
+  done
 
   for CHANGE in "activate" "deactivate"; do
     mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
