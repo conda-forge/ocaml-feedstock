@@ -1,5 +1,5 @@
 context:
-  build_number: 15
+  build_number: 16
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -634,6 +634,14 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamldep
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamldep.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlmklib
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlobjinfo
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
@@ -764,6 +772,25 @@ outputs:
         files:
           recipe:
             - testing/test-cross-activation.sh
+
+      # ----------------------------------------------------------------------
+      # CROSS-COMPILER: self-activation in a cross-compiling env puts the
+      # bare-name cross tools first on PATH
+      # ----------------------------------------------------------------------
+      - script:
+          - if: is_cross_compiler
+            then: cd testing && ./test-cross-self-activation.sh ${{ target_triplet }}
+            else: echo "Skipping cross self-activation tests"
+        files:
+          recipe:
+            - if: is_cross_compiler
+              then:
+                - testing/test-cross-self-activation.sh
+        requirements:
+          build:
+            - if: is_cross_compiler
+              then:
+                - file
 
       # ----------------------------------------------------------------------
       # CROSS-COMPILER: Functional tests
