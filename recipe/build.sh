@@ -2481,17 +2481,28 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       fi
     }
 
+    # osx: find_tool may resolve a versioned LLVM name (llvm-ar-21) that is absent
+    # once the run env's llvm moves on; bake the unversioned name instead.
+    _unversioned_tool() {
+      local name
+      name=$(basename "$1")
+      if [[ "${target_platform}" == osx-* ]]; then
+        name="${name%%-[0-9]*}"
+      fi
+      echo "${name}"
+    }
+
     for CHANGE in "activate" "deactivate"; do
       mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
       # fixed name "ocaml", not PKG_NAME, which varies by output
       _SCRIPT="${PREFIX}/etc/conda/${CHANGE}.d/ocaml_${CHANGE}.${SH_EXT}"
       cp "${RECIPE_DIR}/scripts/${CHANGE}.${SH_EXT}" "${_SCRIPT}" 2>/dev/null || continue
       # Replace @XX@ placeholders with runtime-safe basenames (not full build paths)
-      sed -i "s|@AR@|$(basename "${CONDA_OCAML_AR}")|g" "${_SCRIPT}"
+      sed -i "s|@AR@|$(_unversioned_tool "${CONDA_OCAML_AR}")|g" "${_SCRIPT}"
       sed -i "s|@AS@|$(basename "${CONDA_OCAML_AS}")|g" "${_SCRIPT}"
-      sed -i "s|@CC@|$(basename "${CONDA_OCAML_CC}")|g" "${_SCRIPT}"
-      sed -i "s|@LD@|$(basename "${CONDA_OCAML_LD}")|g" "${_SCRIPT}"
-      sed -i "s|@RANLIB@|$(basename "${CONDA_OCAML_RANLIB}")|g" "${_SCRIPT}"
+      sed -i "s|@CC@|$(_unversioned_tool "${CONDA_OCAML_CC}")|g" "${_SCRIPT}"
+      sed -i "s|@LD@|$(_unversioned_tool "${CONDA_OCAML_LD}")|g" "${_SCRIPT}"
+      sed -i "s|@RANLIB@|$(_unversioned_tool "${CONDA_OCAML_RANLIB}")|g" "${_SCRIPT}"
       sed -i "s|@MKEXE@|$(_basename_cmd "${CONDA_OCAML_MKEXE}")|g" "${_SCRIPT}"
       sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
       sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"

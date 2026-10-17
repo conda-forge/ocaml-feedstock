@@ -462,8 +462,15 @@ else
   # --- Config is opaque to other compiler-libs units ---
   # Config bakes per-build paths; units importing its implementation with a CRC
   # would change CRC on every rebuild. ocamlobjinfo prints an all-dash CRC for
-  # an opaque import.
-  if [[ "${MODE}" == "native" ]]; then
+  # an opaque import. Cross-target ocamlobjinfo runs under the emulator; .cmx
+  # metadata is architecture-independent.
+  OBJINFO_RUN=("${PREFIX}/bin/ocamlobjinfo")
+  if [[ "${MODE}" == "cross-target" ]]; then
+    OBJINFO_RUN=("${OCAML_QEMU:-}" "${PREFIX}/bin/ocamlobjinfo.opt")
+  fi
+  if [[ "${CAN_EXECUTE}" != "true" ]]; then
+    echo "Skipping Config opacity check (cannot execute cross-target binaries)"
+  else
     echo "Checking Config is imported without an implementation CRC..."
     for unit in clflags location; do
       cmx="${PREFIX}/lib/ocaml/compiler-libs/${unit}.cmx"
@@ -471,7 +478,7 @@ else
         echo "ERROR: ${cmx} not found"
         exit 1
       fi
-      config_crc=$("${PREFIX}/bin/ocamlobjinfo" "${cmx}" \
+      config_crc=$("${OBJINFO_RUN[@]}" "${cmx}" \
         | awk '/^Implementations imported:/ {f=1; next} /^[^[:space:]]/ {f=0} f && $2 == "Config" {print $1}')
       if [[ -z "${config_crc}" ]]; then
         # clflags uses Config; location does not import its implementation
