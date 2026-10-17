@@ -1623,8 +1623,9 @@ EOF
       # bytecode versions (keep only .opt)
       rm -f ocamlc.byte ocamldep.byte ocamllex.byte ocamlobjinfo.byte ocamlopt.byte
 
-      # toplevel and REPL
-      rm -f ocaml
+      # The bytecode toplevel stays in a packaged cross-compiler (the ocaml
+      # launcher runs it with the kept ocamlrun).
+      [[ "${BUILD_MODE}" == "cross-compiler" ]] || rm -f ocaml
 
       # Debug and instrumented interpreters. A packaged cross-compiler keeps the
       # BUILD-arch ocamlrun to run its own bytecode tools (ocamlmklib, expunge).
@@ -2582,6 +2583,11 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     printf '#!/bin/sh\nexec "$(dirname "$0")/../../../../bin/%s-%s" "$@"\n' "${_CROSS_TARGET}" "${tool}" > "${_CROSS_SHIMS}/${tool}"
     chmod +x "${_CROSS_SHIMS}/${tool}"
   done
+  # dune looks for `ocaml` beside `ocamlc` to evaluate OCaml-syntax dune files;
+  # the cross tree's own bytecode toplevel runs on its BUILD-arch ocamlrun
+  # (the file's #! line is a build-time path).
+  printf '#!/bin/sh\n_t="$(cd "$(dirname "$0")/.." && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$_t/bin/ocaml" "$@"\n' > "${_CROSS_SHIMS}/ocaml"
+  chmod +x "${_CROSS_SHIMS}/ocaml"
 
   for CHANGE in "activate" "deactivate"; do
     mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
