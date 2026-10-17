@@ -343,7 +343,7 @@ outputs:
           then:
             - if: not native_in_lane
               then:
-                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
+                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
             - if: linux
               then:
                 - ${{ cc }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
@@ -366,10 +366,10 @@ outputs:
               then: ${{ qemu_pkg }}
             - if: not native_in_lane
               then:
-                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
+                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
             - if: not cross_compiler_in_lane
               then:
-                - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
+                - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
             # the in-lane native stage needs the build-platform C compiler,
             # which otherwise arrives through ocaml_<build_platform>'s run deps
             - if: native_in_lane and (linux or osx)
@@ -853,7 +853,7 @@ outputs:
               run:
                 - if: is_cross_compiler
                   then:
-                    - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
+                    - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
