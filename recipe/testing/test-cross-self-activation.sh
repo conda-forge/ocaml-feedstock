@@ -5,7 +5,9 @@
 set -euo pipefail
 
 TARGET="$1"
-export CONDA_PREFIX="${CONDA_PREFIX:-${PREFIX}}"
+# The package under test is installed in PREFIX; the test run activates the
+# build env, so CONDA_PREFIX may name that unrelated env.
+export CONDA_PREFIX="${PREFIX:-${CONDA_PREFIX}}"
 ACTIVATE="${CONDA_PREFIX}/etc/conda/activate.d/ocaml_cross_activate.sh"
 DEACTIVATE="${CONDA_PREFIX}/etc/conda/deactivate.d/ocaml_cross_deactivate.sh"
 SHIMS="${CONDA_PREFIX}/lib/ocaml-cross-compilers/${TARGET}/shims"
