@@ -1,6 +1,6 @@
 context:
-  build_number: 17
-  version: 5.4.0
+  build_number: 0
+  version: "5.5.1"
   flexdll_version: "0.44"
 
   dot: ${{ "./" if unix else "" }}
@@ -109,7 +109,7 @@ recipe:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: 4ab55ac30d247e20f35df20a9f7596e5eb5f92fbbd0f8e3e54838bbc3edf931e
+    sha256: ae47728d0a876665ccc7b745e3a8d8c9ca5ba63c4f7a11d4db6cdbd1dbeef4bb
     patches:
       # Fix header include order bug where atomic_load_acquire/atomic_store_release
       # macros are undefined when mlvalues.h is included before platform.h.
@@ -156,11 +156,11 @@ source:
           # lld-link turns into a stray out-of-order .reloc block.
           - if: cross_target_platform_ == "win-arm64"
             then: patches/flexdll-arm64-sort-coff-relocs.patch
-  - if: not unix and c_compiler == "vs2022"
-    then:
-      url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
-      sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
-      target_directory: winpthreads
+      - if: c_compiler == "vs2022"
+        then:
+          url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
+          sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
+          target_directory: winpthreads
 
 build:
   number: ${{ build_number }}
@@ -495,11 +495,11 @@ outputs:
                 - if: unix or c_compiler in ["vs2022", "zig"]
                   then:
                     - ocamlruni
-                - if: not unix and c_compiler == "vs2022"
-                  then:
-                    - default_amd64.manifest
                 - if: not unix
                   then:
+                    - if: c_compiler == "vs2022"
+                      then:
+                        - default_amd64.manifest
                     - flexlink
                     - flexlink.byte
                     - if: has_native_backend
@@ -511,10 +511,10 @@ outputs:
             - if: is_native
               then:
                 - ocamldebug
-            - if: is_native and has_ocamldoc
-              then:
-                - ocamldoc
-                - ocamldoc.opt
+                - if: has_ocamldoc
+                  then:
+                    - ocamldoc
+                    - ocamldoc.opt
 
             # CROSS-COMPILER: Prefixed cross tools
             - if: is_cross_compiler
@@ -897,8 +897,7 @@ outputs:
             - if: unix
               then:
                 - testing/test-helpers.sh
-            - if: not unix
-              then:
+              else:
                 - testing/run-with-timeout.ps1
                 - testing/load-dll.ps1
                 - testing/pe_reloc_check.ml
