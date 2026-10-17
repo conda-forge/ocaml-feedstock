@@ -2,9 +2,11 @@
 # Cross-compiler activation for ocaml_$target (standalone, or alongside native ocaml_$build)
 #
 # Provides functions to swap between native and cross-compiler toolchains:
-#   ocaml_use_cross   - switch CONDA_OCAML_* to cross-compiler tools and put
-#                       the bare-name launchers (ocamlc, ocamlopt, ...) on PATH
-#   ocaml_use_native  - restore CONDA_OCAML_* to native tools and drop them
+#   ocaml_use_cross   - switch CONDA_OCAML_* to cross-compiler tools, put the
+#                       bare-name launchers (ocamlc, ocamlopt, ...) first on PATH
+#                       and the cross library first on OCAMLPATH
+#   ocaml_use_native  - restore CONDA_OCAML_* to native tools and drop both
+#   ocaml_cross_check - warn when cross mode is on but ocamlopt is not the launcher
 #
 # The env switches to cross mode on its own when it cross-compiles
 # (CONDA_BUILD_CROSS_COMPILATION=1, or build_platform != target_platform).
@@ -61,6 +63,25 @@ _ocaml_cross_path_drop() {
   export PATH="${_p%:}"
 }
 
+# Remove every copy of the cross library dir from OCAMLPATH. An OCAMLPATH that
+# ocaml_use_cross created from unset is unset again once it is empty.
+_ocaml_cross_ocamlpath_drop() {
+  [[ -n "${OCAMLPATH+x}" ]] || return 0
+  local _lib="${_OCAML_CROSS_PREFIX}/lib/ocaml"
+  local _p=":${OCAMLPATH}:"
+  while [[ "${_p}" == *":${_lib}:"* ]]; do
+    _p="${_p//":${_lib}:"/:}"
+  done
+  _p="${_p#:}"
+  _p="${_p%:}"
+  if [[ -z "${_p}" && "${_OCAML_CROSS_OCAMLPATH_UNSET:-}" == "1" ]]; then
+    unset OCAMLPATH
+  else
+    export OCAMLPATH="${_p}"
+  fi
+  unset _OCAML_CROSS_OCAMLPATH_UNSET
+}
+
 # Switch to cross-compiler toolchain
 # Uses indirect expansion (${!var}) since bash doesn't support nested ${VAR_${OTHER}}
 ocaml_use_cross() {
@@ -77,6 +98,11 @@ ocaml_use_cross() {
   export OCAML_PREFIX="${_OCAML_CROSS_PREFIX}"
   _ocaml_cross_path_drop
   export PATH="${_OCAML_CROSS_SHIMS}${PATH:+:${PATH}}"
+  # The cross library goes first so findlib/dune resolve unix, compiler-libs
+  # etc. from it, not from a native ocaml in the same env
+  _ocaml_cross_ocamlpath_drop
+  [[ -n "${OCAMLPATH+x}" ]] || export _OCAML_CROSS_OCAMLPATH_UNSET=1
+  export OCAMLPATH="${_OCAML_CROSS_PREFIX}/lib/ocaml${OCAMLPATH:+:${OCAMLPATH}}"
   export OCAML_CROSS_MODE="cross"
 }
 
@@ -102,13 +128,29 @@ ocaml_use_native() {
     unset OCAML_PREFIX
   fi
   _ocaml_cross_path_drop
+  _ocaml_cross_ocamlpath_drop
   export OCAML_CROSS_MODE="native"
+}
+
+# Warn on stderr when cross mode is on but ocamlopt resolves elsewhere, e.g.
+# after a later PATH=$BUILD_PREFIX/bin:$PATH; ocaml_use_cross moves the
+# launcher dir back to the front
+ocaml_cross_check() {
+  [[ "${OCAML_CROSS_MODE:-}" == "cross" ]] || return 0
+  local _opt
+  _opt=$(command -v ocamlopt 2>/dev/null || true)
+  if [[ "${_opt}" != "${_OCAML_CROSS_SHIMS}/ocamlopt" ]]; then
+    echo "WARNING: cross mode is on but ocamlopt resolves to '${_opt:-<none>}', not ${_OCAML_CROSS_SHIMS}/ocamlopt; run ocaml_use_cross" >&2
+  fi
+  return 0
 }
 
 # Export functions so they're available in subshells and test scripts
 export -f _ocaml_cross_path_drop
+export -f _ocaml_cross_ocamlpath_drop
 export -f ocaml_use_cross
 export -f ocaml_use_native
+export -f ocaml_cross_check
 
 # Export cross-compiler info for downstream scripts
 export OCAML_CROSS_TARGET="${_OCAML_CROSS_TARGET}"
