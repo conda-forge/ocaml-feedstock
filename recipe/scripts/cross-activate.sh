@@ -31,6 +31,17 @@ if [ "${OCAML_CROSS_MODE:-}" != "cross" ]; then
   export OCAML_CROSS_MODE="native"
 fi
 
+# During a conda build the host prefix libraries go first on OCAMLPATH
+if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ]; then
+  case ":${OCAMLPATH:-}:" in
+    *":${PREFIX}/lib/ocaml:"*) ;;
+    *)
+      export _OCAML_OCAMLPATH_CONDA_BACKUP="${OCAMLPATH:-}"
+      export OCAMLPATH="${PREFIX}/lib/ocaml${OCAMLPATH:+:${OCAMLPATH}}"
+      ;;
+  esac
+fi
+
 # Cross-compiler defaults (replaced at install time)
 export _OCAML_CROSS_CC="@CROSS_CC@"
 export _OCAML_CROSS_AS="@CROSS_AS@"

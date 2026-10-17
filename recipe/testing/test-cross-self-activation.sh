@@ -90,7 +90,24 @@ else
 fi
 rm -rf "${WORK}"
 
-echo "Test 6: deactivation removes the launcher dir"
+echo "Test 6: the ocaml launcher runs the cross toplevel without a native ocaml"
+if [[ -x "${SHIMS}/ocaml" ]]; then
+  WORK=$(mktemp -d)
+  echo 'let () = print_string "shim-ok"' > "${WORK}/shim_ok.ml"
+  _out=$(cd "${WORK}" && PATH="${SHIMS}:/usr/bin:/bin" "${SHIMS}/ocaml" shim_ok.ml 2>&1 || true)
+  if [[ "${_out}" == "shim-ok" ]]; then
+    echo "  PASS: ${SHIMS}/ocaml ran a script"
+  else
+    echo "  FAIL: ${SHIMS}/ocaml printed '${_out}' (expected 'shim-ok')"
+    ERRORS=$((ERRORS + 1))
+  fi
+  rm -rf "${WORK}"
+else
+  echo "  FAIL: ${SHIMS}/ocaml missing or not executable"
+  ERRORS=$((ERRORS + 1))
+fi
+
+echo "Test 7: deactivation removes the launcher dir"
 # shellcheck disable=SC1090
 source "${DEACTIVATE}"
 if [[ "$(shims_on_path)" == "0" && -z "${OCAML_CROSS_MODE:-}" ]]; then

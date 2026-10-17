@@ -1499,6 +1499,31 @@ TOOLWRAPPER
         sed -i 's|^MKMAINDLL=shared-libs-not-available|MKMAINDLL=$(CC) -shared|' "Makefile.config"
         echo '  [s390x-sharedlib-fix] MKMAINDLL -> $(CC) -shared'
       fi
+      # configure derives native dynlink from the same false negative; the
+      # compiler bakes native_dynlink and supports_shared_libraries from
+      # utils/config.generated.ml, patched here before the compiler is built.
+      # The same false negative (enable_shared=no) skips configure's whole linux
+      # shared-lib branch, leaving SHAREDLIB_CFLAGS empty.
+      if grep -q '^SHAREDLIB_CFLAGS=$' "Makefile.config"; then
+        sed -i "s|^SHAREDLIB_CFLAGS=$|SHAREDLIB_CFLAGS=-fPIC|" "Makefile.config"
+        echo "  [s390x-sharedlib-fix] SHAREDLIB_CFLAGS -> -fPIC"
+      fi
+      if grep -q '^NATDYNLINK=false' "Makefile.config"; then
+        sed -i "s|^NATDYNLINK=false|NATDYNLINK=true|" "Makefile.config"
+        echo "  [s390x-sharedlib-fix] NATDYNLINK -> true"
+      fi
+      if grep -q '^NATDYNLINKOPTS=$' "Makefile.config"; then
+        sed -i "s|^NATDYNLINKOPTS=$|NATDYNLINKOPTS=-Wl,-E|" "Makefile.config"
+        echo "  [s390x-sharedlib-fix] NATDYNLINKOPTS -> -Wl,-E"
+      fi
+      if grep -q '^let native_dynlink = false' "utils/config.generated.ml"; then
+        sed -i "s|^let native_dynlink = false|let native_dynlink = true|" "utils/config.generated.ml"
+        echo "  [s390x-sharedlib-fix] native_dynlink -> true (config.generated.ml)"
+      fi
+      if grep -q '^let supports_shared_libraries = false' "utils/config.generated.ml"; then
+        sed -i "s|^let supports_shared_libraries = false|let supports_shared_libraries = true|" "utils/config.generated.ml"
+        echo "  [s390x-sharedlib-fix] supports_shared_libraries -> true (config.generated.ml)"
+      fi
     fi
 
     echo "  [5/7] Building and installing cross-compiler..."
@@ -1623,8 +1648,9 @@ EOF
       # bytecode versions (keep only .opt)
       rm -f ocamlc.byte ocamldep.byte ocamllex.byte ocamlobjinfo.byte ocamlopt.byte
 
-      # toplevel and REPL
-      rm -f ocaml
+      # The bytecode toplevel stays in a packaged cross-compiler (the ocaml
+      # launcher runs it with the kept ocamlrun).
+      [[ "${BUILD_MODE}" == "cross-compiler" ]] || rm -f ocaml
 
       # Debug and instrumented interpreters. A packaged cross-compiler keeps the
       # BUILD-arch ocamlrun to run its own bytecode tools (ocamlmklib, expunge).
@@ -2582,6 +2608,11 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     printf '#!/bin/sh\nexec "$(dirname "$0")/../../../../bin/%s-%s" "$@"\n' "${_CROSS_TARGET}" "${tool}" > "${_CROSS_SHIMS}/${tool}"
     chmod +x "${_CROSS_SHIMS}/${tool}"
   done
+  # dune looks for `ocaml` beside `ocamlc` to evaluate OCaml-syntax dune files;
+  # the cross tree's own bytecode toplevel runs on its BUILD-arch ocamlrun
+  # (the file's #! line is a build-time path).
+  printf '#!/bin/sh\n_t="$(cd "$(dirname "$0")/.." && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$_t/bin/ocaml" "$@"\n' > "${_CROSS_SHIMS}/ocaml"
+  chmod +x "${_CROSS_SHIMS}/ocaml"
 
   for CHANGE in "activate" "deactivate"; do
     mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"

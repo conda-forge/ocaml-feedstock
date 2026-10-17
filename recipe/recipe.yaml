@@ -1,5 +1,5 @@
 context:
-  build_number: 16
+  build_number: 17
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -134,28 +134,28 @@ source:
         then: patches/fix-clang-mingw64-setjmp.patch
   - if: not unix
     then:
-      url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
-      sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
-      target_directory: flexdll
-      patches:
-        # Adds the mingw64arm chain and build target to flexdll.
-        - if: cross_target_platform_ == "win-arm64"
-          then: patches/flexdll-add-mingw64arm-support.patch
-        # Modern windres rejects the FLEXDLL_FULL_VERSION macro expansion in
-        # version.rc VALUE entries.
-        - patches/flexdll-version-rc-windres-syntax-fix.patch
-        # OCaml's root Makefile expects .obj aliases for the mingw64 chain;
-        # flexdll only produces .o. Its context lines come from the mingw64arm
-        # patch above, so it carries the same selector.
-        - if: cross_target_platform_ == "win-arm64"
-          then: patches/flexdll-makefile-obj-extension-for-mingw64.patch
-        # Guards flexdll's parse-time ocamlopt -version / -where shell probes
-        # so they can be supplied via env.
-        - patches/flexdll-makefile-skip-ocamlopt-probes.patch
-        # flexlink emits ARM64 section relocs in descending order, which
-        # lld-link turns into a stray out-of-order .reloc block.
-        - if: cross_target_platform_ == "win-arm64"
-          then: patches/flexdll-arm64-sort-coff-relocs.patch
+      - url: https://github.com/ocaml/flexdll/archive/refs/tags/${{ flexdll_version }}.tar.gz
+        sha256: b7c6a92286f1f3065324d51083dcb16eec436a4e6e3b8df7cf836b6d7a8b9491
+        target_directory: flexdll
+        patches:
+          # Adds the mingw64arm chain and build target to flexdll.
+          - if: cross_target_platform_ == "win-arm64"
+            then: patches/flexdll-add-mingw64arm-support.patch
+          # Modern windres rejects the FLEXDLL_FULL_VERSION macro expansion in
+          # version.rc VALUE entries.
+          - patches/flexdll-version-rc-windres-syntax-fix.patch
+          # OCaml's root Makefile expects .obj aliases for the mingw64 chain;
+          # flexdll only produces .o. Its context lines come from the mingw64arm
+          # patch above, so it carries the same selector.
+          - if: cross_target_platform_ == "win-arm64"
+            then: patches/flexdll-makefile-obj-extension-for-mingw64.patch
+          # Guards flexdll's parse-time ocamlopt -version / -where shell probes
+          # so they can be supplied via env.
+          - patches/flexdll-makefile-skip-ocamlopt-probes.patch
+          # flexlink emits ARM64 section relocs in descending order, which
+          # lld-link turns into a stray out-of-order .reloc block.
+          - if: cross_target_platform_ == "win-arm64"
+            then: patches/flexdll-arm64-sort-coff-relocs.patch
   - if: not unix and c_compiler == "vs2022"
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
@@ -634,6 +634,7 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamldep
@@ -642,6 +643,7 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlobjinfo
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt.opt
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocaml
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a

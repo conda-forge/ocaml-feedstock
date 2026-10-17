@@ -6,6 +6,15 @@ if type ocaml_use_native >/dev/null 2>&1; then
   ocaml_use_native
 fi
 
+if [ "${_OCAML_OCAMLPATH_CONDA_BACKUP+x}" = "x" ]; then
+  if [ -n "${_OCAML_OCAMLPATH_CONDA_BACKUP}" ]; then
+    export OCAMLPATH="${_OCAML_OCAMLPATH_CONDA_BACKUP}"
+  else
+    unset OCAMLPATH
+  fi
+  unset _OCAML_OCAMLPATH_CONDA_BACKUP
+fi
+
 unset -f ocaml_use_cross 2>/dev/null || true
 unset -f ocaml_use_native 2>/dev/null || true
 unset -f _ocaml_cross_path_drop 2>/dev/null || true
