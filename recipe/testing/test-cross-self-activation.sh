@@ -135,6 +135,17 @@ else
   ERRORS=$((ERRORS + 1))
 fi
 
+echo "Test 6b: the lexer/parser generator launchers run from the shims dir"
+for _g in ocamllex ocamlyacc; do
+  _found=$(PATH="${SHIMS}:/usr/bin:/bin" command -v "${_g}" || true)
+  if [[ "${_found}" == "${SHIMS}/${_g}" ]] && PATH="${SHIMS}:/usr/bin:/bin" "${_g}" -version >/dev/null 2>&1; then
+    echo "  PASS: ${_g} -version via ${_found}"
+  else
+    echo "  FAIL: ${_g} -> '${_found:-<not found>}' or -version failed"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+
 echo "Test 7: the cross library is first on OCAMLPATH"
 if [[ "${OCAMLPATH:-}" == "${CROSS_LIB}" || "${OCAMLPATH:-}" == "${CROSS_LIB}:"* ]] && \
    [[ "$(cross_lib_on_ocamlpath)" == "1" ]]; then

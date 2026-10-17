@@ -644,6 +644,8 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocaml
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamllex
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlyacc
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a

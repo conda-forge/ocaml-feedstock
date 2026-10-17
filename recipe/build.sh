@@ -2322,16 +2322,45 @@ EOF
     # Bytecode linked by the cross ocamlc runs on the BUILD machine under the
     # cross tree's ocamlrun, which loads stubs via the ld.conf above: ship the
     # BUILD-arch stubs of the native ocaml in BUILD_PREFIX, not the target-arch
-    # ones from make install.
+    # ones from make install. The *nat.so natdynlink stubs stay target-arch.
     _native_stublibs="${BUILD_PREFIX}/lib/ocaml/stublibs"
-    if ! compgen -G "${_native_stublibs}/dll*.so" >/dev/null; then
+    _byt_stubs=()
+    for _s in "${_native_stublibs}"/dll*.so; do
+      [[ -e "${_s}" && "${_s}" != *nat.so ]] && _byt_stubs+=("${_s}")
+    done
+    if [[ ${#_byt_stubs[@]} -eq 0 ]]; then
       echo "ERROR: no BUILD-arch bytecode stubs in ${_native_stublibs}"
       exit 1
     fi
     mkdir -p "${cross_dir}lib/ocaml/stublibs"
-    rm -f "${cross_dir}lib/ocaml/stublibs/"dll*.so
-    cp -L "${_native_stublibs}/"dll*.so "${cross_dir}lib/ocaml/stublibs/"
-    echo "    Stubs: $(cd "${cross_dir}lib/ocaml/stublibs" && echo dll*.so)"
+    for _s in "${_byt_stubs[@]}"; do
+      rm -f "${cross_dir}lib/ocaml/stublibs/$(basename "${_s}")"
+    done
+    cp -L "${_byt_stubs[@]}" "${cross_dir}lib/ocaml/stublibs/"
+    echo "    Stubs: ${_byt_stubs[*]##*/}"
+
+    # ocamllex from the cross build is a TARGET-arch executable; dune runs it
+    # on the BUILD machine. Ship the build-arch one (ocamlyacc already is).
+    _native_ocamllex="${BUILD_PREFIX}/bin/ocamllex.opt"
+    [[ -x "${_native_ocamllex}" ]] || _native_ocamllex="${BUILD_PREFIX}/bin/ocamllex"
+    if [[ ! -x "${_native_ocamllex}" ]] || [[ "$(head -c 2 "${_native_ocamllex}")" == "#!" ]]; then
+      echo "ERROR: ${_native_ocamllex} is missing or not a binary"
+      exit 1
+    fi
+    rm -f "${cross_dir}bin/ocamllex" "${cross_dir}bin/ocamllex.opt"
+    cp -L "${_native_ocamllex}" "${cross_dir}bin/ocamllex.opt"
+    cp -L "${_native_ocamllex}" "${cross_dir}bin/ocamllex"
+    chmod 755 "${cross_dir}bin/ocamllex" "${cross_dir}bin/ocamllex.opt"
+    if [[ "${target_platform}" == osx-* ]]; then
+      for _t in ocamllex ocamllex.opt; do
+        if otool -L "${cross_dir}bin/${_t}" | grep -q "@rpath/libzstd" && \
+           ! otool -l "${cross_dir}bin/${_t}" | grep -A2 LC_RPATH | grep -qF "@loader_path/../../../../lib"; then
+          install_name_tool -add_rpath "@loader_path/../../../../lib" "${cross_dir}bin/${_t}"
+          codesign -f -s - "${cross_dir}bin/${_t}" 2>/dev/null || true
+        fi
+      done
+    fi
+    echo "    Lexer: ${cross_dir}bin/ocamllex from ${_native_ocamllex}"
 
     # The ocamlrun from make install is built against the --target configured
     # runtime headers, not the ones these stubs were compiled with; loading them
@@ -2648,6 +2677,12 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   # (the file's #! line is a build-time path).
   printf '#!/bin/sh\n_t="$(cd "$(dirname "$0")/.." && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$_t/bin/ocaml" "$@"\n' > "${_CROSS_SHIMS}/ocaml"
   chmod +x "${_CROSS_SHIMS}/ocaml"
+  # dune's boot looks for the generators beside the ocamlc it resolved.
+  for tool in ocamllex ocamlyacc; do
+    [[ -x "${PREFIX}/lib/ocaml-cross-compilers/${_CROSS_TARGET}/bin/${tool}" ]] || { echo "ERROR: no ${tool} in the cross tree"; exit 1; }
+    printf '#!/bin/sh\n_t="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"\nexec "$_t/bin/%s" "$@"\n' "${tool}" > "${_CROSS_SHIMS}/${tool}"
+    chmod +x "${_CROSS_SHIMS}/${tool}"
+  done
 
   for CHANGE in "activate" "deactivate"; do
     mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
