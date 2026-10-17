@@ -2665,7 +2665,7 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   # dune looks for `ocaml` beside `ocamlc` to evaluate OCaml-syntax dune files;
   # the cross tree's own bytecode toplevel runs on its BUILD-arch ocamlrun
   # (the file's #! line is a build-time path).
-  printf '#!/bin/sh\n_t="$(cd "$(dirname "$0")/.." && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$_t/bin/ocaml" "$@"\n' > "${_CROSS_SHIMS}/ocaml"
+  printf '#!/bin/sh\n_t="$(CDPATH= cd -- "$(dirname -- "$0")/.." >/dev/null && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$_t/bin/ocaml" "$@"\n' > "${_CROSS_SHIMS}/ocaml"
   chmod +x "${_CROSS_SHIMS}/ocaml"
 
   for CHANGE in "activate" "deactivate"; do

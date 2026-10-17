@@ -777,6 +777,17 @@ outputs:
                   then: ${{ qemu_pkg }}
 
           # ----------------------------------------------------------------------
+          # NATIVE: OCAMLPATH prepend and restore in the activation scripts
+          # ----------------------------------------------------------------------
+          - script:
+              - if: is_native and unix
+                then: cd testing && bash ./test-ocamlpath-prepend.sh
+                else: echo "Skipping OCAMLPATH prepend tests"
+            files:
+              recipe:
+                - testing/test-ocamlpath-prepend.sh
+
+          # ----------------------------------------------------------------------
           # CROSS-COMPILER: Activation script tests (ocaml_use_cross/ocaml_use_native)
           # ----------------------------------------------------------------------
           - script:

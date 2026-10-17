@@ -37,6 +37,12 @@ if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${C
     *":${PREFIX}/lib/ocaml:"*) ;;
     *)
       export _OCAML_OCAMLPATH_CONDA_BACKUP="${OCAMLPATH:-}"
+      # Distinguish unset from set-but-empty for the restore
+      if [ -z "${OCAMLPATH+x}" ]; then
+        export _OCAML_OCAMLPATH_CONDA_WAS_UNSET=1
+      else
+        unset _OCAML_OCAMLPATH_CONDA_WAS_UNSET
+      fi
       export OCAMLPATH="${PREFIX}/lib/ocaml${OCAMLPATH:+:${OCAMLPATH}}"
       ;;
   esac
