@@ -137,6 +137,39 @@ echo   staging prefixes: none
 echo.
 
 REM =============================================================================
+REM CONFIG IS OPAQUE TO OTHER COMPILER-LIBS UNITS
+REM =============================================================================
+REM Config bakes per-build paths; units importing its implementation with a CRC
+REM would change CRC on every rebuild. ocamlobjinfo prints an all-dash CRC for
+REM an opaque import, so clflags.cmx must list Config with dashes. Bytecode-only
+REM builds ship no .cmx.
+echo Checking Config is imported without an implementation CRC...
+set "CLFLAGS_CMX=%PREFIX%\Library\lib\ocaml\compiler-libs\clflags.cmx"
+if not exist "%CLFLAGS_CMX%" (
+    if exist "%PREFIX%\Library\bin\ocamlopt.exe" (
+        echo ERROR: %CLFLAGS_CMX% not found
+        exit /b 1
+    )
+    echo   clflags.cmx: not shipped ^(bytecode-only^), skipped
+    goto :config_done
+)
+set "OBJINFO_OUT=%TEMP%\ocaml-clflags-objinfo.txt"
+ocamlobjinfo "%CLFLAGS_CMX%" > "%OBJINFO_OUT%"
+if errorlevel 1 (
+    echo ERROR: ocamlobjinfo failed on %CLFLAGS_CMX%
+    exit /b 1
+)
+grep -qE "^[[:space:]]+-+[[:space:]]+Config[[:space:]]*$" "%OBJINFO_OUT%"
+if errorlevel 1 (
+    echo ERROR: clflags.cmx does not import Config without a CRC:
+    grep -E "[[:space:]]Config[[:space:]]*$" "%OBJINFO_OUT%"
+    exit /b 1
+)
+echo   clflags.cmx: Config imported without CRC
+:config_done
+echo.
+
+REM =============================================================================
 REM FINAL SUMMARY
 REM =============================================================================
 echo === All package integrity tests passed ===

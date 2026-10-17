@@ -1,5 +1,5 @@
 context:
-  build_number: 14
+  build_number: 15
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -11,6 +11,8 @@ context:
   xt: ${{ "" if unix else ".exe" }}
   # Indirection so the autotick bot's compiler-stub regex only rewrites this line
   cc: ${{ c_compiler }}
+  # True on the win-64 vs2022 track
+  is_vs2022: ${{ not unix and c_compiler == "vs2022" }}
 
   # ===========================================================================
   # GCC-style derived values (not variant keys - keeps filenames clean)
@@ -176,6 +178,9 @@ outputs:
       skip: cross_target_platform_ != target_platform
       noarch: generic
       script: echo "OCaml metapackage"
+      # Down-prioritize the vs2022 track so the solver prefers gcc on win-64
+      variant:
+        down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
     requirements:
       run:
         - ${{ pin_subpackage("ocaml_" ~ cross_target_platform_, exact=True) }}
@@ -220,6 +225,9 @@ outputs:
           # under qemu-user. Empty on lanes where is_qemuable is false, so inert there.
           OCAML_QEMU: "${{ ('qemu-execve-' ~ qemu_arch) if is_qemuable else '' }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
+      # Down-prioritize the vs2022 track so the solver prefers gcc on win-64
+      variant:
+        down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
       dynamic_linking:
         missing_dso_allowlist:
           - if: is_cross_compiler and aarch64
@@ -323,7 +331,7 @@ outputs:
               then:
                 - ocaml_${{ build_platform }} >=5.4
               else:
-                - ocaml_${{ build_platform }} ${{ version }}.*
+                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
             - if: linux
               then:
                 - ${{ cc }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
@@ -351,10 +359,10 @@ outputs:
                   then:
                     - ocaml_${{ target_platform }} >=5.4
               else:
-                - ocaml_${{ build_platform }} ${{ version }}.*
+                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
                 - if: not bootstrap_in_lane
                   then:
-                    - ocaml_${{ target_platform }} ${{ version }}.*
+                    - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
 
         # --- non-unix-specific ---
         - if: not unix
@@ -383,19 +391,26 @@ outputs:
         # metapackages (not _impl) because _impl doesn't put tools in PATH.
         - if: is_standard_layout
           then:
+            # Open floors, not compiler()'s exact major, so an env with a newer
+            # compiler can still take this build.
             - if: not unix and c_compiler == "gcc"
               then:
-                - ${{ compiler("m2w64_c") }}
+                # The floor matches the libgcc major (15) this build links against
+                - gcc_${{ target_platform }} >=${{ m2w64_c_compiler_version }}
               else:
-                # Linux takes a floor, not compiler("c")'s exact major: the s390x
-                # toolchain stops at gcc 14 and must co-install with this package.
+                # The s390x toolchain stops at gcc 14 and must co-install with
+                # this package.
                 - if: linux
                   then:
                     - ${{ cc }}_${{ target_platform }} >=14
-                  else:
-                    - if: not (not unix and c_compiler == "vs2022")
-                      then:
-                        - ${{ compiler("c") }}
+                - if: osx
+                  then:
+                    - ${{ cc }}_${{ target_platform }} >=${{ c_compiler_version }}
+                # zig has no c_compiler_version variant; the floor matches the
+                # zig the build pins.
+                - if: not unix and c_compiler == "zig"
+                  then:
+                    - zig_${{ target_platform }} >=0.17
             - if: osx
               then:
                 - lld >=${{ c_compiler_version }}
@@ -789,7 +804,7 @@ outputs:
           run:
             - if: is_cross_compiler
               then:
-                - ocaml_${{ build_platform }} ${{ version }}.*
+                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 }}"]
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
@@ -802,6 +817,9 @@ outputs:
       string: ${{ cc ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       script: echo "Toolchain meta-package"
+      # Down-prioritize the vs2022 track so the solver prefers gcc on win-64
+      variant:
+        down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
     requirements:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
