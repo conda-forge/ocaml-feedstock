@@ -59,8 +59,8 @@ fi
 echo "Test 6: ocaml_use_cross swaps environment"
 NATIVE_CC="${CONDA_OCAML_CC:-}"
 ocaml_use_cross
-if [[ "${OCAML_CROSS_MODE}" != "cross" ]]; then
-  echo "  FAIL: OCAML_CROSS_MODE='${OCAML_CROSS_MODE}' after ocaml_use_cross (expected 'cross')"
+if [[ "${OCAML_CROSS_MODE:-}" != "cross" ]]; then
+  echo "  FAIL: OCAML_CROSS_MODE='${OCAML_CROSS_MODE:-}' after ocaml_use_cross (expected 'cross')"
   ERRORS=$((ERRORS + 1))
 else
   echo "  PASS: OCAML_CROSS_MODE=cross"
@@ -83,8 +83,8 @@ fi
 # Test 8: Swap back to native and verify
 echo "Test 8: ocaml_use_native restores environment"
 ocaml_use_native
-if [[ "${OCAML_CROSS_MODE}" != "native" ]]; then
-  echo "  FAIL: OCAML_CROSS_MODE='${OCAML_CROSS_MODE}' after ocaml_use_native (expected 'native')"
+if [[ "${OCAML_CROSS_MODE:-}" != "native" ]]; then
+  echo "  FAIL: OCAML_CROSS_MODE='${OCAML_CROSS_MODE:-}' after ocaml_use_native (expected 'native')"
   ERRORS=$((ERRORS + 1))
 else
   echo "  PASS: OCAML_CROSS_MODE=native"
@@ -93,7 +93,7 @@ fi
 # Test 9: CONDA_OCAML_CC restored to original
 echo "Test 9: CONDA_OCAML_CC restored"
 if [[ "${CONDA_OCAML_CC:-}" == "${NATIVE_CC}" ]]; then
-  echo "  PASS: CONDA_OCAML_CC=${CONDA_OCAML_CC} (restored)"
+  echo "  PASS: CONDA_OCAML_CC=${CONDA_OCAML_CC:-} (restored)"
 else
   echo "  FAIL: CONDA_OCAML_CC='${CONDA_OCAML_CC:-<unset>}' (expected '${NATIVE_CC}')"
   ERRORS=$((ERRORS + 1))
