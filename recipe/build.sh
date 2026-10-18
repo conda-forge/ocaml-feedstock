@@ -2366,9 +2366,9 @@ EOF
 
     # Bytecode linked by the cross ocamlc runs on the BUILD machine under the
     # cross tree's ocamlrun, which loads stubs via the ld.conf above: ship the
-    # BUILD-arch stubs of the native ocaml in BUILD_PREFIX, not the target-arch
+    # BUILD-arch stubs of the native ocaml in NATIVE_PREFIX, not the target-arch
     # ones from make install. The *nat.so natdynlink stubs stay target-arch.
-    _native_stublibs="${BUILD_PREFIX}/lib/ocaml/stublibs"
+    _native_stublibs="${NATIVE_PREFIX}/lib/ocaml/stublibs"
     _byt_stubs=()
     for _s in "${_native_stublibs}"/dll*.so; do
       [[ -e "${_s}" && "${_s}" != *nat.so ]] && _byt_stubs+=("${_s}")
@@ -2386,8 +2386,8 @@ EOF
 
     # ocamllex from the cross build is a TARGET-arch executable; dune runs it
     # on the BUILD machine. Ship the build-arch one (ocamlyacc already is).
-    _native_ocamllex="${BUILD_PREFIX}/bin/ocamllex.opt"
-    [[ -x "${_native_ocamllex}" ]] || _native_ocamllex="${BUILD_PREFIX}/bin/ocamllex"
+    _native_ocamllex="${NATIVE_PREFIX}/bin/ocamllex.opt"
+    [[ -x "${_native_ocamllex}" ]] || _native_ocamllex="${NATIVE_PREFIX}/bin/ocamllex"
     if [[ ! -x "${_native_ocamllex}" ]] || [[ "$(head -c 2 "${_native_ocamllex}")" == "#!" ]]; then
       echo "ERROR: ${_native_ocamllex} is missing or not a binary"
       exit 1
@@ -2410,7 +2410,7 @@ EOF
     # The ocamlrun from make install is built against the --target configured
     # runtime headers, not the ones these stubs were compiled with; loading them
     # into it crashes. Ship the native ocamlrun the stubs belong to instead.
-    _native_ocamlrun="${BUILD_PREFIX}/bin/ocamlrun"
+    _native_ocamlrun="${NATIVE_PREFIX}/bin/ocamlrun"
     if [[ ! -x "${_native_ocamlrun}" ]] || [[ "$(head -c 2 "${_native_ocamlrun}")" == "#!" ]]; then
       echo "ERROR: ${_native_ocamlrun} is missing or not a binary"
       exit 1
