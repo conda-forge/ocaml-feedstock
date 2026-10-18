@@ -12,6 +12,12 @@
 # Environment variables (must be set by caller):
 #   CROSS_CC  - Target C compiler (e.g., aarch64-...-gcc)
 #   CROSS_AR  - Target archiver (e.g., aarch64-...-ar)
+# With -suffixed (runtime-id suffixing), also required:
+#   CROSS_MKLIB_TARGET     - TARGET of the cross compiler (Makefile.config)
+#   CROSS_MKLIB_RUNTIME_ID - BYTECODE_RUNTIME_ID (Makefile.config)
+# The shared stub is then dll<name>-<target>-<id>.so. The .cma step is
+# delegated to the real ocamlmklib, which given -suffixed records the stubs
+# with -dllib-suffixed.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -44,6 +50,9 @@ _build_c_libs() {
   local _name="$1"
   local dll_name="dll${_name}.so"
   local lib_name="lib${_name}.a"
+  if [[ -n "$suffixed" ]]; then
+    dll_name="dll${_name}-${CROSS_MKLIB_TARGET}-${CROSS_MKLIB_RUNTIME_ID}.so"
+  fi
 
   local cmd=("${CROSS_CC}" -shared ${MACOS_LINK_FLAGS[@]+"${MACOS_LINK_FLAGS[@]}"} -o "$dll_name" "${c_objs[@]}" ${ld_opts[@]+"${ld_opts[@]}"} ${c_libs[@]+"${c_libs[@]}"})
   [[ -n "$verbose" ]] && echo "+ ${cmd[*]}"
@@ -63,6 +72,7 @@ ocaml_objs=()
 ld_opts=()
 c_libs=()
 verbose=""
+suffixed=""
 ocamlc_cmd=""
 ocamlopt_cmd=""
 other_args=()
@@ -91,6 +101,16 @@ while [[ $# -gt 0 ]]; do
       ;;
     -v|-verbose)
       verbose=1
+      other_args+=("$1")
+      shift
+      ;;
+    -suffixed)
+      suffixed=1
+      other_args+=("$1")
+      shift
+      ;;
+    -no-suffixed)
+      suffixed=""
       other_args+=("$1")
       shift
       ;;
@@ -128,6 +148,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "$suffixed" ]]; then
+  if [[ -z "${CROSS_MKLIB_TARGET:-}" || -z "${CROSS_MKLIB_RUNTIME_ID:-}" ]]; then
+    echo "[cross-ocamlmklib] ERROR: -suffixed needs CROSS_MKLIB_TARGET and CROSS_MKLIB_RUNTIME_ID" >&2
+    exit 1
+  fi
+fi
 
 # If we have OCaml files, we need the native ocamlmklib for the OCaml archive creation
 # But we still need to intercept C stub library creation

@@ -69,6 +69,11 @@ COMPRESSED_MARSHALING_OVERRIDE='COMPRESSED_MARSHALING_FLAGS=-cclib -lcomprmarsh 
 CONFIG_ARGS=(
   --enable-shared
   --disable-static
+  # Relocatable layout, matching opam's 5.5 compiler.
+  --with-relative-libdir
+  --enable-runtime-search
+  --enable-runtime-search-target=fallback
+  --with-additional-stublibsdir
   --enable-installing-source-artifacts
   --enable-installing-bytecode-programs
   PKG_CONFIG=false
@@ -424,19 +429,19 @@ EOF
     CC="${NATIVE_CC}" "${RECIPE_DIR}/building/build-wrappers.sh" "${BUILD_PREFIX}/Library/bin"
   fi
 
-  # TARGET_BINDIR/LIBDIR tell OCaml where binaries and libraries live at runtime
-  # on the target; conda-forge relocates paths containing ${PREFIX}, not _native ones.
+  # TARGET_BINDIR tells OCaml where binaries live at runtime on the target;
+  # conda-forge relocates paths containing ${PREFIX}, not _native ones.
+  # TARGET_LIBDIR must stay unset: --with-relative-libdir derives it.
   if is_unix; then
     # An in-lane native stage overrides TARGET_BINDIR to its own staging bin.
     export TARGET_BINDIR="${TARGET_BINDIR:-${PREFIX}/bin}"
-    export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
   else
     # Windows installs under ${PREFIX}/Library, in drive form (D:/...) because
     # the paths are compiled into binaries that msys does not translate.
     _win_prefix=$(cygpath -m "${PREFIX}" 2>/dev/null || echo "${PREFIX}" | sed 's#\\#/#g; s#^/\([a-zA-Z]\)/#\1:/#')
     export TARGET_BINDIR="${_win_prefix}/Library/bin"
-    export TARGET_LIBDIR="${_win_prefix}/Library/lib/ocaml"
   fi
+  unset TARGET_LIBDIR
 
   echo ""
   echo "  [1/4] Configuring native compiler"
@@ -479,7 +484,6 @@ EOF
     # Native mode only: the in-lane native of the cross modes never ships and
     # is reused in place as a build tool, so it keeps its own staging paths.
     if [[ "${BUILD_MODE}" == "native" ]]; then
-      sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
       sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
     fi
 
@@ -516,9 +520,8 @@ EOF
   fi
 
   if ! is_unix; then
-    # configure ran with the staging prefix; bake the final install paths
+    # configure ran with the staging prefix; bake the final install bindir
     # instead (both toolchains), as on unix.
-    sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
     sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
   fi
 
@@ -557,7 +560,6 @@ EOF
     # non-unix: fix flexlink toolchain detection; the chain follows the target architecture
     local flexdll_chain=mingw64
     [[ "${target_platform}" == "win-arm64" ]] && flexdll_chain=mingw64arm
-    sed -i "s/^TOOLCHAIN.*/TOOLCHAIN=${flexdll_chain}/" "$config_file"
     sed -i "s/^FLEXDLL_CHAIN.*/FLEXDLL_CHAIN=${flexdll_chain}/" "$config_file"
 
     # $(addprefix -link ,$(OC_LDFLAGS)) generates garbage when empty; guard it
@@ -1085,7 +1087,8 @@ C_EOF
     # once make returns; bound the call with timeout so a hang is diagnosable.
     _world_timeout="${OCAML_WORLD_TIMEOUT_S:-1500}"
     _world_start=$(date +%s)
-    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"; then
+    # header.c links with -nostdlib; ucrtbase (the CRT this lane links) provides wcslen. V=1 prints the full MKEXE line.
+    if run_logged "world" timeout --preserve-status -k 120 "${_world_timeout}s" "${MAKE[@]}" world "${COMPRESSED_MARSHALING_OVERRIDE}" HEADERLIBS="-lkernel32 -lntdll -lucrtbase" V=1 -j"${CPU_COUNT}"; then
       :
     else
       _world_rc=$?
@@ -1150,9 +1153,6 @@ C_EOF
   echo "  - Cleaning hardcoded -L paths from installed Makefile.config..."
   local installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   clean_makefile_config "${installed_config}" "${PREFIX}"
-
-  # runtime-launch-info is cleaned after transfer_to_prefix; cleaning here would
-  # corrupt it when this build is an intermediate stage.
 
   # OCaml embeds @rpath/libzstd.1.dylib; BYTECCLIBS should already set the rpath,
   # so only add it if missing.
@@ -1353,7 +1353,7 @@ TOOLWRAPPER
     echo "  [2/7] Configuring for ${target}..."
     # PKG_CONFIG=false forces a plain "-lzstd" instead of "-L/long/path -lzstd".
     # CC is not passed as an arg: configure needs the BUILD compiler.
-    # ac_cv_func_getentropy=no: the glibc 2.17 sysroot lacks getentropy.
+    # ac_cv_func_getentropy/strlcpy=no: the glibc sysroot lacks getentropy and strlcpy.
     # CFLAGS/LDFLAGS are overridden because conda-build sets them for the TARGET
     # but configure needs BUILD flags to compile the cross-compiler binary; they
     # are env vars since OCaml 5.4.0 rejects them as configure args.
@@ -1370,6 +1370,11 @@ TOOLWRAPPER
         ;;
     esac
 
+    # libtool adds -m elf64_s390 for s390x targets, which only the s390x ld
+    # accepts; with the x86_64 ld its shared-library probe fails.
+    _CONFIGURE_LD="${NATIVE_LD}"
+    [[ "${CROSS_PLATFORM}" == "linux-s390x" ]] && _CONFIGURE_LD="${CROSS_LD}"
+
     run_logged "cross-configure" ${CONFIGURE[@]} \
       -prefix="${OCAML_CROSS_PREFIX}" \
       --mandir="${OCAML_CROSS_PREFIX}"/share/man \
@@ -1379,12 +1384,12 @@ TOOLWRAPPER
       "${TARGET_CONFIG_ARGS[@]}" \
       AR="${CROSS_AR}" \
       AS="${NATIVE_AS}" \
-      LD="${NATIVE_LD}" \
+      LD="${_CONFIGURE_LD}" \
       NM="${CROSS_NM}" \
       RANLIB="${CROSS_RANLIB}" \
       STRIP="${CROSS_STRIP}" \
-      TARGET_LIBDIR="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml" \
       ac_cv_func_getentropy=no \
+      ac_cv_func_strlcpy=no \
       ${CROSS_MODEL:+MODEL=${CROSS_MODEL}}
 
     # Leaving these set lets crossopt pick up NATIVE values from the environment
@@ -1410,10 +1415,8 @@ TOOLWRAPPER
       -e "s#^let mkdll = .*#let mkdll = {|${target}-ocaml-mkdll|}#" \
       -e "s#^let mkmaindll = .*#let mkmaindll = {|${target}-ocaml-mkdll|}#" \
       "$config_file"
-    # Use the final install path, not OCAML_CROSS_LIBDIR (a work/_xcross_compiler
-    # path during the build); rattler-build relocates it when packaging.
-    FINAL_STDLIB_PATH="${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/lib/ocaml"
-    sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${FINAL_STDLIB_PATH}|}#" "$config_file"
+    # Use the final install path, not a work/_xcross_compiler path during the
+    # build; rattler-build relocates it when packaging.
     sed -i "s#^let bindir = .*#let bindir = {|${OCAML_CROSS_FINAL_PREFIX}/lib/ocaml-cross-compilers/${target}/bin|}#" "$config_file"
 
     # architecture is baked into the binary (arm64, power, amd64)
@@ -1516,55 +1519,8 @@ TOOLWRAPPER
       STRIP="${CROSS_STRIP}"
     )
 
-    # libtool bug: with --host=x86_64 --target=s390x, _LT_SYS_DYNAMIC_LINKER keys
-    # its -m emulation off $target but probes with the x86_64 linker, so the
-    # shared-lib check reports a false negative. s390x does support shared
-    # libraries; repair the three Makefile.config sentinels.
-    # SUPPORTS_SHARED_LIBRARIES gates building libcamlrun_shared.so and
-    # libasmrun_shared.so at all. MKDLL/MKMAINDLL use the unexpanded $(CC)
-    # -shared because Makefile.cross builds shared libraries with two compilers
-    # (host x86_64 for the cross-compiler's runtime, cross for the target runtime)
-    # and a hardcoded path would break one of them.
-    if [[ "${CROSS_PLATFORM}" == "linux-s390x" ]]; then
-      if grep -q '^SUPPORTS_SHARED_LIBRARIES=false' "Makefile.config"; then
-        sed -i "s|^SUPPORTS_SHARED_LIBRARIES=false|SUPPORTS_SHARED_LIBRARIES=true|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] SUPPORTS_SHARED_LIBRARIES -> true (libtool probe false negative)"
-      fi
-      if grep -q '^MKDLL=shared-libs-not-available' "Makefile.config"; then
-        sed -i 's|^MKDLL=shared-libs-not-available|MKDLL=$(CC) -shared|' "Makefile.config"
-        echo '  [s390x-sharedlib-fix] MKDLL -> $(CC) -shared'
-      fi
-      if grep -q '^MKMAINDLL=shared-libs-not-available' "Makefile.config"; then
-        sed -i 's|^MKMAINDLL=shared-libs-not-available|MKMAINDLL=$(CC) -shared|' "Makefile.config"
-        echo '  [s390x-sharedlib-fix] MKMAINDLL -> $(CC) -shared'
-      fi
-      # configure derives native dynlink from the same false negative; the
-      # compiler bakes native_dynlink and supports_shared_libraries from
-      # utils/config.generated.ml, patched here before the compiler is built.
-      # The same false negative (enable_shared=no) skips configure's whole linux
-      # shared-lib branch, leaving SHAREDLIB_CFLAGS empty.
-      if grep -q '^SHAREDLIB_CFLAGS=$' "Makefile.config"; then
-        sed -i "s|^SHAREDLIB_CFLAGS=$|SHAREDLIB_CFLAGS=-fPIC|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] SHAREDLIB_CFLAGS -> -fPIC"
-      fi
-      if grep -q '^NATDYNLINK=false' "Makefile.config"; then
-        sed -i "s|^NATDYNLINK=false|NATDYNLINK=true|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] NATDYNLINK -> true"
-      fi
-      if grep -q '^NATDYNLINKOPTS=$' "Makefile.config"; then
-        sed -i "s|^NATDYNLINKOPTS=$|NATDYNLINKOPTS=-Wl,-E|" "Makefile.config"
-        echo "  [s390x-sharedlib-fix] NATDYNLINKOPTS -> -Wl,-E"
-      fi
-      if grep -q '^let native_dynlink = false' "utils/config.generated.ml"; then
-        sed -i "s|^let native_dynlink = false|let native_dynlink = true|" "utils/config.generated.ml"
-        echo "  [s390x-sharedlib-fix] native_dynlink -> true (config.generated.ml)"
-      fi
-      if grep -q '^let supports_shared_libraries = false' "utils/config.generated.ml"; then
-        sed -i "s|^let supports_shared_libraries = false|let supports_shared_libraries = true|" "utils/config.generated.ml"
-        echo "  [s390x-sharedlib-fix] supports_shared_libraries -> true (config.generated.ml)"
-      fi
-    fi
-
+    # s390x shared-library support, native dynlink and SHAREDLIB_CFLAGS are
+    # derived by configure itself now that it runs with the s390x ld.
     echo "  [5/7] Building and installing cross-compiler..."
 
     # crossopt execs a target-arch ocamlc on the build machine (the
@@ -1778,9 +1734,6 @@ EOF
     else
       echo "    WARNING: Makefile.config not found at ${makefile_config}"
     fi
-
-    # runtime-launch-info is cleaned after the transfer; cleaning here would
-    # corrupt it before the cross-target stage can use it.
 
     echo "  Cleaning up unnecessary library files..."
     (
@@ -2019,17 +1972,18 @@ EOF
   )
 
   if [[ "${target_platform}" == "linux-"* ]]; then
-    CONFIG_ARGS+=(ac_cv_func_getentropy=no)
+    CONFIG_ARGS+=(ac_cv_func_getentropy=no ac_cv_func_strlcpy=no)
   fi
 
   # conda-ocaml-* wrappers are needed during the build
   echo "    Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
   install_conda_ocaml_wrappers "${BUILD_PREFIX}/bin"
 
-  # TARGET_BINDIR/LIBDIR tell OCaml where binaries and libraries live at runtime
-  # on the target; conda-forge relocates paths containing ${PREFIX}, not _native ones.
+  # TARGET_BINDIR tells OCaml where binaries live at runtime on the target;
+  # conda-forge relocates paths containing ${PREFIX}, not _native ones.
+  # TARGET_LIBDIR must stay unset: --with-relative-libdir derives it.
   export TARGET_BINDIR="${PREFIX}/bin"
-  export TARGET_LIBDIR="${PREFIX}/lib/ocaml"
+  unset TARGET_LIBDIR
 
   run_logged "stage3_configure" "${CONFIGURE[@]}" "${CONFIG_ARGS[@]}"
 
@@ -2047,9 +2001,8 @@ EOF
   local config_file="utils/config.generated.ml"
   [[ -n "${CROSS_MODEL}" ]] && sed -i "s#^let model = .*#let model = {|${CROSS_MODEL}|}#" "$config_file"
 
-  # configure ran with the staging prefix; bake the final install paths instead,
+  # configure ran with the staging prefix; bake the final bindir instead,
   # which conda relocates with the rest of ${PREFIX}.
-  sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${PREFIX}/lib/ocaml|}#" "$config_file"
   sed -i "s#^let bindir = .*#let bindir = {|${PREFIX}/bin|}#" "$config_file"
 
   # Apply Makefile.cross patches
@@ -2224,9 +2177,6 @@ STRIPDEBUG
   local installed_config="${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config"
   clean_makefile_config "${installed_config}" "${PREFIX}"
 
-  # runtime-launch-info is cleaned after the transfer; cleaning here would
-  # corrupt it when this is an intermediate stage.
-
   if [[ "${target_platform}" == "osx-"* ]]; then
     echo "    Fixing macOS install names..."
     bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_INSTALL_PREFIX}/lib/ocaml"
@@ -2321,12 +2271,6 @@ EOF
     clean_makefile_config "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
   else
     clean_makefile_config "${OCAML_INSTALL_PREFIX}/Library/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
-  fi
-
-  # runtime-launch-info is cleaned after the transfer to PREFIX
-  echo "  Cleaning build-time paths from final runtime-launch-info..."
-  if is_unix; then
-    clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
   fi
 
 fi
@@ -2461,12 +2405,6 @@ EOF
       fi
     fi
     echo "    Runtime: ${cross_dir}bin/ocamlrun from ${_native_ocamlrun}"
-
-    # runtime-launch-info is binary: use the binary-safe cleanup
-    runtime_info="${cross_dir}/lib/ocaml/runtime-launch-info"
-    if [[ -f "$runtime_info" ]]; then
-      clean_runtime_launch_info "$runtime_info" "${OCAML_INSTALL_PREFIX}"
-    fi
   done
 fi
 
@@ -2537,7 +2475,8 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
     # the DBUG section (bytelink.ml link_compunit), here the cross stdlib.
     # Map the in-lane staging stdlib onto the installed one.
     if [[ "${OCAML_CROSS_COMPILER_IN_LANE:-0}" == "1" ]]; then
-      export BUILD_PATH_PREFIX_MAP="${PREFIX}/lib/ocaml=${CROSS_COMPILER_DIR}/lib/ocaml"
+      export OCAML_XCROSS_PATH_MAP="${PREFIX}/lib/ocaml=${CROSS_COMPILER_DIR}/lib/ocaml"
+      export BUILD_PATH_PREFIX_MAP="${OCAML_XCROSS_PATH_MAP}"
     fi
     OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     build_cross_target
@@ -2549,12 +2488,6 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
 
   echo "  Cleaning build-time paths from final Makefile.config..."
   clean_makefile_config "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
-
-  # This build copies runtime-launch-info from the cross-compiler's stdlib, whose
-  # BINDIR points at the cross-compiler's staging directory; line 2 is replaced
-  # with the target BINDIR ($PREFIX/bin).
-  echo "  Cleaning build-time paths from final runtime-launch-info..."
-  clean_runtime_launch_info "${OCAML_INSTALL_PREFIX}/lib/ocaml/runtime-launch-info" "${OCAML_INSTALL_PREFIX}"
 
   # Any other installed text file (META, scripts, ...) that still names the
   # staging prefix; grep -I skips binaries, which are left untouched.
