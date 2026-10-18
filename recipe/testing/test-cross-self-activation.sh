@@ -246,6 +246,40 @@ else
   ERRORS=$((ERRORS + 1))
 fi
 
+# --- probe: run cross-linked bytecode directly (diagnostic, never fails the test) ---
+(
+  set +e
+  echo "probe: run cross-linked bytecode directly"
+  _pw=$(mktemp -d)
+  echo 'let () = print_endline "xbyte-ok"' > "${_pw}/hello.ml"
+  (cd "${_pw}" && ocamlc hello.ml -o hello.byte 2>&1 | head -n 20)
+  echo "launcher text:"
+  head -c 200 "${_pw}/hello.byte" 2>/dev/null | head -n 3
+  echo "command -v ocamlrun: $(command -v ocamlrun || echo '<none>')"
+  echo "runtime candidates on PATH:"
+  _old_ifs="${IFS}"; IFS=:
+  for _d in ${PATH}; do
+    ls "${_d}" 2>/dev/null | grep -E '(^|-)ocamlrun' | sed "s#^#  ${_d}/#"
+  done | head -n 20
+  IFS="${_old_ifs}"
+  _tmo=""
+  command -v timeout >/dev/null 2>&1 && _tmo="timeout 60"
+  _probe() { # name, command...
+    local _name="$1"; shift
+    local _o _rc
+    _o=$(cd "${_pw}" && ${_tmo} "$@" 2>&1); _rc=$?
+    if [[ "${_o}" == *xbyte-ok* ]]; then
+      echo "PROBE ${_name}: PASS"
+    else
+      echo "PROBE ${_name}: FAIL (rc=${_rc})"
+      printf '%s\n' "${_o}" | head -n 20
+    fi
+  }
+  _probe xbyte-direct ./hello.byte
+  _probe xbyte-via-ocamlrun ocamlrun ./hello.byte
+  rm -rf "${_pw}"
+) || true
+
 echo "Test 11: deactivation removes the launcher dir and restores OCAMLPATH"
 # shellcheck disable=SC1090
 source "${DEACTIVATE}"
