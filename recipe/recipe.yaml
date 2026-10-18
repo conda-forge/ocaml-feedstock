@@ -165,6 +165,9 @@ source:
           # Guards flexdll's parse-time ocamlopt -version / -where shell probes
           # so they can be supplied via env.
           - patches/flexdll-makefile-skip-ocamlopt-probes.patch
+          # For GNU-style toolchains, -l<name> falls back to <name>.lib after
+          # lib<name>.{lib,dll.a,a} so -lzstd finds conda's zstd.lib.
+          - patches/flexdll-resolve-l-dot-lib.patch
           # flexlink emits ARM64 section relocs in descending order, which
           # lld-link turns into a stray out-of-order .reloc block.
           - if: cross_target_platform_ == "win-arm64"

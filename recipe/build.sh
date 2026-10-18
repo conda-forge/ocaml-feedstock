@@ -63,8 +63,8 @@ MAKE=(make)
 # Upstream marshals the non -l part of ZSTD_LIBS into
 # compilerlibs/ocamlcommon.cmxa as -ccopt, where relocation NUL-pads the
 # prefix-dependent -L it leaves in lib_ccopts (issue #132). Keep only the
-# -l flags; ZSTD_LIBS itself stays intact for linking.
-COMPRESSED_MARSHALING_OVERRIDE='COMPRESSED_MARSHALING_FLAGS=-cclib -lcomprmarsh $(patsubst %, -cclib %, $(filter -l%,$(ZSTD_LIBS)))'
+# -l flags (and the MSVC zstd.lib); ZSTD_LIBS itself stays intact for linking.
+COMPRESSED_MARSHALING_OVERRIDE='COMPRESSED_MARSHALING_FLAGS=-cclib -lcomprmarsh $(patsubst %, -cclib %, $(filter -l% %.lib,$(ZSTD_LIBS)))'
 
 CONFIG_ARGS=(
   --enable-shared
@@ -279,9 +279,14 @@ build_native() {
     # find zstd
     if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
       export NATIVE_LDFLAGS="/LIBPATH:${PREFIX}/Library/lib ${NATIVE_LDFLAGS:-}"
+      # Native-path entry: the msys shell leaves it alone for the cl and link calls make spawns
+      export LIB="${LIB:-};$(cygpath -w "${PREFIX}/Library/lib")"
     else
       export NATIVE_LDFLAGS="-L${PREFIX}/Library/lib ${NATIVE_LDFLAGS:-}"
     fi
+    # zstd.dll lives in the host Library/bin; configure and the freshly built
+    # ocamlrun execute programs linked against it.
+    export PATH="${PATH}:${PREFIX}/Library/bin"
   fi
 
   print_toolchain_info NATIVE
@@ -360,6 +365,30 @@ build_native() {
       WINDRES="${NATIVE_WINDRES}"
       windows_UNICODE_MODE=compatible
     )
+    if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
+      # PKG_CONFIG=false leaves configure only AC_CHECK_LIB with -lzstd, which cl.exe
+      # cannot link and which needs headers outside the default path. This pkg-config
+      # stand-in hands configure the real zstd flags (dynamic: import library for
+      # zstd.dll); --with-zstd makes a failed link or run check an error.
+      _zstd_inc="-I$(cygpath -m "${PREFIX}")/Library/include"
+      if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
+        _zstd_pc_libs="zstd.lib"
+      else
+        # the patched flexlink falls back from -lzstd to zstd.lib in this -L dir
+        _zstd_pc_libs="-L$(cygpath -m "${PREFIX}")/Library/lib -lzstd"
+      fi
+      _zstd_pc="${SRC_DIR}/_zstd_pkg_config.sh"
+      cat > "${_zstd_pc}" << EOF
+#!/bin/sh
+case "\$*" in
+  *--libs*) echo "${_zstd_pc_libs}" ;;
+  *--cflags*) echo "${_zstd_inc}" ;;
+esac
+exit 0
+EOF
+      chmod +x "${_zstd_pc}"
+      CONFIG_ARGS+=(PKG_CONFIG="$(cygpath -u "${_zstd_pc}")" --with-zstd)
+    fi
     if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
       # --build=cygwin (MSYS2 build env) with an MSVC --host is how OCaml detects
       # MSVC mode and uses /Fe: instead of -o.
@@ -1037,7 +1066,7 @@ C_EOF
   fi
 
   # The build-time -L to the host prefix must not be compiled into the installed compiler.
-  if [[ "${target_platform}" == "win-arm64" ]]; then
+  if ! is_unix; then
     _cfg_ml="utils/config.generated.ml"
     _cfg_link_vars=(mkexe mkdll mkmaindll bytecomp_c_libraries native_c_libraries compression_c_libraries)
     for _cvar in "${_cfg_link_vars[@]}"; do
@@ -2656,10 +2685,14 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       sed -i "s|@MKEXE@|$(_basename_cmd "${CONDA_OCAML_MKEXE}")|g" "${_SCRIPT}"
       sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
       sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"
-      # win-arm64 only: flexlink import dir and -l list; blank on every other lane
+      # flexlink search dirs: staged import libs (+ -l list) on win-arm64, and the
+      # conda Library/lib so a bare -lzstd finds zstd.lib on non-MSVC; blank elsewhere
       _flexlink_extra=""
       if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
         _flexlink_extra="-L%CONDA_PREFIX%/Library/lib/ocaml/flexdll $(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
+      fi
+      if [[ "${OCAML_HAS_ZSTD:-1}" == "1" && "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
+        _flexlink_extra="${_flexlink_extra:+${_flexlink_extra} }-L%CONDA_PREFIX%/Library/lib"
       fi
       sed -i "s|@FLEXLINK_EXTRA@|${_flexlink_extra}|g" "${_SCRIPT}"
     done
