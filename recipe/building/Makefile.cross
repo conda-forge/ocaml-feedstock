@@ -343,10 +343,12 @@ ifeq "$(STDLIB_CMI_PIN_INTREE)" "1"
 	  $(ocamltoplevel_NCOBJS) $(CROSSCOMPILERLIBS)
 	# Every other .cmi compiled before the stdlib rebuild is also stale (e.g.
 	# expunge.cmi, not in any compilerlib). Sweep them all except ./stdlib (the
-	# fresh ones), ./flexdll (vendored), ./.git and ./_logs, and ./tools (its .cmx
-	# must stay paired with their .cmi). Keep `-exec rm -f {} +`: -delete implies
-	# -depth, which disables -prune and would delete ./stdlib's .cmi.
-	find . \( -path ./stdlib -o -path ./flexdll -o -path ./.git -o -path ./_logs -o -path ./tools \) -prune -o -name '*.cmi' -exec rm -f {} + >/dev/null
+	# fresh ones), ./flexdll (vendored), ./.git and ./_logs, ./tools (its .cmx
+	# must stay paired with their .cmi), and the in-lane compiler installs
+	# ./_native_compiler and ./_xcross_compiler (their stdlib.cmi must survive).
+	# Keep `-exec rm -f {} +`: -delete implies -depth, which disables -prune and
+	# would delete ./stdlib's .cmi.
+	find . \( -path ./stdlib -o -path ./flexdll -o -path ./.git -o -path ./_logs -o -path ./tools -o -path ./_native_compiler -o -path ./_xcross_compiler \) -prune -o -name '*.cmi' -exec rm -f {} + >/dev/null
 endif
 	$(MAKE) ocamlyacc $(CROSS_OVERRIDES) $(OLDS)
 	$(MAKE) ocamllex $(CROSS_COMPILER_OVERRIDES) $(OLDS) $(CROSS_CAMLC_PIN)
