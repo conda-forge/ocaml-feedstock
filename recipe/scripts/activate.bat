@@ -8,7 +8,7 @@
 )
 @set "OCAMLLIB=%OCAML_PREFIX%\lib\ocaml"
 
-@REM flexlink import libraries (win-arm64 only; @FLEXLINK_EXTRA@ is blank elsewhere)
+@REM flexlink search dirs and import libs (blank for MSVC and builds without zstd)
 @set "_OCAML_FLEXLINK_EXTRA=@FLEXLINK_EXTRA@"
 @if defined _OCAML_FLEXLINK_EXTRA (
      @set "_OCAML_FLEXLINK_ACTIVE=1"

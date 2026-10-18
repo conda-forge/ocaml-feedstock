@@ -1,9 +1,9 @@
 context:
-  build_number: 0
-  # True while this version's ocaml_<x> packages are not yet published: cross
-  # lanes then build the native (and for cross-target lanes the cross) compiler
-  # in-lane. Flipped to false once 5.4.1 is published.
-  bootstrap: true
+  build_number: 1
+  min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
+  # True while this version's ocaml_<x> packages are unpublished: cross lanes
+  # then build the native (and cross) compiler in-lane.
+  bootstrap: false
   version: 5.4.1
   flexdll_version: "0.44"
 
@@ -37,22 +37,19 @@ context:
       "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and cc == "zig" else
       "unknown"
     }}
-  # Which platform builds cross-compilers for each target. Empty for a target
-  # that is not listed, which never equals target_platform, so an unlisted
-  # target builds nowhere.
+  # Platform that builds each target's cross-compiler. Empty (never equals
+  # target_platform) for an unlisted target, so it builds nowhere.
   cross_build_platform: >-
     ${{
       "linux-aarch64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] else
       "linux-64"      if cross_target_platform_ in ["linux-aarch64"]                                 else
       "osx-arm64"     if cross_target_platform_ == "osx-64"                                          else
       "osx-64"        if cross_target_platform_ == "osx-arm64"                                       else
-      "win-64"        if cross_target_platform_ == "win-64"                                          else
       ""
     }}
-  # Second build machine for the targets whose cross-compiler is published for
-  # two of them, empty for the rest. A folded block renders to a string, so the
-  # two-host test lives in is_cross_compiler, where the expression is inline and
-  # keeps its boolean type.
+  # Second build machine for targets published from two; empty otherwise. The
+  # two-host test lives in is_cross_compiler because a folded block renders to
+  # a string.
   cross_build_platform_alt: >-
     ${{ "linux-64" if cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"] else "" }}
 
@@ -77,23 +74,15 @@ context:
   native_mode: ${{ "native" if has_native_backend else "bytecode" }}
 
   # ===========================================================================
-  # Same-version native OCaml built in this lane instead of taken from the
-  # build-platform ocaml_<x> package: OCaml configure refuses to build a cross
-  # compiler from a native of a different version. Active while bootstrap.
-  #
-  # Cross-target lanes whose cross-compiler is built in this lane instead of
-  # coming from a published ocaml_<target> package. One condition drives both
-  # the is_cross_target build requirement and the build.sh cross-target branch,
-  # so the two cannot disagree.
-  # MAINTAINED LIST: prune a target once its cross-compiler is published on
-  # conda-forge FOR THIS LANE'S BUILD PLATFORM. Nothing self-corrects, so a
-  # stale entry means that lane keeps building its own cross-compiler forever
-  # with no signal that it is doing so. linux-ppc64le and linux-riscv64 stay
-  # listed because no ocaml_linux-ppc64le or ocaml_linux-riscv64 is published for
-  # their linux-aarch64 build platform yet.
-  # linux-s390x stays listed because its
-  # gcc 14 toolchain cannot share an environment with the gcc 15 build-platform
-  # ocaml its published cross-compiler requires.
+  # native_in_lane: same-version native OCaml built in-lane, because configure
+  # refuses to build a cross compiler from a native of a different version.
+  # cross_compiler_in_lane: cross-target lanes build their own cross-compiler
+  # instead of using a published ocaml_<target>; one condition drives both the
+  # build requirement and build.sh.
+  # MAINTAINED LIST (nothing self-corrects): prune a target once its
+  # cross-compiler is published FOR THIS LANE'S BUILD PLATFORM. ppc64le and
+  # riscv64 have none for linux-aarch64 yet; s390x's gcc 14 cannot share an
+  # env with the gcc 15 ocaml its published cross-compiler requires.
   # ===========================================================================
   native_in_lane: ${{ (is_cross_compiler or is_cross_target) and bootstrap }}
   cross_compiler_in_lane: ${{ is_cross_target and (bootstrap or cross_target_platform_ in ["linux-ppc64le", "linux-riscv64", "linux-s390x"]) }}
@@ -108,8 +97,8 @@ context:
   # ===========================================================================
   # QEMU emulation for cross-target execution tests (linux targets only)
   # ===========================================================================
-  qemu_arch: ${{ cross_target_platform_ | replace("linux-64", "x86_64") | replace("linux-", "") }}
-  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-64", "linux-aarch64", "linux-ppc64le", "linux-riscv64", "linux-s390x"]) and (cross_target_platform_ != build_platform) }}
+  qemu_arch: ${{ cross_target_platform_ | replace("linux-", "") }}
+  is_qemuable: ${{ (is_cross_compiler or is_cross_target) and (cross_target_platform_ in ["linux-aarch64", "linux-ppc64le", "linux-riscv64", "linux-s390x"]) and (cross_target_platform_ != build_platform) }}
   qemu_pkg: ${{ ('qemu-execve-' ~ qemu_arch ~ '[version=">=11", build_number=">=12"]') if is_qemuable else '' }}
 
 recipe:
@@ -165,11 +154,14 @@ source:
           # Guards flexdll's parse-time ocamlopt -version / -where shell probes
           # so they can be supplied via env.
           - patches/flexdll-makefile-skip-ocamlopt-probes.patch
+          # For GNU-style toolchains, -l<name> falls back to <name>.lib after
+          # lib<name>.{lib,dll.a,a} so -lzstd finds conda's zstd.lib.
+          - patches/flexdll-resolve-l-dot-lib.patch
           # flexlink emits ARM64 section relocs in descending order, which
           # lld-link turns into a stray out-of-order .reloc block.
           - if: cross_target_platform_ == "win-arm64"
             then: patches/flexdll-arm64-sort-coff-relocs.patch
-  - if: not unix and c_compiler == "vs2022"
+  - if: is_vs2022
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
       sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
@@ -209,19 +201,9 @@ outputs:
 
   # ==========================================================================
   # PLATFORM IMPLEMENTATION: ocaml_${{ cross_target_platform_ }}
-  #
-  # Three mutually exclusive build cases (exactly one applies per build):
-  #
-  # 1. NATIVE (is_native): cross_target_platform_ == target_platform == build_platform
-  #    Native compiler built on its own platform (e.g., linux-64 on linux-64)
-  #
-  # 2. CROSS-COMPILER (is_cross_compiler): cross_target_platform_ != target_platform AND this lane is one of its build machines
-  #    Cross-compiler built on designated platform (e.g., aarch64 cross on linux-64)
-  #    Produces binaries that run on build platform, generate code for cross_target_platform_
-  #
-  # 3. CROSS-TARGET (is_cross_target): cross_target_platform_ == target_platform AND build != target
-  #    Native compiler built via cross-compilation (e.g., aarch64 native built on linux-64)
-  #    Produces native binaries for target platform
+  # Exactly one build case applies per build: is_native, is_cross_compiler
+  # (runs on the build machine, emits code for cross_target_platform_) or
+  # is_cross_target (native compiler for the target, built by cross-compiling).
   # ==========================================================================
   - package:
       name: ocaml_${{ cross_target_platform_ }}
@@ -247,9 +229,6 @@ outputs:
           - if: is_cross_compiler and aarch64
             then:
               - ld-linux-aarch64.${{ so }}.1
-          - if: is_cross_compiler and ppc64le
-            then:
-              - ld64.${{ so }}.2
           - if: osx
             then:
               - /usr/lib/libSystem.B.dylib
@@ -304,7 +283,7 @@ outputs:
               - ucrt >=10.0.20348.0
           # the vs runtime packages, without the vs activation package that
           # stdlib("c") would pull into every downstream host env
-          - if: not unix and c_compiler == "vs2022"
+          - if: is_vs2022
             then:
               - vc >=14.3,<15
               - vc14_runtime >=14.44.35208
@@ -343,7 +322,7 @@ outputs:
           then:
             - if: not native_in_lane
               then:
-                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
+                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
             - if: linux
               then:
                 - ${{ cc }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
@@ -366,10 +345,10 @@ outputs:
               then: ${{ qemu_pkg }}
             - if: not native_in_lane
               then:
-                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
+                - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
             - if: not cross_compiler_in_lane
               then:
-                - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
+                - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
             # the in-lane native stage needs the build-platform C compiler,
             # which otherwise arrives through ocaml_<build_platform>'s run deps
             - if: native_in_lane and (linux or osx)
@@ -450,7 +429,7 @@ outputs:
         # The vs2022 activation runs vcvars. As a run dep it lands in every env
         # holding ocaml (build and host) and runs twice, overflowing cmd.exe,
         # so consumers bring compiler("c") themselves.
-        - if: is_standard_layout and not unix and c_compiler == "vs2022"
+        - if: is_standard_layout and is_vs2022
           then:
             - ${{ compiler("c") }}
 
@@ -511,7 +490,7 @@ outputs:
                     - if: unix or c_compiler in ["vs2022", "zig"]
                       then:
                         - ocamlruni
-                    - if: not unix and c_compiler == "vs2022"
+                    - if: is_vs2022
                       then:
                         - default_amd64.manifest
                     - if: not unix
@@ -662,6 +641,7 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocaml
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamllex
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlyacc
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlrun
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
@@ -700,8 +680,6 @@ outputs:
                 then: cd testing && ./test-package-integrity.sh cross-target
               - if: is_cross_compiler
                 then: cd testing && ./test-package-integrity.sh cross ${{ target_triplet }}
-              - if: not (is_native or is_cross_target or is_cross_compiler)
-                then: echo "Invalid artifact" && exit 1
             files:
               recipe:
                 - testing/test-package-integrity.${{ sh }}
@@ -720,7 +698,7 @@ outputs:
           # ----------------------------------------------------------------------
           - script:
               - if: is_cross_target
-                then: cd testing && ${{ dot }}test-cross-arch.sh ${{ target_platform }}
+                then: cd testing && ./test-cross-arch.sh ${{ target_platform }}
                 else: echo "Native build or cross-compiler - skipping cross-arch check"
             files:
               recipe:
@@ -816,9 +794,7 @@ outputs:
                 else: echo "Skipping cross self-activation tests"
             files:
               recipe:
-                - if: is_cross_compiler
-                  then:
-                    - testing/test-cross-self-activation.sh
+                - testing/test-cross-self-activation.sh
             requirements:
               build:
                 - if: is_cross_compiler
@@ -864,7 +840,7 @@ outputs:
               run:
                 - if: is_cross_compiler
                   then:
-                    - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ build_number - 1 if build_number > 0 else 0 }}"]
+                    - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
@@ -939,7 +915,7 @@ outputs:
               then: ${{ qemu_pkg }}
             - ${{ m2 }}file
             - ${{ m2 }}grep
-            - if: not unix and c_compiler == "vs2022"
+            - if: is_vs2022
               then: ${{ compiler("c") }}
 
       # ----------------------------------------------------------------------
@@ -984,7 +960,7 @@ outputs:
             - if: is_qemuable
               then: ${{ qemu_pkg }}
             - ${{ m2 }}grep
-            - if: not unix and c_compiler == "vs2022"
+            - if: is_vs2022
               then: ${{ compiler("c") }}
 
 about:

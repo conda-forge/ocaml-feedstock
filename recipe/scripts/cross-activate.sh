@@ -6,7 +6,9 @@
 #                       bare-name launchers (ocamlc, ocamlopt, ...) first on PATH
 #                       and the cross library first on OCAMLPATH
 #   ocaml_use_native  - restore CONDA_OCAML_* to native tools and drop both
-#   ocaml_cross_check - warn when cross mode is on but ocamlopt is not the launcher
+#   ocaml_cross_check - print the ocamlc/OCAMLLIB in effect, warn when ocamlopt is
+#                       not the launcher, fail when the cross toplevel cannot
+#                       load unix.cma (not run on activation)
 #
 # The env switches to cross mode on its own when it cross-compiles
 # (CONDA_BUILD_CROSS_COMPILATION=1, or build_platform != target_platform).
@@ -100,6 +102,11 @@ ocaml_use_cross() {
   _var="CONDA_OCAML_${_id}_RANLIB"; export CONDA_OCAML_RANLIB="${!_var:-${_OCAML_CROSS_RANLIB}}"
   _var="CONDA_OCAML_${_id}_MKEXE"; export CONDA_OCAML_MKEXE="${!_var:-${_OCAML_CROSS_MKEXE}}"
   _var="CONDA_OCAML_${_id}_MKDLL"; export CONDA_OCAML_MKDLL="${!_var:-${_OCAML_CROSS_MKDLL}}"
+  # In a conda build the target executables link against, and at build time
+  # run with, the host prefix libraries (zstd etc.)
+  if [[ "${CONDA_BUILD:-}" == "1" && -n "${PREFIX:-}" ]]; then
+    export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib"
+  fi
   export OCAMLLIB="${_OCAML_CROSS_PREFIX}/lib/ocaml"
   export OCAML_PREFIX="${_OCAML_CROSS_PREFIX}"
   _ocaml_cross_path_drop
@@ -138,16 +145,26 @@ ocaml_use_native() {
   export OCAML_CROSS_MODE="native"
 }
 
-# Warn on stderr when cross mode is on but ocamlopt resolves elsewhere, e.g.
-# after a later PATH=$BUILD_PREFIX/bin:$PATH; ocaml_use_cross moves the
-# launcher dir back to the front
+# In cross mode: print the ocamlc/OCAMLLIB/OCAMLPATH in effect, warn on stderr
+# when ocamlopt resolves elsewhere (e.g. after a later
+# PATH=$BUILD_PREFIX/bin:$PATH; ocaml_use_cross moves the launcher dir back to
+# the front), and fail when the cross toplevel cannot #load unix.cma.
 ocaml_cross_check() {
   [[ "${OCAML_CROSS_MODE:-}" == "cross" ]] || return 0
-  local _opt
+  local _opt _work _out
+  echo "ocaml_cross_check: ocamlc=$(command -v ocamlc 2>/dev/null || echo '<none>') OCAMLLIB=${OCAMLLIB:-<unset>} OCAMLPATH=${OCAMLPATH%%:*}"
   _opt=$(command -v ocamlopt 2>/dev/null || true)
   if [[ "${_opt}" != "${_OCAML_CROSS_SHIMS}/ocamlopt" ]]; then
     echo "WARNING: cross mode is on but ocamlopt resolves to '${_opt:-<none>}', not ${_OCAML_CROSS_SHIMS}/ocamlopt; run ocaml_use_cross" >&2
   fi
+  _work=$(mktemp -d)
+  printf '#directory "+unix";;\n#load "unix.cma";;\nlet _ = Unix.getcwd ()\n' > "${_work}/probe.ml"
+  if ! _out=$("${_OCAML_CROSS_SHIMS}/ocaml" "${_work}/probe.ml" 2>&1); then
+    echo "ERROR: ocaml_cross_check: the cross toplevel ${_OCAML_CROSS_SHIMS}/ocaml cannot #load unix.cma: ${_out}" >&2
+    rm -rf "${_work}"
+    return 1
+  fi
+  rm -rf "${_work}"
   return 0
 }
 
@@ -157,6 +174,8 @@ export -f _ocaml_cross_ocamlpath_drop
 export -f ocaml_use_cross
 export -f ocaml_use_native
 export -f ocaml_cross_check
+# These are the real switches now, not the native package's no-ops
+unset _OCAML_NOOP_SWITCHES
 
 # Export cross-compiler info for downstream scripts
 export OCAML_CROSS_TARGET="${_OCAML_CROSS_TARGET}"

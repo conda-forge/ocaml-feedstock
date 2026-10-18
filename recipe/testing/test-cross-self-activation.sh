@@ -204,6 +204,48 @@ else
 fi
 rm -rf "${WORK}"
 
+echo "Test 10b: every bare-name tool has a launcher in the shims dir"
+for _t in ocamlc ocamlc.opt ocamlopt ocamlopt.opt ocamldep ocamldep.opt ocamlmklib \
+          ocamlobjinfo ocaml ocamllex ocamlyacc ocamlrun; do
+  if [[ -x "${SHIMS}/${_t}" ]]; then
+    echo "  PASS: shims/${_t}"
+  else
+    echo "  FAIL: shims/${_t} missing or not executable"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+
+echo "Test 10c: ocamlrun from PATH runs bytecode the cross ocamlc linked"
+WORK=$(mktemp -d)
+echo 'let () = ignore (Unix.getpid ()); print_string "unix-ok"' > "${WORK}/t.ml"
+_out=$(cd "${WORK}" && PATH="${SHIMS}:/usr/bin:/bin" \
+  ocamlc -I +unix unix.cma t.ml -o t.byte 2>&1 && \
+  env -u OCAMLLIB -u CAML_LD_LIBRARY_PATH PATH="${SHIMS}:/usr/bin:/bin" ocamlrun t.byte 2>&1 || true)
+if [[ "${_out}" == "unix-ok" ]]; then
+  echo "  PASS: bare ocamlrun ran t.byte"
+else
+  echo "  FAIL: printed '${_out}' (expected 'unix-ok')"
+  ERRORS=$((ERRORS + 1))
+fi
+rm -rf "${WORK}"
+
+echo "Test 10d: ocaml_cross_check passes"
+if _out=$(ocaml_cross_check 2>&1); then
+  echo "  PASS: ${_out%%$'\n'*}"
+else
+  echo "  FAIL: ocaml_cross_check failed: ${_out}"
+  ERRORS=$((ERRORS + 1))
+fi
+
+echo "Test 10e: in a conda build the cross mkexe links and runs against PREFIX/lib"
+_mkexe=$(CONDA_BUILD=1 PREFIX=/fake/host bash -c 'ocaml_use_cross; echo "${CONDA_OCAML_MKEXE}"' 2>&1 | tail -n 1)
+if [[ "${_mkexe}" == *" -L/fake/host/lib"* && "${_mkexe}" == *"-Wl,-rpath,/fake/host/lib"* ]]; then
+  echo "  PASS: ${_mkexe}"
+else
+  echo "  FAIL: CONDA_OCAML_MKEXE='${_mkexe}'"
+  ERRORS=$((ERRORS + 1))
+fi
+
 echo "Test 11: deactivation removes the launcher dir and restores OCAMLPATH"
 # shellcheck disable=SC1090
 source "${DEACTIVATE}"

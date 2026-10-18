@@ -35,6 +35,28 @@ export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB:-@RANLIB@}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-@MKEXE@}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-@MKDLL@}"
 
+# No-op ocaml_use_native / ocaml_use_cross so recipes can call them on any lane.
+# Only defined when absent: the cross package defines the real ones, in either
+# activation order.
+if [ -n "${BASH_VERSION:-}" ]; then
+  if ! type ocaml_use_native >/dev/null 2>&1; then
+    ocaml_use_native() {
+      [ -z "${OCAML_CROSS_DEBUG:-}" ] || echo "ocaml_use_native: native install, nothing to switch" >&2
+      return 0
+    }
+    export -f ocaml_use_native
+    export _OCAML_NOOP_SWITCHES=1
+  fi
+  if ! type ocaml_use_cross >/dev/null 2>&1; then
+    ocaml_use_cross() {
+      [ -z "${OCAML_CROSS_DEBUG:-}" ] || echo "ocaml_use_cross: no cross compiler installed, nothing to switch" >&2
+      return 0
+    }
+    export -f ocaml_use_cross
+    export _OCAML_NOOP_SWITCHES=1
+  fi
+fi
+
 # macOS: DYLD_FALLBACK_LIBRARY_PATH for build-time executables to find libzstd
 if [ "$(uname)" = "Darwin" ]; then
   export _OCAML_DYLD_FALLBACK_LIBRARY_PATH_BACKUP="${DYLD_FALLBACK_LIBRARY_PATH:-}"
