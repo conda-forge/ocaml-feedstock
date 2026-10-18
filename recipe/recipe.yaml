@@ -1,5 +1,5 @@
 context:
-  build_number: 17
+  build_number: 18
   version: 5.4.0
   flexdll_version: "0.44"
 
@@ -121,6 +121,10 @@ source:
       # Request marshal compression only when the runtime supports it (no zstd
       # on linux-s390x), so output_value never asks an unsupported runtime.
       - patches/compression-only-when-supported.patch
+      # In a cross compiler (host != target) the bytecode toplevel runs code
+      # in-process, so #load'ed primitives must be registered with the runtime
+      # instead of taking the link-only shortcut.
+      - patches/fix-cross-bytecode-toplevel-primitives.patch
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
@@ -644,6 +648,8 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlopt.opt
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocaml
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamllex
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlyacc
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
@@ -664,6 +670,8 @@ outputs:
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt.${{ so }}
+                - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads.${{ so }}
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
                 - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 

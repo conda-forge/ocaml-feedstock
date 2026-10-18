@@ -1,10 +1,12 @@
 # shellcheck shell=sh
 # Cross-compiler deactivation - restore native state and clean up
 
-# Native mode restores CONDA_OCAML_*, OCAMLLIB, OCAML_PREFIX and PATH
+# Native mode restores CONDA_OCAML_*, OCAMLLIB, OCAML_PREFIX, PATH and drops the
+# cross library from OCAMLPATH
 if type ocaml_use_native >/dev/null 2>&1; then
   ocaml_use_native
 fi
+unset _OCAML_CROSS_OCAMLPATH_UNSET
 
 if [ "${_OCAML_OCAMLPATH_CONDA_BACKUP+x}" = "x" ]; then
   if [ -n "${_OCAML_OCAMLPATH_CONDA_BACKUP}" ]; then
@@ -18,6 +20,8 @@ fi
 unset -f ocaml_use_cross 2>/dev/null || true
 unset -f ocaml_use_native 2>/dev/null || true
 unset -f _ocaml_cross_path_drop 2>/dev/null || true
+unset -f _ocaml_cross_ocamlpath_drop 2>/dev/null || true
+unset -f ocaml_cross_check 2>/dev/null || true
 
 unset _OCAML_NATIVE_CC _OCAML_NATIVE_AS _OCAML_NATIVE_AR
 unset _OCAML_NATIVE_LD _OCAML_NATIVE_RANLIB
