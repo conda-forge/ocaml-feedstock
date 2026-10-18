@@ -1,9 +1,9 @@
 context:
-  build_number: 0
+  build_number: 1
   min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
-  bootstrap: true
+  bootstrap: false
   version: 5.5.1
   flexdll_version: "0.44"
 
