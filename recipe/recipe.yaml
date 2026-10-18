@@ -1,9 +1,9 @@
 context:
-  build_number: 0
-  # True while this version's ocaml_<x> packages are not yet published: cross
-  # lanes then build the native (and for cross-target lanes the cross) compiler
-  # in-lane. Flipped to false once 5.4.1 is published.
-  bootstrap: true
+  build_number: 1
+  # True only while this version's ocaml_<x> packages are not yet published:
+  # cross lanes then build the native (and for cross-target lanes the cross)
+  # compiler in-lane.
+  bootstrap: false
   version: 5.4.1
   flexdll_version: "0.44"
 
@@ -662,6 +662,7 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocaml
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamllex
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlyacc
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlrun
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/expunge${{ xt }}
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/ld.conf
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a

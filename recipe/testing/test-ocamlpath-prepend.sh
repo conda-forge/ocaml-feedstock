@@ -80,4 +80,17 @@ echo -n "  double activate: "
 )
 echo "OK"
 
+echo -n "  no-op ocaml_use_native/ocaml_use_cross: "
+(
+  unset -f ocaml_use_native ocaml_use_cross
+  activate
+  declare -F ocaml_use_native >/dev/null || fail "ocaml_use_native not defined"
+  declare -F ocaml_use_cross >/dev/null || fail "ocaml_use_cross not defined"
+  _before="${CONDA_OCAML_CC}|${OCAMLLIB}|${PATH}|${OCAML_CROSS_MODE:-}"
+  ocaml_use_cross || fail "ocaml_use_cross returned non-zero"
+  ocaml_use_native || fail "ocaml_use_native returned non-zero"
+  [[ "${_before}" == "${CONDA_OCAML_CC}|${OCAMLLIB}|${PATH}|${OCAML_CROSS_MODE:-}" ]] || fail "the switches changed the environment"
+)
+echo "OK"
+
 echo "=== All OCAMLPATH prepend tests passed ==="

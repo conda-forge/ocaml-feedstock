@@ -2731,6 +2731,10 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   # (the file's #! line is a build-time path).
   printf '#!/bin/sh\n_t="$(CDPATH= cd -- "$(dirname -- "$0")/.." >/dev/null && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$_t/bin/ocaml" "$@"\n' > "${_CROSS_SHIMS}/ocaml"
   chmod +x "${_CROSS_SHIMS}/ocaml"
+  # Bare `ocamlrun foo.byte` for bytecode the cross ocamlc linked: the BUILD-arch
+  # ocamlrun with the cross ld.conf (its compiled-in stdlib path is a build path).
+  printf '#!/bin/sh\n_t="$(CDPATH= cd -- "$(dirname -- "$0")/.." >/dev/null && pwd)"\nOCAMLLIB="$_t/lib/ocaml" exec "$_t/bin/ocamlrun" "$@"\n' > "${_CROSS_SHIMS}/ocamlrun"
+  chmod +x "${_CROSS_SHIMS}/ocamlrun"
   # dune's boot looks for the generators beside the ocamlc it resolved.
   for tool in ocamllex ocamlyacc; do
     [[ -x "${PREFIX}/lib/ocaml-cross-compilers/${_CROSS_TARGET}/bin/${tool}" ]] || { echo "ERROR: no ${tool} in the cross tree"; exit 1; }
