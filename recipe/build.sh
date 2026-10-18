@@ -520,9 +520,8 @@ EOF
   fi
 
   if ! is_unix; then
-    # configure ran with the staging prefix; bake the final install paths
+    # configure ran with the staging prefix; bake the final install bindir
     # instead (both toolchains), as on unix.
-    sed -i "s#^let standard_library_default = .*#let standard_library_default = {|${TARGET_LIBDIR}|}#" "${config_file}"
     sed -i "s#^let bindir = .*#let bindir = {|${TARGET_BINDIR}|}#" "${config_file}"
   fi
 
@@ -2476,7 +2475,8 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
     # the DBUG section (bytelink.ml link_compunit), here the cross stdlib.
     # Map the in-lane staging stdlib onto the installed one.
     if [[ "${OCAML_CROSS_COMPILER_IN_LANE:-0}" == "1" ]]; then
-      export BUILD_PATH_PREFIX_MAP="${PREFIX}/lib/ocaml=${CROSS_COMPILER_DIR}/lib/ocaml"
+      export OCAML_XCROSS_PATH_MAP="${PREFIX}/lib/ocaml=${CROSS_COMPILER_DIR}/lib/ocaml"
+      export BUILD_PATH_PREFIX_MAP="${OCAML_XCROSS_PATH_MAP}"
     fi
     OCAML_INSTALL_PREFIX="${OCAML_TARGET_INSTALL_PREFIX}" && mkdir -p "${OCAML_INSTALL_PREFIX}"
     build_cross_target

@@ -22,6 +22,13 @@
 # sets, and to 1 (zstd enabled) when invoked outside of a recipe build.
 HAS_ZSTD ?= $(or $(OCAML_HAS_ZSTD),1)
 
+# Makefile.common appends ".=<srcdir>" to BUILD_PATH_PREFIX_MAP and the
+# rightmost matching pair wins. This file is included after it, so appending
+# the in-lane cross stdlib mapping here keeps it rightmost.
+ifneq ($(OCAML_XCROSS_PATH_MAP),)
+export BUILD_PATH_PREFIX_MAP := $(BUILD_PATH_PREFIX_MAP):$(OCAML_XCROSS_PATH_MAP)
+endif
+
 # As the cross compiler will be linked with the _build_ version of
 # libcomprmarsh, we cannot rely on the detection of zstd done during `configure`
 # (as it would have detected the _target_ version). So we recover the flags to
