@@ -283,8 +283,8 @@ build_native() {
       export LIB="${LIB:-};$(cygpath -w "${PREFIX}/Library/lib")"
     else
       export NATIVE_LDFLAGS="-L${PREFIX}/Library/lib ${NATIVE_LDFLAGS:-}"
-      # flexlink resolves -l itself from its own -L dirs only; LDFLAGS reaches it
-      # behind -link (gcc's search), so give it the zstd.lib dir directly
+      # flexlink resolves -lzstd itself (zstd.lib via the patched fallback) and
+      # needs the dir in FLEXLINKFLAGS; LDFLAGS only reach the linker behind -link
       export FLEXLINKFLAGS="${FLEXLINKFLAGS:+${FLEXLINKFLAGS} }-L$(cygpath -m "${PREFIX}")/Library/lib"
     fi
     # zstd.dll lives in the host Library/bin; configure and the freshly built
@@ -377,7 +377,7 @@ build_native() {
       if [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
         _zstd_pc_libs="zstd.lib"
       else
-        # the patched flexlink falls back from -lzstd to zstd.lib in this -L dir
+        # -lzstd resolves to zstd.lib via the patched flexlink and FLEXLINKFLAGS
         _zstd_pc_libs="-L$(cygpath -m "${PREFIX}")/Library/lib -lzstd"
       fi
       _zstd_pc="${SRC_DIR}/_zstd_pkg_config.sh"
@@ -445,11 +445,6 @@ EOF
   # OCaml 5.4.0 leaves CHECKSTACK_CC undefined in the Makefile
   patch_checkstack_cc
   patch_makefile_opaque_config
-
-  if ! is_unix; then
-    # zstd link inputs as configure resolved them (flexlink needs the -L)
-    grep -E '^(ZSTD_LIBS|BYTECCLIBS|MKEXE)=' Makefile.config | sed 's/^/    /' || true
-  fi
 
   # MSYS2 breaks MSVC tools in Makefile variables in two ways: it converts the
   # /link flag to the filesystem path of link.exe (breaking cl.exe), and bare
@@ -1138,6 +1133,8 @@ C_EOF
       [[ "${_cl_tok}" == -l?* && "${_cl_tok}" != -l:* ]] || continue
       _cl_name="${_cl_tok#-l}"
       [[ -f "${_flexdll_dest}/lib${_cl_name}.a" ]] && continue
+      # host import libraries (zstd.lib) come from the env's Library/lib at link time
+      [[ -f "${PREFIX}/Library/lib/${_cl_name}.lib" ]] && continue
       if [[ -f "${_imports_stage_dir}/lib${_cl_name}.a" ]]; then
         cp "${_imports_stage_dir}/lib${_cl_name}.a" "${_flexdll_dest}/"
         _cl_shipped="${_cl_shipped} lib${_cl_name}.a"
