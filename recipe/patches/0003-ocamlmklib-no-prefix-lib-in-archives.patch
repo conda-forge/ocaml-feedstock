@@ -13,7 +13,7 @@ on top of 0002. See conda-forge/ocaml-feedstock#191.
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 --- a/tools/ocamlmklib.ml
 +++ b/tools/ocamlmklib.ml
-@@ -268,6 +268,27 @@
+@@ -263,6 +263,27 @@
    then ""
    else "-ccopt " ^ flag ^ String.concat ":" (make_set !rpath)
 
@@ -41,7 +41,7 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
  let prefix_list pref l =
    List.map (fun s -> pref ^ s) l
 
-@@ -349,8 +370,8 @@
+@@ -337,8 +358,8 @@
                    (Filename.basename !output_c)
                    (Filename.basename !output_c)
                    (String.concat " " (prefix_list "-ccopt " !c_opts))
@@ -52,7 +52,7 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
                    (String.concat " " !caml_libs));
    if !native_objs <> [] then
      scommand
-@@ -363,8 +384,8 @@
+@@ -351,8 +372,8 @@
                    (String.concat " " !native_objs)
                    (Filename.basename !output_c)
                    (String.concat " " (prefix_list "-ccopt " !c_opts))
