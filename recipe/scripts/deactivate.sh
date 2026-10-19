@@ -17,6 +17,21 @@ if [[ -n "${_OCAML_OCAML_PREFIX_CONDA_BACKUP:-}" ]]; then
     unset _OCAML_OCAML_PREFIX_CONDA_BACKUP
 fi
 
+if [[ -n "${_OCAML_OCAMLPATH_CONDA_BACKUP+x}" ]]; then
+    if [[ "${_OCAML_OCAMLPATH_CONDA_WAS_UNSET:-}" = "1" ]]; then
+        unset OCAMLPATH
+    else
+        export OCAMLPATH="${_OCAML_OCAMLPATH_CONDA_BACKUP}"
+    fi
+    unset _OCAML_OCAMLPATH_CONDA_BACKUP _OCAML_OCAMLPATH_CONDA_WAS_UNSET
+fi
+
+# Drop the no-op switches, but not the real ones a cross package defined
+if [[ "${_OCAML_NOOP_SWITCHES:-}" == "1" ]]; then
+    unset -f ocaml_use_native ocaml_use_cross 2>/dev/null || true
+    unset _OCAML_NOOP_SWITCHES
+fi
+
 # macOS: Restore DYLD_FALLBACK_LIBRARY_PATH
 if [[ -n "${_OCAML_DYLD_FALLBACK_LIBRARY_PATH_BACKUP+x}" ]]; then
     if [[ -n "${_OCAML_DYLD_FALLBACK_LIBRARY_PATH_BACKUP}" ]]; then

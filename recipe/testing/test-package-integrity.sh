@@ -97,6 +97,66 @@ check_ocamlmklib_compiler() {
 }
 
 # ============================================================================
+# HELPER: ocamlmklib must not record -L$PREFIX/lib in .cma/.cmxa
+# conda-forge/ocaml-feedstock#191
+# ============================================================================
+check_ocamlmklib_archive_flags() {
+  local tmpdir archive info extra
+  echo "Checking ocamlmklib archive link flags (#191)..."
+  tmpdir=$(mktemp -d)
+  cat > "${tmpdir}/stub.c" <<'EOF'
+#include <caml/mlvalues.h>
+value ml191_id(value v){return v;}
+EOF
+  echo 'external id : int -> int = "ml191_id"' > "${tmpdir}/m191.ml"
+  if ! (cd "${tmpdir}" && ocamlc -c stub.c \
+        && ocamlc -c m191.ml \
+        && { ! command -v ocamlopt >/dev/null 2>&1 || ocamlopt -c m191.ml; } \
+        && CONDA_BUILD=1 PREFIX="${PREFIX}" ocamlmklib -o m191 stub.o m191.cmo \
+             $(command -v ocamlopt >/dev/null 2>&1 && echo m191.cmx) -L"${PREFIX}/lib"); then
+    echo "ERROR: building m191 with ocamlmklib failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+
+  for archive in m191.cma m191.cmxa; do
+    if [[ ! -f "${tmpdir}/${archive}" ]]; then
+      if [[ "${archive}" == m191.cmxa ]] && ! command -v ocamlopt >/dev/null 2>&1; then
+        continue
+      fi
+      echo "ERROR: ocamlmklib did not produce ${archive}"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    info=$(cd "${tmpdir}" && ocamlobjinfo "${archive}")
+    extra=$(echo "${info}" | grep -E '^Extra C (object files|options)' || true)
+    echo "  ${archive}:"
+    echo "${extra}" | sed 's/^/    /'
+    if echo "${extra}" | grep -qF -e "-L${PREFIX}/lib"; then
+      echo "ERROR: ${archive} records -L${PREFIX}/lib"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    if ! echo "${extra}" | grep -qF -e "-lm191"; then
+      echo "ERROR: ${archive} does not record -lm191"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ${archive}: no -L${PREFIX}/lib, -lm191 recorded"
+  done
+
+  if command -v ocamlopt >/dev/null 2>&1; then
+    if ! (cd "${tmpdir}" && ocamlopt -shared -linkall -I . m191.cmxa -o m191.cmxs); then
+      echo "ERROR: ocamlopt -shared of m191.cmxa failed"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ocamlopt -shared m191.cmxa -> m191.cmxs"
+  fi
+  rm -rf "${tmpdir}"
+}
+
+# ============================================================================
 # CROSS-COMPILER mode
 # ============================================================================
 if [[ "${MODE}" == "cross" ]]; then
@@ -225,6 +285,68 @@ if [[ "${MODE}" == "cross" ]]; then
     fi
   done
   echo "  ${TARGET}-ocaml-{cc,as,ar,ld,ranlib,mkexe,mkdll}: all present"
+
+  # --- Bytecode launchers ---
+  # The cross tree's bytecode tools run on its own BUILD-arch ocamlrun, so the
+  # package works without a native ocaml installed.
+  echo "Checking cross bytecode launchers..."
+  CROSS_OCAMLRUN="${CROSS_PREFIX}/bin/ocamlrun"
+  if [[ ! -x "${CROSS_OCAMLRUN}" ]]; then
+    echo "ERROR: ${CROSS_OCAMLRUN} not found or not executable"
+    exit 1
+  fi
+  if ! "${CROSS_OCAMLRUN}" -version; then
+    echo "ERROR: ${CROSS_OCAMLRUN} does not run on this host"
+    exit 1
+  fi
+  if "${STRINGS}" "${CROSS_OCAMLRUN}" | grep -q "rattler-build_"; then
+    echo "ERROR: ocamlrun contains build-time paths"
+    "${STRINGS}" "${CROSS_OCAMLRUN}" | grep "rattler-build_" | head -5
+    exit 1
+  fi
+  for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
+    # C locale: line 2 may be bytecode, which BSD tr rejects as UTF-8
+    launch_line=$(sed -n '2p' "${launcher}" | LC_ALL=C tr -d '\0')
+    if [[ "${launch_line}" == "r='"* ]]; then
+      # OCaml 5.5 sh launcher: r=<runtime name>, c=<bindir>/"$r", search fallback
+      launch_r="${launch_line#r=\'}"
+      launch_r="${launch_r%%\'*}"
+      launch_c=$(sed -n '3p' "${launcher}" | LC_ALL=C tr -d '\0')
+      launch_dir="${launch_c#c=}"
+      launch_dir="${launch_dir%/\"\$r\"}"
+      echo "  ${launcher##*/} launcher:"
+      head -n 12 "${launcher}" | LC_ALL=C tr -d '\0' | sed 's/^/    | /'
+      candidate=""
+      how=""
+      if [[ -f "${launch_dir}/${launch_r}" ]]; then
+        candidate="${launch_dir}/${launch_r}"
+        how="baked bindir"
+      elif [[ -x "$(dirname "${launcher}")/${launch_r}" ]]; then
+        candidate="$(dirname "${launcher}")/${launch_r}"
+        how="next to launcher"
+      else
+        candidate=$(command -v "${launch_r}" || true)
+        how="PATH"
+      fi
+      if [[ -z "${candidate}" || ! -x "${candidate}" ]] \
+          || ! "${candidate}" -version 2>&1 | grep -q "The OCaml runtime"; then
+        echo "ERROR: ${launcher} runtime '${launch_r}' does not resolve to a runnable ocamlrun"
+        echo "  baked bindir: '${launch_dir}', candidate: '${candidate}' (${how})"
+        exit 1
+      fi
+      if [[ "${launcher}" == */ocamlmklib ]] && ! "${launcher}" -version; then
+        echo "ERROR: ${launcher} -version failed"
+        exit 1
+      fi
+      echo "  ${launcher##*/}: runtime ${candidate} (${how})"
+      continue
+    fi
+    if [[ "${launch_line}" != 'exec "$(dirname "$0")/'*'ocamlrun" "$0" "$@"' ]]; then
+      echo "ERROR: ${launcher} does not launch the cross tree's ocamlrun: ${launch_line}"
+      exit 1
+    fi
+    echo "  ${launcher##*/}: ${launch_line}"
+  done
 
   # --- ocamlmklib compiler resolution ---
   # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir
@@ -388,15 +510,17 @@ else
     fi
     echo "  native_c_libraries: clean"
 
-    # Inventory only: these are baked at configure time
+    # bindir and standard_library_default are baked into the binary; they must
+    # name the install prefix so conda relocates them.
     for var in bindir standard_library_default; do
       VAR_VALUE=$("${OCAML_RUN[@]}" -config-var "${var}" 2>/dev/null || echo "N/A")
       if echo "${VAR_VALUE}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
-        echo "  WARNING: ${var}=${VAR_VALUE} is a build-time staging path baked at configure time (tracked with #188)"
+        echo "ERROR: ${var} contains build-time staging path: ${VAR_VALUE}"
+        exit 1
       fi
     done
 
-    # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir.
+    # conda-forge/ocaml-feedstock#188: ocamlmklib must use the compilers next to it, not Config.bindir
     # Native only: under OCAML_QEMU the compilers ocamlmklib spawns cannot run.
     if [[ "${MODE}" != "native" ]]; then
       echo "  ocamlmklib compiler resolution: skipped in ${MODE} mode"
@@ -408,6 +532,7 @@ else
         *)
           echo "Checking ocamlmklib compiler resolution..."
           check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
+          check_ocamlmklib_archive_flags
           ;;
       esac
     fi
@@ -427,6 +552,44 @@ else
     echo "  ocamlc.opt binary: clean"
   else
     echo "  WARNING: ocamlc.opt not found"
+  fi
+
+  # --- Config is opaque to other compiler-libs units ---
+  # Config bakes per-build paths; units importing its implementation with a CRC
+  # would change CRC on every rebuild. ocamlobjinfo prints an all-dash CRC for
+  # an opaque import. Cross-target ocamlobjinfo runs under the emulator; .cmx
+  # metadata is architecture-independent.
+  OBJINFO_RUN=("${PREFIX}/bin/ocamlobjinfo")
+  if [[ "${MODE}" == "cross-target" ]]; then
+    OBJINFO_RUN=("${OCAML_QEMU:-}" "${PREFIX}/bin/ocamlobjinfo.opt")
+  fi
+  if [[ "${CAN_EXECUTE}" != "true" ]]; then
+    echo "Skipping Config opacity check (cannot execute cross-target binaries)"
+  else
+    echo "Checking Config is imported without an implementation CRC..."
+    for unit in clflags location; do
+      cmx="${PREFIX}/lib/ocaml/compiler-libs/${unit}.cmx"
+      if [[ ! -f "${cmx}" ]]; then
+        echo "ERROR: ${cmx} not found"
+        exit 1
+      fi
+      config_crc=$("${OBJINFO_RUN[@]}" "${cmx}" \
+        | awk '/^Implementations imported:/ {f=1; next} /^[^[:space:]]/ {f=0} f && $2 == "Config" {print $1}')
+      if [[ -z "${config_crc}" ]]; then
+        # clflags uses Config; location does not import its implementation
+        if [[ "${unit}" == "clflags" ]]; then
+          echo "ERROR: clflags.cmx does not list Config under implementations imported"
+          exit 1
+        fi
+        echo "  ${unit}.cmx: does not import Config"
+        continue
+      fi
+      if [[ "${config_crc}" != "${config_crc//[^-]/}" ]]; then
+        echo "ERROR: ${unit}.cmx imports Config implementation with CRC ${config_crc}"
+        exit 1
+      fi
+      echo "  ${unit}.cmx: Config imported without CRC"
+    done
   fi
 
   # --- macOS rpath check (native/cross-compiler only, not cross-target) ---
@@ -457,5 +620,27 @@ else
     fi
   fi
 fi
+
+# --- Staging prefixes in shipped files (all modes) ---
+# Paths compiled into binaries and libraries are invisible to -config-var when
+# the binary cannot run here, so scan the bytes of every shipped file.
+echo "Scanning shipped files for build-time staging prefixes..."
+if [[ "${MODE}" == "cross" ]]; then
+  SCAN_PATHS=("${PREFIX}/bin/${TARGET}-"* "${PREFIX}/lib/ocaml-cross-compilers/${TARGET}")
+else
+  SCAN_PATHS=("${PREFIX}/bin/oc"* "${PREFIX}/lib/ocaml")
+fi
+STAGING_RE='/_(native|xcross|target)_compiler'
+# .cmt/.cmti record the build command line and load path; they never name a
+# runtime path, so they are skipped.
+STAGING_HITS=$(grep -rlaE --exclude='*.cmt' --exclude='*.cmti' "${STAGING_RE}" "${SCAN_PATHS[@]}" 2>/dev/null || true)
+if [[ -n "${STAGING_HITS}" ]]; then
+  echo "ERROR: shipped files contain build-time staging prefixes:"
+  while IFS= read -r hit; do
+    echo "  ${hit}: $(grep -aoE "[^[:space:][:cntrl:]]*${STAGING_RE}[^[:space:][:cntrl:]]*" "${hit}" | head -1)"
+  done <<< "${STAGING_HITS}"
+  exit 1
+fi
+echo "  staging prefixes: none in ${#SCAN_PATHS[@]} scanned paths"
 
 echo "=== All package integrity tests passed ==="

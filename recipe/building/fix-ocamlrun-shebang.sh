@@ -19,7 +19,15 @@ fix_ocamlrun_shebang() {
     fi
 
   elif [[ "$shebang" == "#!"*"ocamlrun"* ]]; then
-    # Direct ocamlrun shebang: replace with env
-    sed -i '1s|.*|#!/usr/bin/env ocamlrun|' "$file"
+    if [[ "$file" == */lib/ocaml-cross-compilers/* ]]; then
+      # Cross tree: env would find the wrong ocamlrun, so use the sh launcher
+      # form (same layout OCaml emits for long paths) and resolve it above
+      sed -i '1s|.*|#!/bin/sh\
+exec ocamlrun "$0" "$@"|' "$file"
+      fix_ocamlrun_shebang "$file"
+    else
+      # Direct ocamlrun shebang: replace with env
+      sed -i '1s|.*|#!/usr/bin/env ocamlrun|' "$file"
+    fi
   fi
 }

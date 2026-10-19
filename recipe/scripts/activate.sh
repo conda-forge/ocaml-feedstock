@@ -6,6 +6,23 @@ export _OCAML_OCAML_PREFIX_CONDA_BACKUP="${OCAML_PREFIX:-}"
 export OCAML_PREFIX="${CONDA_PREFIX}"
 export OCAMLLIB="${OCAML_PREFIX}"/lib/ocaml
 
+# During a conda build the host prefix libraries go first on OCAMLPATH
+if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ]; then
+  case ":${OCAMLPATH:-}:" in
+    *":${PREFIX}/lib/ocaml:"*) ;;
+    *)
+      export _OCAML_OCAMLPATH_CONDA_BACKUP="${OCAMLPATH:-}"
+      # Distinguish unset from set-but-empty for the restore
+      if [ -z "${OCAMLPATH+x}" ]; then
+        export _OCAML_OCAMLPATH_CONDA_WAS_UNSET=1
+      else
+        unset _OCAML_OCAMLPATH_CONDA_WAS_UNSET
+      fi
+      export OCAMLPATH="${PREFIX}/lib/ocaml${OCAMLPATH:+:${OCAMLPATH}}"
+      ;;
+  esac
+fi
+
 # OCaml toolchain configuration
 # These are used by ocamlopt for assembling and linking native code
 # @CC@, @AS@, etc. are replaced at build time with actual tools used
@@ -17,6 +34,28 @@ export CONDA_OCAML_LD="${CONDA_OCAML_LD:-@LD@}"
 export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB:-@RANLIB@}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-@MKEXE@}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-@MKDLL@}"
+
+# No-op ocaml_use_native / ocaml_use_cross so recipes can call them on any lane.
+# Only defined when absent: the cross package defines the real ones, in either
+# activation order.
+if [ -n "${BASH_VERSION:-}" ]; then
+  if ! type ocaml_use_native >/dev/null 2>&1; then
+    ocaml_use_native() {
+      [ -z "${OCAML_CROSS_DEBUG:-}" ] || echo "ocaml_use_native: native install, nothing to switch" >&2
+      return 0
+    }
+    export -f ocaml_use_native
+    export _OCAML_NOOP_SWITCHES=1
+  fi
+  if ! type ocaml_use_cross >/dev/null 2>&1; then
+    ocaml_use_cross() {
+      [ -z "${OCAML_CROSS_DEBUG:-}" ] || echo "ocaml_use_cross: no cross compiler installed, nothing to switch" >&2
+      return 0
+    }
+    export -f ocaml_use_cross
+    export _OCAML_NOOP_SWITCHES=1
+  fi
+fi
 
 # macOS: DYLD_FALLBACK_LIBRARY_PATH for build-time executables to find libzstd
 if [ "$(uname)" = "Darwin" ]; then

@@ -90,3 +90,6 @@ for tool_name in "${!WRAPPERS[@]}"; do
             -DDEFAULT_TOOL="\"${default_tool}\""
     fi
 done
+
+# Debug symbols embed the build path and are not needed at runtime
+rm -f "${INSTALL_DIR}"/conda-ocaml-*.pdb
