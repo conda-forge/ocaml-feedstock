@@ -11,6 +11,9 @@ echo.
 REM Test 1: Verify activation script sets defaults
 echo Test 1: Activation script sets default CONDA_OCAML_* values
 
+REM With build requirements CONDA_PREFIX is the build env; ocaml and zstd live in PREFIX
+if defined PREFIX set "CONDA_PREFIX=%PREFIX%"
+
 REM Source activation script if needed
 if exist "%CONDA_PREFIX%\etc\conda\activate.d\ocaml_activate.bat" (
     call "%CONDA_PREFIX%\etc\conda\activate.d\ocaml_activate.bat"
