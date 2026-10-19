@@ -35,6 +35,19 @@ export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB:-@RANLIB@}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-@MKEXE@}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-@MKDLL@}"
 
+# Archives no longer record -L${PREFIX}/lib (#191), so in a conda build the
+# native links find the host prefix libraries through mkexe/mkdll instead
+if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ]; then
+  case "${CONDA_OCAML_MKEXE}" in
+    *" -L${PREFIX}/lib"*) ;;
+    *) export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib" ;;
+  esac
+  case "${CONDA_OCAML_MKDLL}" in
+    *" -L${PREFIX}/lib"*) ;;
+    *) export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL} -L${PREFIX}/lib" ;;
+  esac
+fi
+
 # No-op ocaml_use_native / ocaml_use_cross so recipes can call them on any lane.
 # Only defined when absent: the cross package defines the real ones, in either
 # activation order.
