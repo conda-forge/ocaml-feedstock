@@ -106,6 +106,7 @@ ocaml_use_cross() {
   # run with, the host prefix libraries (zstd etc.)
   if [[ "${CONDA_BUILD:-}" == "1" && -n "${PREFIX:-}" ]]; then
     export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib"
+    export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL} -L${PREFIX}/lib"
   fi
   export OCAMLLIB="${_OCAML_CROSS_PREFIX}/lib/ocaml"
   export OCAML_PREFIX="${_OCAML_CROSS_PREFIX}"
