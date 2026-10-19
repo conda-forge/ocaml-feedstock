@@ -627,6 +627,9 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun
+                    # Runtime-id-suffixed runtimes.
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun*-*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/*-ocamlrun*-*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc.opt
@@ -661,8 +664,8 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
-                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt.${{ so }}
-                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads.${{ so }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt-*.${{ so }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads-*.${{ so }}
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 
