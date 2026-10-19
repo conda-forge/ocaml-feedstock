@@ -2346,6 +2346,8 @@ EOF
     # cross tree's ocamlrun, which loads stubs via the ld.conf above: ship the
     # BUILD-arch stubs of the native ocaml in NATIVE_PREFIX, not the target-arch
     # ones from make install. The *nat.so natdynlink stubs stay target-arch.
+    # 5.5 suffixes stub names with triplet and runtime id (dllunixbyt-<triplet>-<id>.so);
+    # the BUILD-arch stub is installed under the target name the .cma files record.
     _native_stublibs="${NATIVE_PREFIX}/lib/ocaml/stublibs"
     _byt_stubs=()
     for _s in "${_native_stublibs}"/dll*.so; do
@@ -2355,12 +2357,25 @@ EOF
       echo "ERROR: no BUILD-arch bytecode stubs in ${_native_stublibs}"
       exit 1
     fi
-    mkdir -p "${cross_dir}lib/ocaml/stublibs"
+    _cross_stublibs="${cross_dir}lib/ocaml/stublibs"
+    mkdir -p "${_cross_stublibs}"
+    _stub_pairs=()
     for _s in "${_byt_stubs[@]}"; do
-      rm -f "${cross_dir}lib/ocaml/stublibs/$(basename "${_s}")"
+      _base="${_s##*/}"
+      _stem="${_base%%-*}"
+      [[ "${_stem}" == "${_base}" ]] && _stem="${_base%.so}"
+      _targets=()
+      for _t in "${_cross_stublibs}/${_stem}.so" "${_cross_stublibs}/${_stem}"-*.so; do
+        [[ -e "${_t}" && "${_t}" != *nat.so ]] && _targets+=("${_t}")
+      done
+      [[ ${#_targets[@]} -eq 0 ]] && _targets=("${_cross_stublibs}/${_base}")
+      for _t in "${_targets[@]}"; do
+        rm -f "${_t}"
+        cp -L "${_s}" "${_t}"
+        _stub_pairs+=("${_base} -> ${_t##*/}")
+      done
     done
-    cp -L "${_byt_stubs[@]}" "${cross_dir}lib/ocaml/stublibs/"
-    echo "    Stubs: ${_byt_stubs[*]##*/}"
+    echo "    Stubs: ${_stub_pairs[*]}"
 
     # ocamllex from the cross build is a TARGET-arch executable; dune runs it
     # on the BUILD machine. Ship the build-arch one (ocamlyacc already is).
