@@ -124,6 +124,10 @@ source:
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
+      # Keeps $PREFIX/lib out of what ocamlmklib records in .cma/.cmxa
+      # (conda-forge/ocaml-feedstock#191).
+      - if: unix
+        then: patches/0003-ocamlmklib-no-prefix-lib-in-archives.patch
       # Teaches configure to accept the aarch64-w64-mingw32 triple and select
       # the mingw64arm flexdll chain.
       - if: cross_target_platform_ == "win-arm64"

@@ -97,6 +97,65 @@ check_ocamlmklib_compiler() {
 }
 
 # ============================================================================
+# HELPER: ocamlmklib must not record -L$PREFIX/lib in .cma/.cmxa
+# conda-forge/ocaml-feedstock#191
+# ============================================================================
+check_ocamlmklib_archive_flags() {
+  local tmpdir archive info extra
+  echo "Checking ocamlmklib archive link flags (#191)..."
+  tmpdir=$(mktemp -d)
+  cat > "${tmpdir}/stub.c" <<'EOF'
+#include <caml/mlvalues.h>
+value ml191_id(value v){return v;}
+EOF
+  echo 'external id : int -> int = "ml191_id"' > "${tmpdir}/m191.ml"
+  if ! (cd "${tmpdir}" && ocamlc -c m191.ml \
+        && { ! command -v ocamlopt >/dev/null 2>&1 || ocamlopt -c m191.ml; } \
+        && CONDA_BUILD=1 PREFIX="${PREFIX}" ocamlmklib -o m191 stub.c m191.cmo \
+             $(command -v ocamlopt >/dev/null 2>&1 && echo m191.cmx) -L"${PREFIX}/lib"); then
+    echo "ERROR: building m191 with ocamlmklib failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+
+  for archive in m191.cma m191.cmxa; do
+    if [[ ! -f "${tmpdir}/${archive}" ]]; then
+      if [[ "${archive}" == m191.cmxa ]] && ! command -v ocamlopt >/dev/null 2>&1; then
+        continue
+      fi
+      echo "ERROR: ocamlmklib did not produce ${archive}"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    info=$(cd "${tmpdir}" && ocamlobjinfo "${archive}")
+    extra=$(echo "${info}" | grep -E '^Extra C (object files|options)' || true)
+    echo "  ${archive}:"
+    echo "${extra}" | sed 's/^/    /'
+    if echo "${extra}" | grep -qF -e "-L${PREFIX}/lib"; then
+      echo "ERROR: ${archive} records -L${PREFIX}/lib"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    if ! echo "${extra}" | grep -qF -e "-lm191"; then
+      echo "ERROR: ${archive} does not record -lm191"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ${archive}: no -L${PREFIX}/lib, -lm191 recorded"
+  done
+
+  if command -v ocamlopt >/dev/null 2>&1; then
+    if ! (cd "${tmpdir}" && ocamlopt -shared -linkall -I . m191.cmxa -o m191.cmxs); then
+      echo "ERROR: ocamlopt -shared of m191.cmxa failed"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ocamlopt -shared m191.cmxa -> m191.cmxs"
+  fi
+  rm -rf "${tmpdir}"
+}
+
+# ============================================================================
 # CROSS-COMPILER mode
 # ============================================================================
 if [[ "${MODE}" == "cross" ]]; then
@@ -247,6 +306,40 @@ if [[ "${MODE}" == "cross" ]]; then
   for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
     # C locale: line 2 may be bytecode, which BSD tr rejects as UTF-8
     launch_line=$(sed -n '2p' "${launcher}" | LC_ALL=C tr -d '\0')
+    if [[ "${launch_line}" == "r='"* ]]; then
+      # OCaml 5.5 sh launcher: r=<runtime name>, c=<bindir>/"$r", search fallback
+      launch_r="${launch_line#r=\'}"
+      launch_r="${launch_r%%\'*}"
+      launch_c=$(sed -n '3p' "${launcher}" | LC_ALL=C tr -d '\0')
+      launch_dir="${launch_c#c=}"
+      launch_dir="${launch_dir%/\"\$r\"}"
+      echo "  ${launcher##*/} launcher:"
+      head -n 12 "${launcher}" | LC_ALL=C tr -d '\0' | sed 's/^/    | /'
+      candidate=""
+      how=""
+      if [[ -f "${launch_dir}/${launch_r}" ]]; then
+        candidate="${launch_dir}/${launch_r}"
+        how="baked bindir"
+      elif [[ -x "$(dirname "${launcher}")/${launch_r}" ]]; then
+        candidate="$(dirname "${launcher}")/${launch_r}"
+        how="next to launcher"
+      else
+        candidate=$(command -v "${launch_r}" || true)
+        how="PATH"
+      fi
+      if [[ -z "${candidate}" || ! -x "${candidate}" ]] \
+          || ! "${candidate}" -version 2>&1 | grep -q "The OCaml runtime"; then
+        echo "ERROR: ${launcher} runtime '${launch_r}' does not resolve to a runnable ocamlrun"
+        echo "  baked bindir: '${launch_dir}', candidate: '${candidate}' (${how})"
+        exit 1
+      fi
+      if [[ "${launcher}" == */ocamlmklib ]] && ! "${launcher}" -version; then
+        echo "ERROR: ${launcher} -version failed"
+        exit 1
+      fi
+      echo "  ${launcher##*/}: runtime ${candidate} (${how})"
+      continue
+    fi
     if [[ "${launch_line}" != 'exec "$(dirname "$0")/'*'ocamlrun" "$0" "$@"' ]]; then
       echo "ERROR: ${launcher} does not launch the cross tree's ocamlrun: ${launch_line}"
       exit 1
@@ -430,6 +523,7 @@ else
         *)
           echo "Checking ocamlmklib compiler resolution..."
           check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
+          check_ocamlmklib_archive_flags
           ;;
       esac
     fi
