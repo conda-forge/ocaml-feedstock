@@ -1,26 +1,56 @@
 # shellcheck shell=sh
-# Cross-compiler activation for ocaml_$target (installed alongside native ocaml_$build)
+# Cross-compiler activation for ocaml_$target (standalone, or alongside native ocaml_$build)
 #
 # Provides functions to swap between native and cross-compiler toolchains:
-#   ocaml_use_cross   - switch CONDA_OCAML_* to cross-compiler tools
-#   ocaml_use_native  - restore CONDA_OCAML_* to native tools
+#   ocaml_use_cross   - switch CONDA_OCAML_* to cross-compiler tools, put the
+#                       bare-name launchers (ocamlc, ocamlopt, ...) first on PATH
+#                       and the cross library first on OCAMLPATH
+#   ocaml_use_native  - restore CONDA_OCAML_* to native tools and drop both
+#   ocaml_cross_check - print the ocamlc/OCAMLLIB in effect, warn when ocamlopt is
+#                       not the launcher, fail when the cross toplevel cannot
+#                       load unix.cma (not run on activation)
+#
+# The env switches to cross mode on its own when it cross-compiles
+# (CONDA_BUILD_CROSS_COMPILATION=1, or build_platform != target_platform).
+# OCAML_CROSS_AUTO=0 turns that off.
 #
 # @TARGET@ and @TARGET_ID@ are replaced at install time by build.sh
 
 export _OCAML_CROSS_TARGET="@TARGET@"
 export _OCAML_CROSS_TARGET_ID="@TARGET_ID@"
 export _OCAML_CROSS_PREFIX="${CONDA_PREFIX}/lib/ocaml-cross-compilers/@TARGET@"
+export _OCAML_CROSS_SHIMS="${_OCAML_CROSS_PREFIX}/shims"
 
-# Backup native values on first activation
-export _OCAML_NATIVE_CC="${CONDA_OCAML_CC:-}"
-export _OCAML_NATIVE_AS="${CONDA_OCAML_AS:-}"
-export _OCAML_NATIVE_AR="${CONDA_OCAML_AR:-}"
-export _OCAML_NATIVE_LD="${CONDA_OCAML_LD:-}"
-export _OCAML_NATIVE_RANLIB="${CONDA_OCAML_RANLIB:-}"
-export _OCAML_NATIVE_MKEXE="${CONDA_OCAML_MKEXE:-}"
-export _OCAML_NATIVE_MKDLL="${CONDA_OCAML_MKDLL:-}"
-export _OCAML_NATIVE_OCAMLLIB="${OCAMLLIB:-}"
-export _OCAML_NATIVE_OCAML_PREFIX="${OCAML_PREFIX:-}"
+# Backup native values, unless a previous activation already switched to cross
+if [ "${OCAML_CROSS_MODE:-}" != "cross" ]; then
+  export _OCAML_NATIVE_CC="${CONDA_OCAML_CC:-}"
+  export _OCAML_NATIVE_AS="${CONDA_OCAML_AS:-}"
+  export _OCAML_NATIVE_AR="${CONDA_OCAML_AR:-}"
+  export _OCAML_NATIVE_LD="${CONDA_OCAML_LD:-}"
+  export _OCAML_NATIVE_RANLIB="${CONDA_OCAML_RANLIB:-}"
+  export _OCAML_NATIVE_MKEXE="${CONDA_OCAML_MKEXE:-}"
+  export _OCAML_NATIVE_MKDLL="${CONDA_OCAML_MKDLL:-}"
+  export _OCAML_NATIVE_OCAMLLIB="${OCAMLLIB:-}"
+  export _OCAML_NATIVE_OCAML_PREFIX="${OCAML_PREFIX:-}"
+  export OCAML_CROSS_MODE="native"
+fi
+
+# During a conda build the host prefix libraries go first on OCAMLPATH
+if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ]; then
+  case ":${OCAMLPATH:-}:" in
+    *":${PREFIX}/lib/ocaml:"*) ;;
+    *)
+      export _OCAML_OCAMLPATH_CONDA_BACKUP="${OCAMLPATH:-}"
+      # Distinguish unset from set-but-empty for the restore
+      if [ -z "${OCAMLPATH+x}" ]; then
+        export _OCAML_OCAMLPATH_CONDA_WAS_UNSET=1
+      else
+        unset _OCAML_OCAMLPATH_CONDA_WAS_UNSET
+      fi
+      export OCAMLPATH="${PREFIX}/lib/ocaml${OCAMLPATH:+:${OCAMLPATH}}"
+      ;;
+  esac
+fi
 
 # Cross-compiler defaults (replaced at install time)
 export _OCAML_CROSS_CC="@CROSS_CC@"
@@ -30,6 +60,35 @@ export _OCAML_CROSS_LD="@CROSS_LD@"
 export _OCAML_CROSS_RANLIB="@CROSS_RANLIB@"
 export _OCAML_CROSS_MKEXE="@CROSS_MKEXE@"
 export _OCAML_CROSS_MKDLL="@CROSS_MKDLL@"
+
+# Remove every copy of the bare-name launcher dir from PATH
+_ocaml_cross_path_drop() {
+  local _p=":${PATH:-}:"
+  while [[ "${_p}" == *":${_OCAML_CROSS_SHIMS}:"* ]]; do
+    _p="${_p//":${_OCAML_CROSS_SHIMS}:"/:}"
+  done
+  _p="${_p#:}"
+  export PATH="${_p%:}"
+}
+
+# Remove every copy of the cross library dir from OCAMLPATH. An OCAMLPATH that
+# ocaml_use_cross created from unset is unset again once it is empty.
+_ocaml_cross_ocamlpath_drop() {
+  [[ -n "${OCAMLPATH+x}" ]] || return 0
+  local _lib="${_OCAML_CROSS_PREFIX}/lib/ocaml"
+  local _p=":${OCAMLPATH}:"
+  while [[ "${_p}" == *":${_lib}:"* ]]; do
+    _p="${_p//":${_lib}:"/:}"
+  done
+  _p="${_p#:}"
+  _p="${_p%:}"
+  if [[ -z "${_p}" && "${_OCAML_CROSS_OCAMLPATH_UNSET:-}" == "1" ]]; then
+    unset OCAMLPATH
+  else
+    export OCAMLPATH="${_p}"
+  fi
+  unset _OCAML_CROSS_OCAMLPATH_UNSET
+}
 
 # Switch to cross-compiler toolchain
 # Uses indirect expansion (${!var}) since bash doesn't support nested ${VAR_${OTHER}}
@@ -43,30 +102,126 @@ ocaml_use_cross() {
   _var="CONDA_OCAML_${_id}_RANLIB"; export CONDA_OCAML_RANLIB="${!_var:-${_OCAML_CROSS_RANLIB}}"
   _var="CONDA_OCAML_${_id}_MKEXE"; export CONDA_OCAML_MKEXE="${!_var:-${_OCAML_CROSS_MKEXE}}"
   _var="CONDA_OCAML_${_id}_MKDLL"; export CONDA_OCAML_MKDLL="${!_var:-${_OCAML_CROSS_MKDLL}}"
+  # In a conda build the target executables link against, and at build time
+  # run with, the host prefix libraries (zstd etc.)
+  if [[ "${CONDA_BUILD:-}" == "1" && -n "${PREFIX:-}" ]]; then
+    if [[ "${CONDA_OCAML_MKEXE}" != *" -L${PREFIX}/lib"* ]]; then
+      export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib"
+    fi
+    if [[ "${CONDA_OCAML_MKDLL}" != *" -L${PREFIX}/lib"* ]]; then
+      export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL} -L${PREFIX}/lib"
+    fi
+    # The generated <triplet>-ocaml-mkexe/-mkdll wrappers read the scoped
+    # variables; remember their prior state once per session for ocaml_use_native
+    local _kind
+    if [[ "${_OCAML_CROSS_SCOPED_SAVED:-}" != "1" ]]; then
+      for _kind in MKEXE MKDLL; do
+        _var="CONDA_OCAML_${_id}_${_kind}"
+        if [[ -n "${!_var+x}" ]]; then
+          export "_OCAML_CROSS_SAVED_${_kind}=${!_var}"
+        else
+          unset "_OCAML_CROSS_SAVED_${_kind}"
+        fi
+      done
+      export _OCAML_CROSS_SCOPED_SAVED=1
+    fi
+    export "CONDA_OCAML_${_id}_MKEXE=${CONDA_OCAML_MKEXE}"
+    export "CONDA_OCAML_${_id}_MKDLL=${CONDA_OCAML_MKDLL}"
+  fi
   export OCAMLLIB="${_OCAML_CROSS_PREFIX}/lib/ocaml"
   export OCAML_PREFIX="${_OCAML_CROSS_PREFIX}"
+  _ocaml_cross_path_drop
+  export PATH="${_OCAML_CROSS_SHIMS}${PATH:+:${PATH}}"
+  # The cross library goes first so findlib/dune resolve unix, compiler-libs
+  # etc. from it, not from a native ocaml in the same env
+  _ocaml_cross_ocamlpath_drop
+  [[ -n "${OCAMLPATH+x}" ]] || export _OCAML_CROSS_OCAMLPATH_UNSET=1
+  export OCAMLPATH="${_OCAML_CROSS_PREFIX}/lib/ocaml${OCAMLPATH:+:${OCAMLPATH}}"
   export OCAML_CROSS_MODE="cross"
 }
 
-# Restore native toolchain
+# Restore native toolchain; a variable that was unset before is unset again
 ocaml_use_native() {
-  export CONDA_OCAML_CC="${_OCAML_NATIVE_CC}"
-  export CONDA_OCAML_AS="${_OCAML_NATIVE_AS}"
-  export CONDA_OCAML_AR="${_OCAML_NATIVE_AR}"
-  export CONDA_OCAML_LD="${_OCAML_NATIVE_LD}"
-  export CONDA_OCAML_RANLIB="${_OCAML_NATIVE_RANLIB}"
-  export CONDA_OCAML_MKEXE="${_OCAML_NATIVE_MKEXE}"
-  export CONDA_OCAML_MKDLL="${_OCAML_NATIVE_MKDLL}"
-  export OCAMLLIB="${_OCAML_NATIVE_OCAMLLIB}"
-  export OCAML_PREFIX="${_OCAML_NATIVE_OCAML_PREFIX}"
+  local _name _backup _scoped
+  for _name in CC AS AR LD RANLIB MKEXE MKDLL; do
+    _backup="_OCAML_NATIVE_${_name}"
+    if [[ -n "${!_backup:-}" ]]; then
+      export "CONDA_OCAML_${_name}=${!_backup}"
+    else
+      unset "CONDA_OCAML_${_name}"
+    fi
+  done
+  # Put the scoped mkexe/mkdll variables back as ocaml_use_cross found them
+  if [[ "${_OCAML_CROSS_SCOPED_SAVED:-}" == "1" ]]; then
+    for _name in MKEXE MKDLL; do
+      _scoped="CONDA_OCAML_${_OCAML_CROSS_TARGET_ID}_${_name}"
+      _backup="_OCAML_CROSS_SAVED_${_name}"
+      if [[ "${!_backup+x}" == "x" ]]; then
+        export "${_scoped}=${!_backup}"
+      else
+        unset "${_scoped}"
+      fi
+      unset "_OCAML_CROSS_SAVED_${_name}"
+    done
+    unset _OCAML_CROSS_SCOPED_SAVED
+  fi
+  if [[ -n "${_OCAML_NATIVE_OCAMLLIB:-}" ]]; then
+    export OCAMLLIB="${_OCAML_NATIVE_OCAMLLIB}"
+  else
+    unset OCAMLLIB
+  fi
+  if [[ -n "${_OCAML_NATIVE_OCAML_PREFIX:-}" ]]; then
+    export OCAML_PREFIX="${_OCAML_NATIVE_OCAML_PREFIX}"
+  else
+    unset OCAML_PREFIX
+  fi
+  _ocaml_cross_path_drop
+  _ocaml_cross_ocamlpath_drop
   export OCAML_CROSS_MODE="native"
 }
 
+# In cross mode: print the ocamlc/OCAMLLIB/OCAMLPATH in effect, warn on stderr
+# when ocamlopt resolves elsewhere (e.g. after a later
+# PATH=$BUILD_PREFIX/bin:$PATH; ocaml_use_cross moves the launcher dir back to
+# the front), and fail when the cross toplevel cannot #load unix.cma.
+ocaml_cross_check() {
+  [[ "${OCAML_CROSS_MODE:-}" == "cross" ]] || return 0
+  local _opt _work _out
+  echo "ocaml_cross_check: ocamlc=$(command -v ocamlc 2>/dev/null || echo '<none>') OCAMLLIB=${OCAMLLIB:-<unset>} OCAMLPATH=${OCAMLPATH%%:*}"
+  _opt=$(command -v ocamlopt 2>/dev/null || true)
+  if [[ "${_opt}" != "${_OCAML_CROSS_SHIMS}/ocamlopt" ]]; then
+    echo "WARNING: cross mode is on but ocamlopt resolves to '${_opt:-<none>}', not ${_OCAML_CROSS_SHIMS}/ocamlopt; run ocaml_use_cross" >&2
+  fi
+  _work=$(mktemp -d)
+  printf '#directory "+unix";;\n#load "unix.cma";;\nlet _ = Unix.getcwd ()\n' > "${_work}/probe.ml"
+  if ! _out=$("${_OCAML_CROSS_SHIMS}/ocaml" "${_work}/probe.ml" 2>&1); then
+    echo "ERROR: ocaml_cross_check: the cross toplevel ${_OCAML_CROSS_SHIMS}/ocaml cannot #load unix.cma: ${_out}" >&2
+    rm -rf "${_work}"
+    return 1
+  fi
+  rm -rf "${_work}"
+  return 0
+}
+
 # Export functions so they're available in subshells and test scripts
+export -f _ocaml_cross_path_drop
+export -f _ocaml_cross_ocamlpath_drop
 export -f ocaml_use_cross
 export -f ocaml_use_native
+export -f ocaml_cross_check
+# These are the real switches now, not the native package's no-ops
+unset _OCAML_NOOP_SWITCHES
 
 # Export cross-compiler info for downstream scripts
 export OCAML_CROSS_TARGET="${_OCAML_CROSS_TARGET}"
 export OCAML_CROSS_PREFIX="${_OCAML_CROSS_PREFIX}"
-export OCAML_CROSS_MODE="native"
+
+# Self-activate in a cross-compiling env; re-sourcing in cross mode refreshes it
+if [ "${OCAML_CROSS_MODE}" = "cross" ]; then
+  ocaml_use_cross
+elif [ "${OCAML_CROSS_AUTO:-1}" != "0" ]; then
+  if [ "${CONDA_BUILD_CROSS_COMPILATION:-0}" = "1" ] || \
+     { [ -n "${build_platform:-}" ] && [ -n "${target_platform:-}" ] && [ "${build_platform}" != "${target_platform}" ]; }; then
+    ocaml_use_cross
+  fi
+fi

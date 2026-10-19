@@ -8,7 +8,7 @@ flexlink, which must not be overridden.
 
 Also resolve ocamlc/ocamlopt next to the running executable (falling back to PATH) instead of Config.bindir; see conda-forge/ocaml-feedstock#188.
 ---
- tools/ocamlmklib.ml | 24++++++++++++++++++++++--
+ tools/ocamlmklib.ml | 24 ++++++++++++++++++++++--
  1 file changed, 20 insertions(+), 4 deletions(-)
 
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml

@@ -11,6 +11,9 @@ echo.
 REM Test 1: Verify activation script sets defaults
 echo Test 1: Activation script sets default CONDA_OCAML_* values
 
+REM With build requirements CONDA_PREFIX is the build env; ocaml and zstd live in PREFIX
+if defined PREFIX set "CONDA_PREFIX=%PREFIX%"
+
 REM Source activation script if needed
 if exist "%CONDA_PREFIX%\etc\conda\activate.d\ocaml_activate.bat" (
     call "%CONDA_PREFIX%\etc\conda\activate.d\ocaml_activate.bat"
@@ -159,6 +162,22 @@ goto :native_test4_done
 echo Test 4: SKIPPED (no native backend on this target)
 echo.
 :native_test4_done
+
+REM Test 5: MSVC activation adds Library/lib to FLEXLINKFLAGS so flexlink finds zstd.lib
+if not "%TOOLCHAIN%"=="msvc" goto :flexlink_test_done
+echo Test 5: FLEXLINKFLAGS has Library/lib and zstd.lib exists
+echo "%FLEXLINKFLAGS%" | findstr /I /C:"/Library/lib" >nul
+if errorlevel 1 (
+    echo FAIL: FLEXLINKFLAGS does not contain /Library/lib: %FLEXLINKFLAGS%
+    exit /b 1
+)
+if not exist "%CONDA_PREFIX%\Library\lib\zstd.lib" (
+    echo FAIL: %CONDA_PREFIX%\Library\lib\zstd.lib not found
+    exit /b 1
+)
+echo PASS: FLEXLINKFLAGS has Library/lib and zstd.lib is present
+echo.
+:flexlink_test_done
 
 REM Cleanup
 rmdir /s /q "%TESTDIR%" 2>nul

@@ -1,0 +1,30 @@
+Register primitives with the runtime in the bytecode toplevel of a cross compiler (host != target).
+
+--- a/bytecomp/symtable.ml
++++ b/bytecomp/symtable.ml
+@@ -137,11 +137,16 @@
+ let set_prim_table name =
+   ignore(PrimMap.enter c_prim_table name)
+
++(* Set by init_toplevel: code is linked into the running host program, so
++   primitives must be resolved and registered even in a cross compiler. *)
++let in_core = ref false
++
+ let of_prim name =
+   try
+     PrimMap.find !c_prim_table name
+   with Not_found ->
+-    if !Clflags.custom_runtime || Config.host <> Config.target
++    if !Clflags.custom_runtime
++       || (Config.host <> Config.target && not !in_core)
+        || !Clflags.no_check_prims
+     then
+       PrimMap.enter c_prim_table name
+@@ -350,6 +355,7 @@
+ (* Initialize the linker for toplevel use *)
+
+ let init_toplevel () =
++  in_core := true;
+   let sect = get_bytecode_sections () in
+   global_table := sect.symb;
+   c_prim_table := PrimMap.empty;

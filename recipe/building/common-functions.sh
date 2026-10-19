@@ -577,8 +577,8 @@ setup_toolchain() {
   esac
 
   # Export all
-  # STRIP defaults to ':' so an empty strip stays a harmless no-op when passed as a make variable
   export "${name}_AR=${_AR}" "${name}_AS=${_AS}" "${name}_CC=${_CC}" "${name}_RANLIB=${_RANLIB}"
+  # STRIP defaults to ':' so an empty strip stays a harmless no-op when passed as a make variable
   export "${name}_NM=${_NM}" "${name}_STRIP=${_STRIP:-:}" "${name}_LD=${_LD}"
   export "${name}_ASM=${_ASM}" "${name}_MKDLL=${_MKDLL}" "${name}_MKEXE=${_MKEXE}"
 }
@@ -840,6 +840,18 @@ patch_checkstack_cc() {
   fi
 }
 
+# Compile utils/config with -opaque. Config bakes per-build paths, so without
+# it every unit importing Config records an implementation CRC that changes on
+# each rebuild. override keeps the flag when a caller sets OC_COMMON_COMPFLAGS
+# on the make command line.
+# Usage: patch_makefile_opaque_config
+# Operates on Makefile in the current directory
+patch_makefile_opaque_config() {
+  if ! grep -q "^utils/config.cmi" Makefile; then
+    printf '\nutils/config.cmi utils/config.cmo utils/config.cmx: override OC_COMMON_COMPFLAGS += -opaque\n' >> Makefile
+  fi
+}
+
 # Clean embedded binary paths and -L flags from Makefile.config after configure
 # Removes non-relocatable build-time tool paths baked in by configure.
 # Usage: patch_makefile_config_post_configure
@@ -925,16 +937,18 @@ setup_dyld_fallback() {
 # ==============================================================================
 
 # Verify and fix rpath for macOS binaries that use @rpath/libzstd
-# Usage: verify_macos_rpath <binary_dir> <rpath_value>
+# Usage: verify_macos_rpath <binary_dir> <rpath_value> [glob]
 # Parameters:
-#   binary_dir  - directory containing *.opt binaries to check
+#   binary_dir  - directory containing the binaries to check
 #   rpath_value - rpath to add if missing (e.g. "@loader_path/../lib" or
 #                 "@loader_path/../../../../lib")
+#   glob        - binaries to check (default: *.opt)
 verify_macos_rpath() {
   local binary_dir="$1"
   local rpath_value="$2"
+  local glob="${3:-*.opt}"
 
-  for binary in "${binary_dir}"/*.opt; do
+  for binary in "${binary_dir}"/${glob}; do
     if [[ -f "${binary}" ]]; then
       # Check if libzstd is linked via @rpath
       if otool -L "${binary}" 2>/dev/null | grep -q "@rpath/libzstd"; then
@@ -953,6 +967,23 @@ verify_macos_rpath() {
         fi
       fi
     fi
+  done
+}
+
+# Strip ld64 debug-map stab entries (they embed build-tree paths) from the
+# Mach-O native-code executables. Bytecode and -custom executables are skipped:
+# stripping would drop their appended bytecode.
+# Usage: strip_macos_debug_map <binary_dir>
+strip_macos_debug_map() {
+  local binary_dir="$1"
+  local strip_tool binary
+
+  strip_tool=$(find_tool "llvm-strip" true)
+  for binary in "${binary_dir}"/*.opt; do
+    [[ -f "${binary}" && ! -L "${binary}" ]] || continue
+    file "${binary}" 2>/dev/null | grep -q "Mach-O" || continue
+    "${strip_tool}" -S "${binary}"
+    codesign -f -s - "${binary}" 2>/dev/null || true
   done
 }
 

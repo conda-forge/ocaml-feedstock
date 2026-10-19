@@ -8,7 +8,7 @@
 )
 @set "OCAMLLIB=%OCAML_PREFIX%\lib\ocaml"
 
-@REM flexlink import libraries (win-arm64 only; @FLEXLINK_EXTRA@ is blank elsewhere)
+@REM flexlink search dirs and import libs (blank for builds without zstd)
 @set "_OCAML_FLEXLINK_EXTRA=@FLEXLINK_EXTRA@"
 @if defined _OCAML_FLEXLINK_EXTRA (
      @set "_OCAML_FLEXLINK_ACTIVE=1"
@@ -21,6 +21,23 @@
 
 @set "PATH=%OCAMLLIB%\stublibs;%PATH%"
 @set "CAML_LD_LIBRARY_PATH=%OCAMLLIB%\stublibs"
+
+@REM During a conda build the host prefix libraries go first on OCAMLPATH
+@if not "%CONDA_BUILD%"=="1" goto :ocaml_path_done
+@if not defined PREFIX goto :ocaml_path_done
+@if /I "%PREFIX%"=="%CONDA_PREFIX%" goto :ocaml_path_done
+@set "_OCAML_HOST_LIB=%PREFIX%\Library\lib\ocaml"
+@if defined LIBRARY_PREFIX set "_OCAML_HOST_LIB=%LIBRARY_PREFIX%\lib\ocaml"
+@echo ";%OCAMLPATH%;"| findstr /L /I /C:";%_OCAML_HOST_LIB%;" >nul && goto :ocaml_path_done
+@set "_OCAML_OCAMLPATH_BACKUP=%OCAMLPATH%"
+@set "_OCAML_OCAMLPATH_PREPENDED=1"
+@if not defined OCAMLPATH goto :ocaml_path_only
+@set "OCAMLPATH=%_OCAML_HOST_LIB%;%OCAMLPATH%"
+@goto :ocaml_path_done
+:ocaml_path_only
+@set "OCAMLPATH=%_OCAML_HOST_LIB%"
+:ocaml_path_done
+@set "_OCAML_HOST_LIB="
 
 @REM OCaml toolchain configuration
 @REM These are used by ocamlopt for assembling and linking native code

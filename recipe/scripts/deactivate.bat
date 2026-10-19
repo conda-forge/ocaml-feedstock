@@ -22,6 +22,12 @@
     @set "OCAML_PREFIX="
 )
 
+@if not defined _OCAML_OCAMLPATH_PREPENDED goto :ocaml_path_restored
+@set "OCAMLPATH=%_OCAML_OCAMLPATH_BACKUP%"
+@set "_OCAML_OCAMLPATH_BACKUP="
+@set "_OCAML_OCAMLPATH_PREPENDED="
+:ocaml_path_restored
+
 @REM Clean up OCaml library path
 @set "CAML_LD_LIBRARY_PATH="
 

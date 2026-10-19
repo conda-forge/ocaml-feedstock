@@ -128,6 +128,48 @@ goto :native_multifile_done
 echo   native multi-file: SKIPPED (no native backend on this target)
 :native_multifile_done
 
+REM 4b. Compressed Marshal through compiler-libs' Compression module. ocamlcommon brings
+REM zstd, so the value must round-trip and shrink in both bytecode and native.
+echo === Testing marshal compression ===
+> mz.ml echo let () = if not Compression.compression_supported then (print_endline "compression unsupported"; exit 1)
+>> mz.ml echo let v = String.make 100000 'a'
+>> mz.ml echo let () = let oc = open_out_bin "mz.bin" in Compression.output_value oc v; close_out oc
+>> mz.ml echo let size = let ic = open_in_bin "mz.bin" in let n = in_channel_length ic in close_in ic; n
+>> mz.ml echo let back : string = let ic = open_in_bin "mz.bin" in let x = Compression.input_value ic in close_in ic; x
+>> mz.ml echo let () = print_endline (if back = v ^&^& size ^< 10000 then "marshal compression ok" else "marshal compression bad")
+
+echo   bytecode...
+ocamlc -I +compiler-libs ocamlcommon.cma mz.ml -o mz.exe
+if errorlevel 1 (
+    echo   marshal compression bytecode compile: FAILED
+    exit /b 1
+)
+ocamlrun mz.exe | findstr /C:"marshal compression ok" >nul
+if errorlevel 1 (
+    echo   marshal compression bytecode: FAILED
+    exit /b 1
+)
+echo   marshal compression bytecode: OK
+
+if /i "%MODE%"=="bytecode" goto :no_native_marshal
+echo   native...
+ocamlopt -I +compiler-libs ocamlcommon.cmxa mz.ml -o mzn.exe
+if errorlevel 1 (
+    echo   marshal compression native compile: FAILED
+    exit /b 1
+)
+mzn.exe | findstr /C:"marshal compression ok" >nul
+if errorlevel 1 (
+    echo   marshal compression native: FAILED
+    exit /b 1
+)
+echo   marshal compression native: OK
+goto :native_marshal_done
+:no_native_marshal
+echo   marshal compression native: SKIPPED (no native backend on this target)
+:native_marshal_done
+del mz.ml mz.cmi mz.cmo mz.cmx mz.obj mz.exe mzn.exe mz.bin 2>nul
+
 REM 5. Bytecode toplevel loading C-stub libraries, and custom/complete-exe linking
 REM Each step is bounded by run-with-timeout.ps1 so a hang fails fast instead of stalling CI
 set "RWT=powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0run-with-timeout.ps1""
