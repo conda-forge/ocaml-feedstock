@@ -157,6 +157,44 @@ EOF
 }
 
 # ============================================================================
+# HELPER: native links must find host-prefix libraries in a conda build
+# The archives no longer record -L (#191); the activation supplies it instead
+# ============================================================================
+check_host_lib_link() {
+  local tmpdir fake
+  echo "Checking native link of a host-prefix library (#191)..."
+  tmpdir=$(mktemp -d)
+  fake="${tmpdir}/host"
+  mkdir -p "${fake}/lib" "${tmpdir}/w"
+  echo 'int hostdep_one(void){return 1;}' > "${tmpdir}/w/hostdep.c"
+  printf '#include <caml/mlvalues.h>\nint hostdep_one(void);\nvalue m192_one(value v){return Val_int(hostdep_one());}\n' > "${tmpdir}/w/stub.c"
+  if ! (cd "${tmpdir}/w" && ${CC:-cc} -fPIC -c hostdep.c \
+        && ar rcs "${fake}/lib/libhostdep.a" hostdep.o \
+        && ocamlc -c stub.c \
+        && CONDA_BUILD=1 PREFIX="${fake}" ocamlmklib -o m192 stub.o -L"${fake}/lib" -lhostdep); then
+    echo "ERROR: building m192 with ocamlmklib failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  if ocamlobjinfo "${tmpdir}/w/m192.cmxa" | grep -qF -e "-L${fake}/lib"; then
+    echo "ERROR: m192.cmxa records -L${fake}/lib"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  # Subshell keeps the host-prefix activation out of the rest of the test
+  if ! (export CONDA_BUILD=1 PREFIX="${fake}" \
+        && unset CONDA_OCAML_MKEXE CONDA_OCAML_MKDLL \
+        && . "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh" \
+        && cd "${tmpdir}/w" && ocamlopt -shared -linkall -I . m192.cmxa -o m192.cmxs); then
+    echo "ERROR: ocamlopt -shared of m192.cmxa did not find -lhostdep in ${fake}/lib"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  echo "  [PASS] ocamlopt -shared m192.cmxa finds -lhostdep via the activation"
+  rm -rf "${tmpdir}"
+}
+
+# ============================================================================
 # CROSS-COMPILER mode
 # ============================================================================
 if [[ "${MODE}" == "cross" ]]; then
@@ -499,6 +537,9 @@ else
           echo "Checking ocamlmklib compiler resolution..."
           check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
           check_ocamlmklib_archive_flags
+          if command -v ocamlopt >/dev/null 2>&1; then
+            check_host_lib_link
+          fi
           ;;
       esac
     fi
