@@ -2347,7 +2347,8 @@ EOF
     # BUILD-arch stubs of the native ocaml in NATIVE_PREFIX, not the target-arch
     # ones from make install. The *nat.so natdynlink stubs stay target-arch.
     # 5.5 suffixes stub names with triplet and runtime id (dllunixbyt-<triplet>-<id>.so);
-    # the BUILD-arch stub is installed under the target name the .cma files record.
+    # the BUILD-arch stub is installed under the target name the .cma files record
+    # and under its own name, which bytecode linked against the native libs records.
     _native_stublibs="${NATIVE_PREFIX}/lib/ocaml/stublibs"
     _byt_stubs=()
     for _s in "${_native_stublibs}"/dll*.so; do
@@ -2368,7 +2369,7 @@ EOF
       for _t in "${_cross_stublibs}/${_stem}.so" "${_cross_stublibs}/${_stem}"-*.so; do
         [[ -e "${_t}" && "${_t}" != *nat.so ]] && _targets+=("${_t}")
       done
-      [[ ${#_targets[@]} -eq 0 ]] && _targets=("${_cross_stublibs}/${_base}")
+      [[ " ${_targets[*]} " == *" ${_cross_stublibs}/${_base} "* ]] || _targets+=("${_cross_stublibs}/${_base}")
       for _t in "${_targets[@]}"; do
         rm -f "${_t}"
         cp -L "${_s}" "${_t}"
