@@ -94,6 +94,32 @@ ocaml_use_cross() {
   _var="CONDA_OCAML_${_id}_RANLIB"; export CONDA_OCAML_RANLIB="${!_var:-${_OCAML_CROSS_RANLIB}}"
   _var="CONDA_OCAML_${_id}_MKEXE"; export CONDA_OCAML_MKEXE="${!_var:-${_OCAML_CROSS_MKEXE}}"
   _var="CONDA_OCAML_${_id}_MKDLL"; export CONDA_OCAML_MKDLL="${!_var:-${_OCAML_CROSS_MKDLL}}"
+  # In a conda build the target executables link against, and at build time
+  # run with, the host prefix libraries (zstd etc.)
+  if [[ "${CONDA_BUILD:-}" == "1" && -n "${PREFIX:-}" ]]; then
+    if [[ "${CONDA_OCAML_MKEXE}" != *" -L${PREFIX}/lib"* ]]; then
+      export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib"
+    fi
+    if [[ "${CONDA_OCAML_MKDLL}" != *" -L${PREFIX}/lib"* ]]; then
+      export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL} -L${PREFIX}/lib"
+    fi
+    # The generated <triplet>-ocaml-mkexe/-mkdll wrappers read the scoped
+    # variables; remember their prior state once per session for ocaml_use_native
+    local _kind
+    if [[ "${_OCAML_CROSS_SCOPED_SAVED:-}" != "1" ]]; then
+      for _kind in MKEXE MKDLL; do
+        _var="CONDA_OCAML_${_id}_${_kind}"
+        if [[ -n "${!_var+x}" ]]; then
+          export "_OCAML_CROSS_SAVED_${_kind}=${!_var}"
+        else
+          unset "_OCAML_CROSS_SAVED_${_kind}"
+        fi
+      done
+      export _OCAML_CROSS_SCOPED_SAVED=1
+    fi
+    export "CONDA_OCAML_${_id}_MKEXE=${CONDA_OCAML_MKEXE}"
+    export "CONDA_OCAML_${_id}_MKDLL=${CONDA_OCAML_MKDLL}"
+  fi
   export OCAMLLIB="${_OCAML_CROSS_PREFIX}/lib/ocaml"
   export OCAML_PREFIX="${_OCAML_CROSS_PREFIX}"
   _ocaml_cross_path_drop
@@ -108,7 +134,7 @@ ocaml_use_cross() {
 
 # Restore native toolchain; a variable that was unset before is unset again
 ocaml_use_native() {
-  local _name _backup
+  local _name _backup _scoped
   for _name in CC AS AR LD RANLIB MKEXE MKDLL; do
     _backup="_OCAML_NATIVE_${_name}"
     if [[ -n "${!_backup:-}" ]]; then
@@ -117,6 +143,20 @@ ocaml_use_native() {
       unset "CONDA_OCAML_${_name}"
     fi
   done
+  # Put the scoped mkexe/mkdll variables back as ocaml_use_cross found them
+  if [[ "${_OCAML_CROSS_SCOPED_SAVED:-}" == "1" ]]; then
+    for _name in MKEXE MKDLL; do
+      _scoped="CONDA_OCAML_${_OCAML_CROSS_TARGET_ID}_${_name}"
+      _backup="_OCAML_CROSS_SAVED_${_name}"
+      if [[ "${!_backup+x}" == "x" ]]; then
+        export "${_scoped}=${!_backup}"
+      else
+        unset "${_scoped}"
+      fi
+      unset "_OCAML_CROSS_SAVED_${_name}"
+    done
+    unset _OCAML_CROSS_SCOPED_SAVED
+  fi
   if [[ -n "${_OCAML_NATIVE_OCAMLLIB:-}" ]]; then
     export OCAMLLIB="${_OCAML_NATIVE_OCAMLLIB}"
   else

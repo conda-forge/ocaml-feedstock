@@ -204,7 +204,44 @@ else
 fi
 rm -rf "${WORK}"
 
-echo "Test 11: deactivation removes the launcher dir and restores OCAMLPATH"
+echo "Test 10e: in a conda build the cross mkexe links and runs against PREFIX/lib"
+_mkexe=$(CONDA_BUILD=1 PREFIX=/fake/host bash -c 'ocaml_use_cross; echo "${CONDA_OCAML_MKEXE}"' 2>&1 | tail -n 1)
+if [[ "${_mkexe}" == *" -L/fake/host/lib"* && "${_mkexe}" == *"-Wl,-rpath,/fake/host/lib"* ]]; then
+  echo "  PASS: ${_mkexe}"
+else
+  echo "  FAIL: CONDA_OCAML_MKEXE='${_mkexe}'"
+  ERRORS=$((ERRORS + 1))
+fi
+
+echo "Test 10f: the scoped mkexe/mkdll the wrappers read get the same flags, once, and are restored"
+_sx="CONDA_OCAML_${_OCAML_CROSS_TARGET_ID}_MKEXE"
+_sd="CONDA_OCAML_${_OCAML_CROSS_TARGET_ID}_MKDLL"
+_scoped=$(CONDA_BUILD=1 PREFIX=/fake/host bash -c '
+  unset '"${_sx} ${_sd}"'
+  ocaml_use_cross; ocaml_use_cross
+  echo "${'"${_sx}"'}"
+  echo "${'"${_sd}"'}"
+  ocaml_use_native
+  echo "${'"${_sx}"'+set}${'"${_sd}"'+set}"
+  export '"${_sx}"'=prior-exe '"${_sd}"'=prior-dll
+  ocaml_use_cross; ocaml_use_cross
+  ocaml_use_native
+  echo "${'"${_sx}"'}|${'"${_sd}"'}"
+' 2>&1 | tail -n 4)
+{ read -r _s_exe; read -r _s_dll; read -r _s_unset; read -r _s_prior; } <<< "${_scoped}"
+_dup_exe="${_s_exe#* -L/fake/host/lib}"
+_dup_dll="${_s_dll#* -L/fake/host/lib}"
+if [[ "${_s_exe}" == *" -L/fake/host/lib"* && "${_s_exe}" == *"-Wl,-rpath,/fake/host/lib"* && \
+      "${_dup_exe}" != *"-L/fake/host/lib"* && \
+      "${_s_dll}" == *" -L/fake/host/lib"* && "${_dup_dll}" != *"-L/fake/host/lib"* && \
+      -z "${_s_unset}" && "${_s_prior}" == "prior-exe|prior-dll" ]]; then
+  echo "  PASS: scoped ${_sx} and ${_sd} carry -L once; unset/prior state restored"
+else
+  echo "  FAIL: exe='${_s_exe}' dll='${_s_dll}' after-native-unset='${_s_unset}' prior='${_s_prior}'"
+  ERRORS=$((ERRORS + 1))
+fi
+
+echo "Test 11:deactivation removes the launcher dir and restores OCAMLPATH"
 # shellcheck disable=SC1090
 source "${DEACTIVATE}"
 if [[ "$(shims_on_path)" == "0" && -z "${OCAML_CROSS_MODE:-}" ]]; then
