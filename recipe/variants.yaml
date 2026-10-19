@@ -23,12 +23,10 @@ cross_target_platform_:
   - win-64
   - win-arm64
 
-# The s390x cross-target lane bootstraps from main-channel ocaml: the label's
-# gcc 15 builds conflict with the gcc 14 s390x toolchain.
+# Build from main: the label holds only older ocaml_* versions, which strict
+# channel priority would let shadow main's matching 5.4.1 builds.
 channel_sources:
-  - if: s390x
-    then: conda-forge
-    else: conda-forge/label/ocaml_experimental,conda-forge
+  - conda-forge
 
 # Uploads from this branch go to the ocaml_experimental label, not main.
 channel_targets:
