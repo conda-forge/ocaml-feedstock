@@ -7,6 +7,7 @@ if type ocaml_use_native >/dev/null 2>&1; then
   ocaml_use_native
 fi
 unset _OCAML_CROSS_OCAMLPATH_UNSET
+unset _OCAML_CROSS_SCOPED_SAVED _OCAML_CROSS_SAVED_MKEXE _OCAML_CROSS_SAVED_MKDLL
 
 if [ "${_OCAML_OCAMLPATH_CONDA_BACKUP+x}" = "x" ]; then
   if [ "${_OCAML_OCAMLPATH_CONDA_WAS_UNSET:-}" = "1" ]; then
