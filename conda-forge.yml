@@ -4,7 +4,7 @@ conda_build_tool: rattler-build
 conda_forge_output_validation: true
 conda_install_tool: pixi
 github:
-  branch_name: main
+  branch_name: v5.4.x
   tooling_branch_name: main
 build_platform:
   linux_ppc64le: linux_aarch64
@@ -15,4 +15,4 @@ provider:
   osx_arm64: default
   win_arm64: default
 test: all
-upload_on_branch: main
+upload_on_branch: v5.4.x
