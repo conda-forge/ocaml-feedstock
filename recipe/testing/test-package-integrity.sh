@@ -97,6 +97,66 @@ check_ocamlmklib_compiler() {
 }
 
 # ============================================================================
+# HELPER: ocamlmklib must not record -L$PREFIX/lib in .cma/.cmxa
+# conda-forge/ocaml-feedstock#191
+# ============================================================================
+check_ocamlmklib_archive_flags() {
+  local tmpdir archive info extra
+  echo "Checking ocamlmklib archive link flags (#191)..."
+  tmpdir=$(mktemp -d)
+  cat > "${tmpdir}/stub.c" <<'EOF'
+#include <caml/mlvalues.h>
+value ml191_id(value v){return v;}
+EOF
+  echo 'external id : int -> int = "ml191_id"' > "${tmpdir}/m191.ml"
+  if ! (cd "${tmpdir}" && ocamlc -c stub.c \
+        && ocamlc -c m191.ml \
+        && { ! command -v ocamlopt >/dev/null 2>&1 || ocamlopt -c m191.ml; } \
+        && CONDA_BUILD=1 PREFIX="${PREFIX}" ocamlmklib -o m191 stub.o m191.cmo \
+             $(command -v ocamlopt >/dev/null 2>&1 && echo m191.cmx) -L"${PREFIX}/lib"); then
+    echo "ERROR: building m191 with ocamlmklib failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+
+  for archive in m191.cma m191.cmxa; do
+    if [[ ! -f "${tmpdir}/${archive}" ]]; then
+      if [[ "${archive}" == m191.cmxa ]] && ! command -v ocamlopt >/dev/null 2>&1; then
+        continue
+      fi
+      echo "ERROR: ocamlmklib did not produce ${archive}"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    info=$(cd "${tmpdir}" && ocamlobjinfo "${archive}")
+    extra=$(echo "${info}" | grep -E '^Extra C (object files|options)' || true)
+    echo "  ${archive}:"
+    echo "${extra}" | sed 's/^/    /'
+    if echo "${extra}" | grep -qF -e "-L${PREFIX}/lib"; then
+      echo "ERROR: ${archive} records -L${PREFIX}/lib"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    if ! echo "${extra}" | grep -qF -e "-lm191"; then
+      echo "ERROR: ${archive} does not record -lm191"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ${archive}: no -L${PREFIX}/lib, -lm191 recorded"
+  done
+
+  if command -v ocamlopt >/dev/null 2>&1; then
+    if ! (cd "${tmpdir}" && ocamlopt -shared -linkall -I . m191.cmxa -o m191.cmxs); then
+      echo "ERROR: ocamlopt -shared of m191.cmxa failed"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ocamlopt -shared m191.cmxa -> m191.cmxs"
+  fi
+  rm -rf "${tmpdir}"
+}
+
+# ============================================================================
 # CROSS-COMPILER mode
 # ============================================================================
 if [[ "${MODE}" == "cross" ]]; then
@@ -438,6 +498,7 @@ else
         *)
           echo "Checking ocamlmklib compiler resolution..."
           check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
+          check_ocamlmklib_archive_flags
           ;;
       esac
     fi

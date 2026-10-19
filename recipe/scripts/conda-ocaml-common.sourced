@@ -40,7 +40,7 @@ ocaml_darwin_fallback() {
 
 # ocaml_exec_selfguarded <self_name> <fallback_tool_words> -- "$@"
 # Self-path derivation, round-trip guard and -L<prefix>/lib injection used by
-# conda-ocaml-cc and conda-ocaml-mkexe.
+# conda-ocaml-cc, conda-ocaml-mkexe, and conda-ocaml-mkdll.
 # <self_name> must be the caller's literal installed filename (e.g.
 # "conda-ocaml-cc"), never derived from $0.
 # <fallback_tool_words> is the resolved tool+flags string (e.g.
