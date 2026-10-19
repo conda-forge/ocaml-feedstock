@@ -1159,6 +1159,7 @@ C_EOF
   if [[ "${target_platform}" == "osx"* ]]; then
     echo "  - Verifying rpath for macOS binaries..."
     verify_macos_rpath "${OCAML_INSTALL_PREFIX}/bin" "@loader_path/../lib"
+    strip_macos_debug_map "${OCAML_INSTALL_PREFIX}/bin"
 
     # Fix install_names to silence rattler-build overlinking warnings; only
     # packaged output needs it, not temporary build tools.
@@ -1674,6 +1675,7 @@ TOOLWRAPPER
       echo "  Verifying rpath for macOS cross-compiler binaries..."
       verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib"
       verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib" ocamlrun
+      strip_macos_debug_map "${OCAML_CROSS_PREFIX}/bin"
 
       # silence rattler-build overlinking warnings
       bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
