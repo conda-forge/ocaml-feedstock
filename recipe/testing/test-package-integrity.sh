@@ -109,9 +109,10 @@ check_ocamlmklib_archive_flags() {
 value ml191_id(value v){return v;}
 EOF
   echo 'external id : int -> int = "ml191_id"' > "${tmpdir}/m191.ml"
-  if ! (cd "${tmpdir}" && ocamlc -c m191.ml \
+  if ! (cd "${tmpdir}" && ocamlc -c stub.c \
+        && ocamlc -c m191.ml \
         && { ! command -v ocamlopt >/dev/null 2>&1 || ocamlopt -c m191.ml; } \
-        && CONDA_BUILD=1 PREFIX="${PREFIX}" ocamlmklib -o m191 stub.c m191.cmo \
+        && CONDA_BUILD=1 PREFIX="${PREFIX}" ocamlmklib -o m191 stub.o m191.cmo \
              $(command -v ocamlopt >/dev/null 2>&1 && echo m191.cmx) -L"${PREFIX}/lib"); then
     echo "ERROR: building m191 with ocamlmklib failed"
     rm -rf "${tmpdir}"
