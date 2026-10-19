@@ -2,21 +2,22 @@ From: conda-forge
 Subject: [PATCH] ocamlmklib: do not record $PREFIX/lib in .cma/.cmxa
 
 When building under conda-build (CONDA_BUILD=1 and PREFIX set), drop
-$PREFIX/lib from the -cclib -L list and the rpath that ocamlmklib bakes into
-the generated .cma/.cmxa. The build-time prefix is meaningless once the
-package is installed. The C library link keeps every -L. Unix only; applies
-on top of 0002. See conda-forge/ocaml-feedstock#191.
+$PREFIX/lib from the -cclib -L list and from the rpath that ocamlmklib bakes
+into the generated .cma/.cmxa: make_rpath_ccopt, used only by the two archive
+commands, filters the recorded rpath. The build-time prefix is meaningless once
+the package is installed. The C library link keeps every -L. Unix only;
+applies on top of 0002. See conda-forge/ocaml-feedstock#191.
 ---
- tools/ocamlmklib.ml |   29 +++++++++++++++++++++++++----
- 1 file changed, 25 insertions(+), 4 deletions(-)
+ tools/ocamlmklib.ml |   24 ++++++++++++++++++++----
+ 1 file changed, 20 insertions(+), 4 deletions(-)
 
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 --- a/tools/ocamlmklib.ml
 +++ b/tools/ocamlmklib.ml
-@@ -263,6 +263,27 @@
+@@ -258,10 +258,26 @@
    then ""
-   else "-ccopt " ^ flag ^ String.concat ":" (make_set !rpath)
-
+   else flag ^ String.concat ":" (make_set !rpath)
+ 
 +(* conda: do not record $PREFIX/lib in .cma/.cmxa (-cclib -L, rpath); it is
 +   the build-time prefix. The C library link itself keeps every -L.
 +   conda-forge/ocaml-feedstock#191 *)
@@ -32,34 +33,31 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 +    (fun s -> not (starts_with s "-L") || recorded_dir (chop_prefix s "-L"))
 +    !c_libs
 +
-+let recorded_rpath_ccopt flag =
-+  match List.filter recorded_dir !rpath with
-+  | [] -> ""
-+  | _ when flag = "" -> ""
-+  | dirs -> "-ccopt " ^ flag ^ String.concat ":" (make_set dirs)
-+
+ let make_rpath_ccopt flag =
+-  if !rpath = [] || flag = ""
++  let dirs = List.filter recorded_dir !rpath in
++  if dirs = [] || flag = ""
+   then ""
+-  else "-ccopt " ^ flag ^ String.concat ":" (make_set !rpath)
++  else "-ccopt " ^ flag ^ String.concat ":" (make_set dirs)
+ 
  let prefix_list pref l =
    List.map (fun s -> pref ^ s) l
-
-@@ -337,8 +358,8 @@
-                   (Filename.basename !output_c)
+@@ -338,7 +354,7 @@
                    (Filename.basename !output_c)
                    (String.concat " " (prefix_list "-ccopt " !c_opts))
--                  (make_rpath_ccopt Config.default_rpath)
+                   (make_rpath_ccopt Config.default_rpath)
 -                  (String.concat " " (prefix_list "-cclib " !c_libs))
-+                  (recorded_rpath_ccopt Config.default_rpath)
 +                  (String.concat " " (prefix_list "-cclib " (recorded_c_libs ())))
                    (String.concat " " !caml_libs));
    if !native_objs <> [] then
      scommand
-@@ -351,8 +372,8 @@
-                   (String.concat " " !native_objs)
+@@ -352,7 +368,7 @@
                    (Filename.basename !output_c)
                    (String.concat " " (prefix_list "-ccopt " !c_opts))
--                  (make_rpath_ccopt Config.default_rpath)
+                   (make_rpath_ccopt Config.default_rpath)
 -                  (String.concat " " (prefix_list "-cclib " !c_libs))
-+                  (recorded_rpath_ccopt Config.default_rpath)
 +                  (String.concat " " (prefix_list "-cclib " (recorded_c_libs ())))
                    (String.concat " " !caml_libs))
-
+ 
  let main () =
