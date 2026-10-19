@@ -906,6 +906,23 @@ verify_macos_rpath() {
   done
 }
 
+# Strip ld64 debug-map stab entries (they embed build-tree paths) from the
+# Mach-O native-code executables. Bytecode and -custom executables are skipped:
+# stripping would drop their appended bytecode.
+# Usage: strip_macos_debug_map <binary_dir>
+strip_macos_debug_map() {
+  local binary_dir="$1"
+  local strip_tool binary
+
+  strip_tool=$(find_tool "llvm-strip" true)
+  for binary in "${binary_dir}"/*.opt; do
+    [[ -f "${binary}" && ! -L "${binary}" ]] || continue
+    file "${binary}" 2>/dev/null | grep -q "Mach-O" || continue
+    "${strip_tool}" -S "${binary}"
+    codesign -f -s - "${binary}" 2>/dev/null || true
+  done
+}
+
 # ==============================================================================
 # config.generated.ml Patching
 # ==============================================================================
