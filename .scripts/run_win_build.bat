@@ -113,7 +113,7 @@ if /i "%CI%" == "azure" (
     )
     set "TEMP=%UPLOAD_TEMP%"
 )
-set "UPLOAD_ON_BRANCH=main"
+set "UPLOAD_ON_BRANCH=v5.4.0"
 :: Note, this needs GIT_BRANCH too
 
 :: Validate
