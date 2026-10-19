@@ -2691,12 +2691,12 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
       sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"
       # flexlink search dirs: staged import libs (+ -l list) on win-arm64, and the
-      # conda Library/lib so a bare -lzstd finds zstd.lib on non-MSVC; blank elsewhere
+      # conda Library/lib so flexlink resolves zstd (-lzstd, or the bare zstd.lib MSVC records)
       _flexlink_extra=""
       if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
         _flexlink_extra="-L%CONDA_PREFIX%/Library/lib/ocaml/flexdll $(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
       fi
-      if [[ "${OCAML_HAS_ZSTD:-1}" == "1" && "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
+      if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
         _flexlink_extra="${_flexlink_extra:+${_flexlink_extra} }-L%CONDA_PREFIX%/Library/lib"
       fi
       sed -i "s|@FLEXLINK_EXTRA@|${_flexlink_extra}|g" "${_SCRIPT}"

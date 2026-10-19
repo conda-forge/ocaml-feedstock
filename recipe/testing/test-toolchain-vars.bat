@@ -160,6 +160,22 @@ echo Test 4: SKIPPED (no native backend on this target)
 echo.
 :native_test4_done
 
+REM Test 5: MSVC activation adds Library/lib to FLEXLINKFLAGS so flexlink finds zstd.lib
+if not "%TOOLCHAIN%"=="msvc" goto :flexlink_test_done
+echo Test 5: FLEXLINKFLAGS has Library/lib and zstd.lib exists
+echo "%FLEXLINKFLAGS%" | findstr /I /C:"/Library/lib" >nul
+if errorlevel 1 (
+    echo FAIL: FLEXLINKFLAGS does not contain /Library/lib: %FLEXLINKFLAGS%
+    exit /b 1
+)
+if not exist "%CONDA_PREFIX%\Library\lib\zstd.lib" (
+    echo FAIL: %CONDA_PREFIX%\Library\lib\zstd.lib not found
+    exit /b 1
+)
+echo PASS: FLEXLINKFLAGS has Library/lib and zstd.lib is present
+echo.
+:flexlink_test_done
+
 REM Cleanup
 rmdir /s /q "%TESTDIR%" 2>nul
 
