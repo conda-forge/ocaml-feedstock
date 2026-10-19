@@ -168,8 +168,10 @@ check_host_lib_link() {
   mkdir -p "${fake}/lib" "${tmpdir}/w"
   echo 'int hostdep_one(void){return 1;}' > "${tmpdir}/w/hostdep.c"
   printf '#include <caml/mlvalues.h>\nint hostdep_one(void);\nvalue m192_one(value v){return Val_int(hostdep_one());}\n' > "${tmpdir}/w/stub.c"
-  if ! (cd "${tmpdir}/w" && ${CC:-cc} -fPIC -c hostdep.c \
-        && ar rcs "${fake}/lib/libhostdep.a" hostdep.o \
+  if ! (cd "${tmpdir}/w" && ocamlc -c hostdep.c \
+        && ocamlmklib -o hostdep hostdep.o \
+        && mv libhostdep.a "${fake}/lib/" \
+        && rm -f dllhostdep.* \
         && ocamlc -c stub.c \
         && CONDA_BUILD=1 PREFIX="${fake}" ocamlmklib -o m192 stub.o -L"${fake}/lib" -lhostdep); then
     echo "ERROR: building m192 with ocamlmklib failed"
