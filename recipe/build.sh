@@ -1159,6 +1159,7 @@ C_EOF
   if [[ "${target_platform}" == "osx"* ]]; then
     echo "  - Verifying rpath for macOS binaries..."
     verify_macos_rpath "${OCAML_INSTALL_PREFIX}/bin" "@loader_path/../lib"
+    strip_macos_debug_map "${OCAML_INSTALL_PREFIX}/bin"
 
     # Fix install_names to silence rattler-build overlinking warnings; only
     # packaged output needs it, not temporary build tools.
@@ -1674,6 +1675,7 @@ TOOLWRAPPER
       echo "  Verifying rpath for macOS cross-compiler binaries..."
       verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib"
       verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib" ocamlrun
+      strip_macos_debug_map "${OCAML_CROSS_PREFIX}/bin"
 
       # silence rattler-build overlinking warnings
       bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
@@ -2691,12 +2693,12 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
       sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"
       # flexlink search dirs: staged import libs (+ -l list) on win-arm64, and the
-      # conda Library/lib so a bare -lzstd finds zstd.lib on non-MSVC; blank elsewhere
+      # conda Library/lib so flexlink resolves zstd (-lzstd, or the bare zstd.lib MSVC records)
       _flexlink_extra=""
       if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
         _flexlink_extra="-L%CONDA_PREFIX%/Library/lib/ocaml/flexdll $(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
       fi
-      if [[ "${OCAML_HAS_ZSTD:-1}" == "1" && "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
+      if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
         _flexlink_extra="${_flexlink_extra:+${_flexlink_extra} }-L%CONDA_PREFIX%/Library/lib"
       fi
       sed -i "s|@FLEXLINK_EXTRA@|${_flexlink_extra}|g" "${_SCRIPT}"

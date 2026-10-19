@@ -1,7 +1,7 @@
 About ocaml-compiler-feedstock
 ==============================
 
-Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/main/LICENSE.txt)
+Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/v5.4.x/LICENSE.txt)
 
 Home: https://ocaml.org/
 
@@ -38,7 +38,7 @@ Current build status
     <td>GitHub Actions</td>
     <td>
       <a href="https://github.com/conda-forge/ocaml-feedstock/actions/workflows/conda-build.yml">
-        <img src="https://github.com/conda-forge/ocaml-feedstock/actions/workflows/conda-build.yml/badge.svg?event=push&branch=main">
+        <img src="https://github.com/conda-forge/ocaml-feedstock/actions/workflows/conda-build.yml/badge.svg?event=push&branch=v5.4.x">
       </a>
     </td>
   </tr>
@@ -48,8 +48,8 @@ Current build status
     <td>
       <details>
         <summary>
-          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main">
+          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=v5.4.x">
+            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=v5.4.x">
           </a>
         </summary>
         <table>
@@ -57,29 +57,29 @@ Current build status
           <tbody><tr>
               <td>osx_64_cross_target_platform_osx-64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=v5.4.x">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=v5.4.x&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>osx_64_cross_target_platform_osx-arm64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-arm64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=v5.4.x">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=v5.4.x&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-arm64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>osx_arm64_cross_target_platform_osx-64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_cross_target_platform_osx-64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=v5.4.x">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=v5.4.x&jobName=osx&configuration=osx%20osx_arm64_cross_target_platform_osx-64" alt="variant">
                 </a>
               </td>
             </tr><tr>
               <td>osx_arm64_cross_target_platform_osx-arm64</td>
               <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_cross_target_platform_osx-arm64" alt="variant">
+                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=v5.4.x">
+                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=v5.4.x&jobName=osx&configuration=osx%20osx_arm64_cross_target_platform_osx-arm64" alt="variant">
                 </a>
               </td>
             </tr>
