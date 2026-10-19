@@ -312,13 +312,16 @@ if [[ "${MODE}" == "cross" ]]; then
       launch_r="${launch_line#r=\'}"
       launch_r="${launch_r%%\'*}"
       launch_c=$(sed -n '3p' "${launcher}" | LC_ALL=C tr -d '\0')
-      launch_dir="${launch_c#c=}"
-      launch_dir="${launch_dir%/\"\$r\"}"
+      launch_dir=""
+      if [[ "${launch_c}" == "c="* ]]; then
+        launch_dir="${launch_c#c=}"
+        launch_dir="${launch_dir%/\"\$r\"}"
+      fi
       echo "  ${launcher##*/} launcher:"
       head -n 12 "${launcher}" | LC_ALL=C tr -d '\0' | sed 's/^/    | /'
       candidate=""
       how=""
-      if [[ -f "${launch_dir}/${launch_r}" ]]; then
+      if [[ -n "${launch_dir}" && -f "${launch_dir}/${launch_r}" ]]; then
         candidate="${launch_dir}/${launch_r}"
         how="baked bindir"
       elif [[ -x "$(dirname "${launcher}")/${launch_r}" ]]; then

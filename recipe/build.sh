@@ -2660,6 +2660,8 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     [[ -x "${cross_dir}bin/ocamlrun" ]] || { echo "ERROR: no ocamlrun in ${cross_dir}bin"; exit 1; }
     if [[ -f "${cross_dir}lib/ocaml/expunge" ]]; then
       sed -i '2s|^exec ocamlrun |exec "$(dirname "$0")/../../bin/ocamlrun" |' "${cross_dir}lib/ocaml/expunge"
+      # 5.5 launcher searches "$(dirname "$0")/$r"; point r at the cross bin runtime
+      sed -i "2s|^r='ocamlrun|r='../../bin/ocamlrun|" "${cross_dir}lib/ocaml/expunge"
     fi
   done
 
