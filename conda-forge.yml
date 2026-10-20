@@ -17,4 +17,4 @@ provider:
   osx_arm64: azure
   win_arm64: default
 test: all
-upload_on_branch: main  # experimental merges build and test without uploading
+upload_on_branch: experimental  # experimental merges publish to the ocaml_experimental label
