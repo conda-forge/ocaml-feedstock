@@ -435,7 +435,7 @@ outputs:
     # TESTS
     # ========================================================================
     tests:
-      # The cross-compiler's test env needs ocaml_<build_platform> of this
+      # The cross-compiler's test env needs ocaml_<target_platform> of this
       # version, which is unpublished while bootstrapping, so it cannot solve.
       - if: not (bootstrap and is_cross_compiler)
         then:
@@ -818,7 +818,7 @@ outputs:
               - if: is_cross_compiler
                 then: |
                   cd testing
-                  ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }}
+                  ./test-cross-compilers.sh ${{ version }} ${{ target_platform }} ${{ target_platform }} ${{ target_triplet }}
                 else: echo "Not a cross-compiler package"
             files:
               recipe:
@@ -831,13 +831,13 @@ outputs:
 
           # ----------------------------------------------------------------------
           # CROSS-COMPILER: .cmi interop with the native compiler, the one check
-          # that needs ocaml_<build_platform>, which is not a run dep
+          # that needs ocaml_<target_platform>, which is not a run dep
           # ----------------------------------------------------------------------
           - script:
               - if: is_cross_compiler
                 then: |
                   cd testing
-                  ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }} native-interop
+                  ./test-cross-compilers.sh ${{ version }} ${{ target_platform }} ${{ target_platform }} ${{ target_triplet }} native-interop
                 else: echo "Not a cross-compiler package"
             files:
               recipe:
@@ -846,7 +846,7 @@ outputs:
               run:
                 - if: is_cross_compiler
                   then:
-                    - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
+                    - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
