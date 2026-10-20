@@ -175,13 +175,20 @@ EOF
 
 # A build-time -L baked into the link settings gets NUL-padded by prefix
 # rewriting and makes Sys.command fail with EINVAL.
+# -config output can hold NUL bytes, which make grep report "binary file
+# matches"; map them to \001 so the lines stay greppable.
 if [ "$(uname -s)" = "Darwin" ]; then
+  _cfg=$(ocamlc -config | LC_ALL=C tr '\000' '\001')
+  _nul=$(printf '\001')
   for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
-    if ocamlc -config | grep -E "^${_cvar}:" | grep -q -e '-L'; then
-      echo "ERROR: ${_cvar} contains a build-time -L: $(ocamlc -config | grep -E "^${_cvar}:")"
-      exit 1
-    fi
+    _line=$(printf '%s\n' "$_cfg" | LC_ALL=C grep -a -E "^${_cvar}:" || true)
+    case "$_line" in
+      *-L*|*"$_nul"*)
+        echo "ERROR: ${_cvar} contains a build-time -L or NUL: ${_line}"
+        exit 1 ;;
+    esac
   done
+  printf '%s\n' "$_cfg" | LC_ALL=C grep -a "$_nul" | sed 's/:.*//; s/^/  [config-nul] /' || true
 fi
 
 # Compile with -output-complete-exe (embeds bytecode interpreter)
