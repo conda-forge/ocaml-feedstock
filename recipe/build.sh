@@ -487,19 +487,7 @@ EOF
     # config.generated.ml, not Makefile.config, so strip build-time -L here;
     # after world.opt the value is compiled in.
     if [[ "${target_platform}" == "osx"* ]]; then
-      local _cfg_ml="utils/config.generated.ml"
-      if [[ -f "${_cfg_ml}" ]]; then
-        local _cvar
-        for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
-          if grep -q "^let ${_cvar} = " "${_cfg_ml}"; then
-            sed -i -E "/^let ${_cvar} = /s#-L[^ \"]+ *##g" "${_cfg_ml}"
-          else
-            echo "  [config-sanitize] WARNING: ${_cvar} not matched in ${_cfg_ml}"
-          fi
-        done
-      else
-        echo "  [config-sanitize] WARNING: ${_cfg_ml} not found"
-      fi
+      strip_build_libdirs_from_config
     fi
   elif [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
     # MSVC: keep configure's defaults, which carry required flags (asm = "ml64
@@ -2045,6 +2033,12 @@ EOF
   # conda-ocaml-* wrappers expand CONDA_OCAML_* at runtime and work with
   # Unix.create_process
   patch_config_generated_ml_native
+
+  # The build-time -L would be NUL-padded by conda's prefix rewrite and make
+  # Sys.command fail with EINVAL; strip it before config.ml is compiled.
+  if [[ "${target_platform}" == "osx"* ]]; then
+    strip_build_libdirs_from_config
+  fi
 
   # PowerPC model
   local config_file="utils/config.generated.ml"

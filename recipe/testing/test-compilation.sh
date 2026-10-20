@@ -174,6 +174,17 @@ let () =
   print_endline "complete-exe works"
 EOF
 
+# A build-time -L baked into the link settings gets NUL-padded by prefix
+# rewriting and makes Sys.command fail with EINVAL.
+if [ "$(uname -s)" = "Darwin" ]; then
+  for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+    if ocamlc -config | grep -E "^${_cvar}:" | grep -q -e '-L'; then
+      echo "ERROR: ${_cvar} contains a build-time -L: $(ocamlc -config | grep -E "^${_cvar}:")"
+      exit 1
+    fi
+  done
+fi
+
 # Compile with -output-complete-exe (embeds bytecode interpreter)
 # This is the exact pattern dune/opam use for bootstrapping
 echo "  compiling with -output-complete-exe..."
