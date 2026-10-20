@@ -824,6 +824,26 @@ YACCEOF
   rm -rf "${YACC_DIR}"
 
   # ---------------------------------------------------------------------------
+  # Test 16: shipped wrappers/activation bake no build-time tool names
+  # ---------------------------------------------------------------------------
+  echo "  [16/16] Shipped files bake no versioned llvm tools or apple -Wl,-E..."
+  BAKED_FILES=("${PREFIX}/bin/${target}"-ocaml*)
+  [[ -f "${PREFIX}/etc/conda/activate.d/ocaml_cross_activate.sh" ]] \
+    && BAKED_FILES+=("${PREFIX}/etc/conda/activate.d/ocaml_cross_activate.sh")
+  BAKED_HITS=$(grep -nIE 'llvm-(ar|ranlib)-[0-9]' "${BAKED_FILES[@]}" 2>/dev/null || true)
+  BAKED_HITS_E=""
+  if [[ "${target}" == *-apple-* ]]; then
+    BAKED_HITS_E=$(grep -nIE -- "-Wl,-E([ \"']|\$)" "${BAKED_FILES[@]}" 2>/dev/null || true)
+  fi
+  if [[ -z "${BAKED_HITS}${BAKED_HITS_E:-}" ]]; then
+    echo "    [OK] No versioned llvm tool names or -Wl,-E in shipped files"
+  else
+    echo "    [FAIL] ERROR: build-time tool names baked into shipped files:"
+    printf '%s\n%s\n' "${BAKED_HITS}" "${BAKED_HITS_E:-}" | sed '/^$/d; s/^/      /'
+    TEST_ERRORS=$((TEST_ERRORS + 1))
+  fi
+
+  # ---------------------------------------------------------------------------
   # Summary
   # ---------------------------------------------------------------------------
   if [[ ${TEST_ERRORS} -gt 0 ]]; then

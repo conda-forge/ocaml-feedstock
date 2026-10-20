@@ -73,6 +73,17 @@ apply_cross_patches() {
   fi
 }
 
+# osx: find_tool may resolve a versioned LLVM name (llvm-ar-21) that is absent
+# once the run env's llvm moves on; bake the unversioned name instead.
+_unversioned_tool() {
+  local name
+  name=$(basename "$1")
+  if [[ "${target_platform}" == osx-* ]]; then
+    name="${name%%-[0-9]*}"
+  fi
+  echo "${name}"
+}
+
 # Helper: Find tool with full path (required for macOS to avoid GNU ar)
 # Usage: find_tool <tool_name> [required]
 # Returns: Full path to tool, or exits if required and not found
@@ -597,11 +608,11 @@ get_cross_tool_defaults() {
   # CRITICAL: Use CROSS_ASM (not CROSS_AS) - on macOS, ASM includes "-c" flag
   # Without -c, clang tries to link instead of just assembling
   DEFAULT_AS="${CROSS_ASM}"
-  DEFAULT_AR=$(basename "${CROSS_AR}")
-  DEFAULT_LD=$(basename "${CROSS_LD}")
-  DEFAULT_RANLIB=$(basename "${CROSS_RANLIB}")
+  DEFAULT_AR=$(_unversioned_tool "${CROSS_AR}")
+  DEFAULT_LD=$(_unversioned_tool "${CROSS_LD}")
+  DEFAULT_RANLIB=$(_unversioned_tool "${CROSS_RANLIB}")
 
-  if [[ "${target}" == "arm64-"* ]]; then
+  if [[ "${target}" == *-apple-* ]]; then
     # macOS: use lld linker and headerpad for install_name_tool compatibility
     # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
     DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup \${LDFLAGS}"
