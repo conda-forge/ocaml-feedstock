@@ -161,20 +161,35 @@ EOF
 # The archives no longer record -L (#191); the activation supplies it instead
 # ============================================================================
 check_host_lib_link() {
-  local tmpdir fake
+  local tmpdir fake ocaml_prefix act
   echo "Checking native link of a host-prefix library (#191)..."
+  ocaml_prefix="${PREFIX:-${CONDA_PREFIX}}"
+  act="${ocaml_prefix}/etc/conda/activate.d/ocaml_activate.sh"
+  if [[ ! -f "${act}" ]]; then
+    echo "ERROR: activation script not found: ${act}"
+    exit 1
+  fi
   tmpdir=$(mktemp -d)
   fake="${tmpdir}/host"
   mkdir -p "${fake}/lib" "${tmpdir}/w"
   echo 'int hostdep_one(void){return 1;}' > "${tmpdir}/w/hostdep.c"
   printf '#include <caml/mlvalues.h>\nint hostdep_one(void);\nvalue m192_one(value v){return Val_int(hostdep_one());}\n' > "${tmpdir}/w/stub.c"
+  echo 'external one : unit -> int = "m192_one"' > "${tmpdir}/w/m192.ml"
   if ! (cd "${tmpdir}/w" && ocamlc -c hostdep.c \
         && ocamlmklib -o hostdep hostdep.o \
         && mv libhostdep.a "${fake}/lib/" \
         && rm -f dllhostdep.* \
         && ocamlc -c stub.c \
-        && CONDA_BUILD=1 PREFIX="${fake}" ocamlmklib -o m192 stub.o -L"${fake}/lib" -lhostdep); then
+        && ocamlc -c m192.ml \
+        && ocamlopt -c m192.ml \
+        && CONDA_BUILD=1 PREFIX="${fake}" ocamlmklib -o m192 stub.o m192.cmo m192.cmx \
+             -L"${fake}/lib" -lhostdep); then
     echo "ERROR: building m192 with ocamlmklib failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  if [[ ! -f "${tmpdir}/w/m192.cmxa" ]]; then
+    echo "ERROR: ocamlmklib did not produce m192.cmxa"
     rm -rf "${tmpdir}"
     exit 1
   fi
@@ -184,9 +199,10 @@ check_host_lib_link() {
     exit 1
   fi
   # Subshell keeps the host-prefix activation out of the rest of the test
-  if ! (export CONDA_BUILD=1 PREFIX="${fake}" \
+  # CONDA_PREFIX is the ocaml install (activation derives OCAMLLIB from it)
+  if ! (export CONDA_BUILD=1 PREFIX="${fake}" CONDA_PREFIX="${ocaml_prefix}" \
         && unset CONDA_OCAML_MKEXE CONDA_OCAML_MKDLL \
-        && . "${CONDA_PREFIX}/etc/conda/activate.d/ocaml_activate.sh" \
+        && . "${act}" \
         && cd "${tmpdir}/w" && ocamlopt -shared -linkall -I . m192.cmxa -o m192.cmxs); then
     echo "ERROR: ocamlopt -shared of m192.cmxa did not find -lhostdep in ${fake}/lib"
     rm -rf "${tmpdir}"
