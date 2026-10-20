@@ -6,7 +6,7 @@ name: Build conda package
 on:
   push:
     branches:
-      - main
+      - experimental
 
   pull_request:
 
@@ -214,6 +214,8 @@ jobs:
       run: |
         if [[ "$(uname -m)" == "x86_64" ]]; then
           docker run --rm --privileged multiarch/qemu-user-static:register --reset --credential yes
+        elif [[ "$(uname -m)" == "aarch64" ]]; then
+          docker run --rm --privileged --entrypoint /opt/docker/bin/register-binfmt ${{ matrix.DOCKER_IMAGE }} aarch64
         fi
 
     - name: Build on Linux
@@ -226,7 +228,7 @@ jobs:
         CONFIG: ${{ matrix.CONFIG }}
         MINIFORGE_HOME: ${{ matrix.tools_install_dir }}
         DOCKER_IMAGE: ${{ matrix.DOCKER_IMAGE }}
-        UPLOAD_ON_BRANCH: main
+        UPLOAD_ON_BRANCH: experimental
         UPLOAD_PACKAGES: ${{ matrix.UPLOAD_PACKAGES }}
         RATTLER_BUILD_COLOR: always
         RATTLER_BUILD_ENABLE_GITHUB_INTEGRATION: 'true'
@@ -257,7 +259,7 @@ jobs:
         CONDA_BLD_PATH: ${{ matrix.build_workspace_dir }}
         CONFIG: ${{ matrix.CONFIG }}
         MINIFORGE_HOME: ${{ matrix.tools_install_dir }}
-        UPLOAD_ON_BRANCH: main
+        UPLOAD_ON_BRANCH: experimental
         UPLOAD_PACKAGES: ${{ matrix.UPLOAD_PACKAGES }}
         RATTLER_BUILD_COLOR: always
         RATTLER_BUILD_ENABLE_GITHUB_INTEGRATION: 'true'
@@ -296,7 +298,7 @@ jobs:
         CONFIG: ${{ matrix.CONFIG }}
         MINIFORGE_HOME: ${{ matrix.tools_install_dir }}
         PYTHONUNBUFFERED: 1
-        UPLOAD_ON_BRANCH: main
+        UPLOAD_ON_BRANCH: experimental
         UPLOAD_PACKAGES: ${{ matrix.UPLOAD_PACKAGES }}
         RATTLER_BUILD_COLOR: always
         RATTLER_BUILD_ENABLE_GITHUB_INTEGRATION: 'true'
