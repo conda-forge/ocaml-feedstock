@@ -46,6 +46,15 @@ cross_lib_on_ocamlpath() {
   echo "${_n}"
 }
 
+if [[ "${OCAML_CROSS_MODE:-}" == "cross" ]]; then
+  echo "env started self-activated (OCAML_CROSS_MODE=${OCAML_CROSS_MODE}," \
+    "CONDA_BUILD_CROSS_COMPILATION=${CONDA_BUILD_CROSS_COMPILATION:-<unset>}," \
+    "build_platform=${build_platform:-<unset>}, target_platform=${target_platform:-<unset>});" \
+    "deactivating to take the baseline"
+  # shellcheck disable=SC1090
+  source "${DEACTIVATE}"
+fi
+
 ORIG_OCAMLPATH_SET="${OCAMLPATH+x}"
 ORIG_OCAMLPATH="${OCAMLPATH:-}"
 

@@ -174,10 +174,72 @@ let () =
   print_endline "complete-exe works"
 EOF
 
+# A build-time -L baked into the link settings gets NUL-padded by prefix
+# rewriting and makes Sys.command fail with EINVAL.
+# -config output can hold NUL bytes, which make grep report "binary file
+# matches"; map them to \001 so the lines stay greppable.
+if [ "$(uname -s)" = "Darwin" ]; then
+  _cfg=$(ocamlc -config | LC_ALL=C tr '\000' '\001')
+  _nul=$(printf '\001')
+  for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+    _line=$(printf '%s\n' "$_cfg" | LC_ALL=C grep -a -E "^${_cvar}:" || true)
+    case "$_line" in
+      *-L*|*"$_nul"*)
+        echo "ERROR: ${_cvar} contains a build-time -L or NUL: ${_line}"
+        exit 1 ;;
+    esac
+  done
+  printf '%s\n' "$_cfg" | LC_ALL=C grep -a "$_nul" | sed 's/:.*//; s/^/  [config-nul] /' || true
+fi
+
 # Compile with -output-complete-exe (embeds bytecode interpreter)
 # This is the exact pattern dune/opam use for bootstrapping
 echo "  compiling with -output-complete-exe..."
-run_target ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml
+
+# Probe the link step after a failed compile. Every probe is guarded so the
+# diagnostic cannot change the script's exit status.
+complete_exe_diag() {
+  local p="  [complete-exe diag] " out cmd rc
+  {
+    echo "uname -m: $(uname -m || true)"
+    echo "sysctl.proc_translated: $(sysctl -n sysctl.proc_translated 2>/dev/null || true)"
+    if command -v file >/dev/null 2>&1; then
+      file "$(command -v ocamlc)" || true
+    fi
+    ocamlc -config | grep -E '^(mkexe|bytecomp_c_libraries|native_c_libraries|c_compiler):' || true
+    echo "conda-ocaml-mkexe: $(command -v conda-ocaml-mkexe || true)"
+    head -n 5 "$(command -v conda-ocaml-mkexe)" || true
+    echo "CONDA_OCAML_MKEXE=${CONDA_OCAML_MKEXE:-}"
+    echo "CONDA_OCAML_CC=${CONDA_OCAML_CC:-}"
+  } 2>&1 | sed "s/^/${p}/" || true
+
+  out="$(run_target ocamlc -verbose -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml 2>&1)" || true
+  printf '%s\n' "${out}" | sed "s/^/${p}/" || true
+
+  cmd="$(printf '%s\n' "${out}" | sed -n 's/^+ \(conda-ocaml-mkexe .*\)$/\1/p' | tail -n 1)" || true
+  if [[ -n "${cmd}" ]]; then
+    echo "${p}direct link: ${cmd}"
+    rc=0
+    out="$(bash -c "${cmd}" 2>&1)" || rc=$?
+    printf '%s\n' "${out}" | sed "s/^/${p}/" || true
+    echo "${p}direct link exit status: ${rc}"
+  else
+    echo "${p}no '+ conda-ocaml-mkexe' line in -verbose output; probing Sys.command"
+    { bash -c 'conda-ocaml-mkexe --version' && echo "rc=0" || echo "rc=$?"; } 2>&1 | sed "s/^/${p}/" || true
+    { /bin/sh -c true && echo "rc=0" || echo "rc=$?"; } 2>&1 | sed "s/^/${p}/" || true
+    rc=0
+    out="$(ocaml -e 'exit (Sys.command "true")' 2>&1)" || rc=$?
+    printf '%s\n' "${out}" | sed "s/^/${p}/" || true
+    echo "${p}ocaml Sys.command exit status: ${rc}"
+  fi
+}
+
+complete_rc=0
+run_target ocamlc -output-complete-exe -g -o complete_test.exe -I +unix unix.cma complete_exe_test.ml || complete_rc=$?
+if [ "${complete_rc}" -ne 0 ]; then
+  complete_exe_diag || true
+  exit "${complete_rc}"
+fi
 
 # Verify it's a real executable (not bytecode that needs ocamlrun)
 echo -n "  verifying executable type: "
