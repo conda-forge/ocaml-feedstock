@@ -927,15 +927,16 @@ install_conda_ocaml_wrappers() {
 
 # Set up DYLD_FALLBACK_LIBRARY_PATH for macOS so OCaml can find libzstd at runtime
 # IMPORTANT: Uses FALLBACK (not DYLD_LIBRARY_PATH) - FALLBACK doesn't override system libs
-# For cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
+# For cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler, or
+# NATIVE_LIB_PREFIX when the build host runs the native compiler under Rosetta
 # For native build: PREFIX has same-arch libs
 # Usage: setup_dyld_fallback
 # Uses globals: target_platform, CONDA_BUILD_CROSS_COMPILATION, BUILD_PREFIX, PREFIX,
-#               DYLD_FALLBACK_LIBRARY_PATH
+#               NATIVE_LIB_PREFIX (optional), DYLD_FALLBACK_LIBRARY_PATH
 setup_dyld_fallback() {
   if [[ "${target_platform}" == "osx"* ]]; then
     if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-      export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+      export DYLD_FALLBACK_LIBRARY_PATH="${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     else
       export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     fi
