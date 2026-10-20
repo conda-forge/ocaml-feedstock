@@ -2620,13 +2620,29 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     # cross-target: the package runs on OCAML_TARGET_PLATFORM, so use that platform's tools
     if [[ "${BUILD_MODE}" == "cross-target" ]]; then
       echo "  (Using TARGET toolchain: ${OCAML_TARGET_TRIPLET}-*)"
-      export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
-      export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
-      export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
-      export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
-      export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
+      case "${OCAML_TARGET_TRIPLET}" in
+        *-apple-*)
+          # macOS has no <triplet>-gcc: clang, LLVM archiver, Apple ld64 (as for native osx)
+          _apple_clang="${OCAML_TARGET_TRIPLET}-clang"
+          _apple_min="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+          export CONDA_OCAML_AR="$(find_tool "llvm-ar" true)"
+          export CONDA_OCAML_AS="${_apple_clang} -c"
+          export CONDA_OCAML_CC="${_apple_clang}"
+          export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
+          export CONDA_OCAML_RANLIB="$(find_tool "llvm-ranlib" true)"
+          export CONDA_OCAML_MKEXE="${_apple_clang} ${_apple_min} -Wl,-rpath,@executable_path/../lib"
+          export CONDA_OCAML_MKDLL="${_apple_clang} ${_apple_min} -shared -undefined dynamic_lookup"
+          ;;
+        *)
+          export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
+          export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
+          export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
+          export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
+          export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
+          export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
+          export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
+          ;;
+      esac
       export CONDA_OCAML_WINDRES="${OCAML_TARGET_TRIPLET}-windres"
     elif [[ -z "${CONDA_OCAML_AR:-}" ]]; then
       # native mode without the native stage: use triplet-prefixed names from
