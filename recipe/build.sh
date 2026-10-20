@@ -1302,9 +1302,9 @@ build_cross_compiler() {
     # CROSS_* basenames are the defaults so wrappers are relocatable (resolved via PATH).
     # Pair format: tool_name:ENV_SUFFIX:default_value
     _cross_cc_base=$(basename "${CROSS_CC}")
-    _cross_ar_base=$(basename "${CROSS_AR}")
-    _cross_ld_base=$(basename "${CROSS_LD}")
-    _cross_ranlib_base=$(basename "${CROSS_RANLIB}")
+    _cross_ar_base=$(_unversioned_tool "${CROSS_AR}")
+    _cross_ld_base=$(_unversioned_tool "${CROSS_LD}")
+    _cross_ranlib_base=$(_unversioned_tool "${CROSS_RANLIB}")
     # ASM/MKEXE/MKDLL may contain flags - basename the command, keep the flags
     _cross_asm_base="${CROSS_ASM}"  # already a basename
     _cross_mkexe_base="${CROSS_MKEXE//${CROSS_CC}/${_cross_cc_base}}"
@@ -2630,17 +2630,6 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       else
         echo "$(basename "$first") $rest"
       fi
-    }
-
-    # osx: find_tool may resolve a versioned LLVM name (llvm-ar-21) that is absent
-    # once the run env's llvm moves on; bake the unversioned name instead.
-    _unversioned_tool() {
-      local name
-      name=$(basename "$1")
-      if [[ "${target_platform}" == osx-* ]]; then
-        name="${name%%-[0-9]*}"
-      fi
-      echo "${name}"
     }
 
     for CHANGE in "activate" "deactivate"; do
