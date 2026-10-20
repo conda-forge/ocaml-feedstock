@@ -29,6 +29,19 @@ export CONDA_OCAML_RANLIB="${CONDA_OCAML_RANLIB:-@RANLIB@}"
 export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-@MKEXE@}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-@MKDLL@}"
 
+# Archives no longer record -L${PREFIX}/lib (#191), so in a conda build the
+# native links find the host prefix libraries through mkexe/mkdll instead
+if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ]; then
+  case "${CONDA_OCAML_MKEXE}" in
+    *" -L${PREFIX}/lib"*) ;;
+    *) export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib" ;;
+  esac
+  case "${CONDA_OCAML_MKDLL}" in
+    *" -L${PREFIX}/lib"*) ;;
+    *) export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL} -L${PREFIX}/lib" ;;
+  esac
+fi
+
 # macOS: DYLD_FALLBACK_LIBRARY_PATH for build-time executables to find libzstd
 if [ "$(uname)" = "Darwin" ]; then
   export _OCAML_DYLD_FALLBACK_LIBRARY_PATH_BACKUP="${DYLD_FALLBACK_LIBRARY_PATH:-}"
