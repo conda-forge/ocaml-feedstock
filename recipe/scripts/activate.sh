@@ -36,8 +36,12 @@ export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE:-@MKEXE@}"
 export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL:-@MKDLL@}"
 
 # Archives no longer record -L${PREFIX}/lib (#191), so in a conda build the
-# native links find the host prefix libraries through mkexe/mkdll instead
-if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ]; then
+# native links find the host prefix libraries through mkexe/mkdll instead.
+# Only in a native (non-cross) conda build: on a cross build PREFIX holds
+# target libraries that a native link must not search
+if [ "${CONDA_BUILD:-}" = "1" ] && [ -n "${PREFIX:-}" ] && [ "${PREFIX}" != "${CONDA_PREFIX:-}" ] \
+   && [ "${CONDA_BUILD_CROSS_COMPILATION:-}" != "1" ] \
+   && { [ -z "${build_platform:-}" ] || [ -z "${target_platform:-}" ] || [ "${build_platform}" = "${target_platform}" ]; }; then
   case "${CONDA_OCAML_MKEXE}" in
     *" -L${PREFIX}/lib"*) ;;
     *) export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib" ;;
