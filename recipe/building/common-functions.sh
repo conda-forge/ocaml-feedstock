@@ -955,6 +955,27 @@ patch_config_generated_ml_native() {
   sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
 }
 
+# Strip build-time -L directories from the link-library settings compiled into
+# Config (-config-var reads config.generated.ml, not Makefile.config).
+# Usage: strip_build_libdirs_from_config
+# Operates on utils/config.generated.ml in the current directory
+strip_build_libdirs_from_config() {
+  local _cfg_ml="utils/config.generated.ml"
+  local _cvar
+
+  if [[ ! -f "${_cfg_ml}" ]]; then
+    echo "  [config-sanitize] WARNING: ${_cfg_ml} not found"
+    return 0
+  fi
+  for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+    if grep -q "^let ${_cvar} = " "${_cfg_ml}"; then
+      sed -i -E "/^let ${_cvar} = /s#-L[^ \"]+ *##g" "${_cfg_ml}"
+    else
+      echo "  [config-sanitize] WARNING: ${_cvar} not matched in ${_cfg_ml}"
+    fi
+  done
+}
+
 # ==============================================================================
 # Prefix Transfer
 # ==============================================================================
