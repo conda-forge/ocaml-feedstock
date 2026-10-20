@@ -23,10 +23,9 @@ cross_target_platform_:
   - win-64
   - win-arm64
 
-# Build from main: the label holds only older ocaml_* versions, which strict
-# channel priority would let shadow main's matching 5.4.1 builds.
+# The label carries earlier 5.4.1 builds; build N resolves against the label's N-1.
 channel_sources:
-  - conda-forge
+  - conda-forge/label/ocaml_experimental,conda-forge
 
 # Uploads from this branch go to the ocaml_experimental label, not main.
 channel_targets:
