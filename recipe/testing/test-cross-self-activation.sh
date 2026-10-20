@@ -46,7 +46,7 @@ cross_lib_on_ocamlpath() {
   echo "${_n}"
 }
 
-if [[ -n "${OCAML_CROSS_MODE:-}" ]]; then
+if [[ "${OCAML_CROSS_MODE:-}" == "cross" ]]; then
   echo "env started self-activated (OCAML_CROSS_MODE=${OCAML_CROSS_MODE}," \
     "CONDA_BUILD_CROSS_COMPILATION=${CONDA_BUILD_CROSS_COMPILATION:-<unset>}," \
     "build_platform=${build_platform:-<unset>}, target_platform=${target_platform:-<unset>});" \
