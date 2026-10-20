@@ -201,6 +201,7 @@ check_host_lib_link() {
   # Subshell keeps the host-prefix activation out of the rest of the test
   # CONDA_PREFIX is the ocaml install (activation derives OCAMLLIB from it)
   if ! (export CONDA_BUILD=1 PREFIX="${fake}" CONDA_PREFIX="${ocaml_prefix}" \
+        CONDA_BUILD_CROSS_COMPILATION=0 build_platform=native target_platform=native \
         && unset CONDA_OCAML_MKEXE CONDA_OCAML_MKDLL \
         && . "${act}" \
         && cd "${tmpdir}/w" && ocamlopt -shared -linkall -I . m192.cmxa -o m192.cmxs); then
@@ -209,6 +210,17 @@ check_host_lib_link() {
     exit 1
   fi
   echo "  [PASS] ocamlopt -shared m192.cmxa finds -lhostdep via the activation"
+  # A cross build's PREFIX holds target libraries; the native mkexe/mkdll must not search it
+  if ! (export CONDA_BUILD=1 PREFIX="${fake}" CONDA_PREFIX="${ocaml_prefix}" \
+        CONDA_BUILD_CROSS_COMPILATION=1 build_platform=linux-64 target_platform=linux-s390x \
+        && unset CONDA_OCAML_MKEXE CONDA_OCAML_MKDLL \
+        && . "${act}" \
+        && case "${CONDA_OCAML_MKEXE} ${CONDA_OCAML_MKDLL}" in *"${fake}/lib"*) false ;; esac); then
+    echo "ERROR: cross build: activation put ${fake}/lib into the native mkexe/mkdll"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  echo "  [PASS] cross build: activation leaves the native mkexe/mkdll without ${fake}/lib"
   rm -rf "${tmpdir}"
 }
 
