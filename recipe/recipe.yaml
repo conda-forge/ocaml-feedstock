@@ -228,9 +228,13 @@ outputs:
         down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
       dynamic_linking:
         missing_dso_allowlist:
-          - if: is_cross_compiler and aarch64
+          # The cross tree's target objects need the target's loader, which only the target system has.
+          - if: is_cross_compiler and linux
             then:
-              - ld-linux-aarch64.${{ so }}.1
+              - "ld-linux-*.so*"
+              - "ld64.so.*"
+              - "**/ld-linux-*.so*"
+              - "**/ld64.so.*"
           - if: osx
             then:
               - /usr/lib/libSystem.B.dylib
