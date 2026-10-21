@@ -83,23 +83,22 @@ printf 'print_endline "Hello World"\n' > hi.ml
 echo "=== Testing bytecode compilation ==="
 run_target ocamlc -o hi hi.ml
 
-# Verify direct bytecode execution (shebang must work)
 if ! run_target ./hi | grep -q "Hello World"; then
   echo "  [FAIL] bytecode direct execution failed (shebang broken?)"
-  echo "  Checking runtime-launch-info BINDIR..."
+  echo "  Checking runtime-launch-info runtime id..."
   if [[ -f "${PREFIX}/lib/ocaml/runtime-launch-info" ]]; then
-    python3 -c "
-with open('${PREFIX}/lib/ocaml/runtime-launch-info', 'rb') as f:
-    data = f.read()
-    nl1 = data.index(b'\n')
-    nl2 = data.index(b'\n', nl1+1)
-    bindir = data[nl1+1:nl2].rstrip(b'\x00').decode()
-    print(f'  BINDIR in runtime-launch-info: {bindir}')
-"
+    echo "  first 4 bytes: $(od -An -tx1 -N4 "${PREFIX}/lib/ocaml/runtime-launch-info")"
+  else
+    echo "  ${PREFIX}/lib/ocaml/runtime-launch-info not found"
   fi
   exit 1
 fi
 echo "  bytecode direct execution: OK"
+
+# Informational only: bytecode programs fall back to searching PATH for
+# ocamlrun, so a stale configured bindir in the launcher is tolerated.
+echo "  hi launcher:"
+head -n 2 hi | cat -v | cut -c1-200
 
 # Test bytecode portability (run from different directory)
 mkdir -p tmp

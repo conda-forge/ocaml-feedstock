@@ -14,10 +14,10 @@ applies on top of 0002. See conda-forge/ocaml-feedstock#191.
 diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
 --- a/tools/ocamlmklib.ml
 +++ b/tools/ocamlmklib.ml
-@@ -258,10 +258,26 @@
+@@ -263,10 +263,26 @@
    then ""
    else flag ^ String.concat ":" (make_set !rpath)
- 
+
 +(* conda: do not record $PREFIX/lib in .cma/.cmxa (-cclib -L, rpath); it is
 +   the build-time prefix. The C library link itself keeps every -L.
 +   conda-forge/ocaml-feedstock#191 *)
@@ -40,10 +40,10 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
    then ""
 -  else "-ccopt " ^ flag ^ String.concat ":" (make_set !rpath)
 +  else "-ccopt " ^ flag ^ String.concat ":" (make_set dirs)
- 
+
  let prefix_list pref l =
    List.map (fun s -> pref ^ s) l
-@@ -338,7 +354,7 @@
+@@ -350,7 +366,7 @@
                    (Filename.basename !output_c)
                    (String.concat " " (prefix_list "-ccopt " !c_opts))
                    (make_rpath_ccopt Config.default_rpath)
@@ -52,12 +52,12 @@ diff --git a/tools/ocamlmklib.ml b/tools/ocamlmklib.ml
                    (String.concat " " !caml_libs));
    if !native_objs <> [] then
      scommand
-@@ -352,7 +368,7 @@
+@@ -364,7 +380,7 @@
                    (Filename.basename !output_c)
                    (String.concat " " (prefix_list "-ccopt " !c_opts))
                    (make_rpath_ccopt Config.default_rpath)
 -                  (String.concat " " (prefix_list "-cclib " !c_libs))
 +                  (String.concat " " (prefix_list "-cclib " (recorded_c_libs ())))
                    (String.concat " " !caml_libs))
- 
+
  let main () =

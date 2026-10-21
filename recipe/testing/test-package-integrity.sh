@@ -367,9 +367,10 @@ if [[ "${MODE}" == "cross" ]]; then
     echo "ERROR: ${CROSS_OCAMLRUN} does not run on this host"
     exit 1
   fi
-  if "${STRINGS}" "${CROSS_OCAMLRUN}" | grep -q "rattler-build_"; then
+  ocamlrun_strings=$("${STRINGS}" "${CROSS_OCAMLRUN}")
+  if grep -q "rattler-build_" <<< "${ocamlrun_strings}"; then
     echo "ERROR: ocamlrun contains build-time paths"
-    "${STRINGS}" "${CROSS_OCAMLRUN}" | grep "rattler-build_" | head -5
+    grep "rattler-build_" <<< "${ocamlrun_strings}" | head -5
     exit 1
   fi
   for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
@@ -380,13 +381,16 @@ if [[ "${MODE}" == "cross" ]]; then
       launch_r="${launch_line#r=\'}"
       launch_r="${launch_r%%\'*}"
       launch_c=$(sed -n '3p' "${launcher}" | LC_ALL=C tr -d '\0')
-      launch_dir="${launch_c#c=}"
-      launch_dir="${launch_dir%/\"\$r\"}"
+      launch_dir=""
+      if [[ "${launch_c}" == "c="* ]]; then
+        launch_dir="${launch_c#c=}"
+        launch_dir="${launch_dir%/\"\$r\"}"
+      fi
       echo "  ${launcher##*/} launcher:"
       head -n 12 "${launcher}" | LC_ALL=C tr -d '\0' | sed 's/^/    | /'
       candidate=""
       how=""
-      if [[ -f "${launch_dir}/${launch_r}" ]]; then
+      if [[ -n "${launch_dir}" && -f "${launch_dir}/${launch_r}" ]]; then
         candidate="${launch_dir}/${launch_r}"
         how="baked bindir"
       elif [[ -x "$(dirname "${launcher}")/${launch_r}" ]]; then
@@ -454,30 +458,22 @@ else
     echo "  OCAMLLIB: not set (will use default)"
   fi
 
-  # --- runtime-launch-info BINDIR check ---
+  # --- runtime-launch-info format check ---
+  # Suffixed build: the file starts with the 4-char runtime id, followed by the
+  # launcher stub.
   echo "Checking runtime-launch-info..."
   RUNTIME_INFO="${PREFIX}/lib/ocaml/runtime-launch-info"
-  if [[ -f "${RUNTIME_INFO}" ]]; then
-    # runtime-launch-info is a BINARY file: line1="sh", line2=LIBDIR path, line3+=ocamlrun binary
-    # Only check line 2 (the text path) - the binary portion may contain build-time strings
-    # that are handled by conda's binary relocation separately
-    RUNTIME_PATH=$(head -2 "${RUNTIME_INFO}" | tail -1)
-    echo "  runtime-launch-info line 2: ${RUNTIME_PATH}"
-    if echo "${RUNTIME_PATH}" | grep -q "${PREFIX}"; then
-      echo "  runtime-launch-info: contains PREFIX"
-    fi
-    # BINDIR (line 2) is used by ocamlc at LINK TIME to construct the shebang path
-    # (#!/BINDIR/ocamlrun) baked into every bytecode executable. A wrong BINDIR means
-    # every bytecode program produced by this ocamlc will fail to launch.
-    if echo "${RUNTIME_PATH}" | grep -qE "_h_env|_build_env|/work/|_native_compiler|_xcross_compiler|_target_compiler"; then
-      echo "ERROR: runtime-launch-info BINDIR contains build-time staging paths"
-      echo "  This will cause bytecode executables to embed a wrong #!/.../ocamlrun shebang"
-      exit 1
-    fi
-    echo "  runtime-launch-info: clean"
-  else
-    echo "  runtime-launch-info: not found (may be OK for some versions)"
+  if [[ ! -f "${RUNTIME_INFO}" ]]; then
+    echo "ERROR: ${RUNTIME_INFO} not found"
+    exit 1
   fi
+  RUNTIME_ID="$(head -c 4 "${RUNTIME_INFO}")"
+  if [[ ! "${RUNTIME_ID}" =~ ^[0-9a-z]{4}$ ]]; then
+    echo "ERROR: runtime-launch-info does not start with a 4-char runtime id"
+    echo "  first 4 bytes: $(od -An -tx1 -N4 "${RUNTIME_INFO}")"
+    exit 1
+  fi
+  echo "  runtime-launch-info: runtime id ${RUNTIME_ID}"
 
   # --- ld.conf ---
   echo "Checking ld.conf..."

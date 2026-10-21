@@ -1,12 +1,12 @@
 context:
   # At least main + 100 so label builds never share a filename with main builds
-  build_number: 105
-  # Floor on the previous label build of this version
-  min_prev_build: ${{ build_number - 1 }}
+  build_number: 101
+  # First 5.5.1 label build: the label has no 5.5.1 yet, so floor on main build 0
+  min_prev_build: 0
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
   bootstrap: false
-  version: 5.4.1
+  version: 5.5.1
   flexdll_version: "0.44"
 
   dot: ${{ "./" if unix else "" }}
@@ -65,7 +65,7 @@ context:
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and (cross_build_platform == target_platform or cross_build_platform_alt == target_platform) }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   is_standard_layout: ${{ is_native or is_cross_target }}
-  # OCaml 5.4 has no native-code backend for arm64 Windows, so that target is
+  # OCaml 5.5 has no native-code backend for arm64 Windows, so that target is
   # bytecode-only whatever the toolchain: no ocamlopt, no .opt drivers and no
   # native runtime or nat libraries.
   has_native_backend: ${{ cross_target_platform_ != "win-arm64" }}
@@ -109,15 +109,13 @@ recipe:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: d4528517aaa1a44b8e2b1bc109a1ed0a5e0014f3ddc4feb8906b11a7e063e89a
+    sha256: ae47728d0a876665ccc7b745e3a8d8c9ca5ba63c4f7a11d4db6cdbd1dbeef4bb
     patches:
       # Fix header include order bug where atomic_load_acquire/atomic_store_release
       # macros are undefined when mlvalues.h is included before platform.h.
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
-      # s390x native codegen needs indirect PLT stubs routed through the GOT.
-      - patches/s390x-got-indirect-plt.patch
       # Request marshal compression only when the runtime supports it (no zstd
       # on linux-s390x), so output_value never asks an unsupported runtime.
       - patches/compression-only-when-supported.patch
@@ -250,16 +248,12 @@ outputs:
               then:
                 - lib/ocaml/ld.conf
                 - lib/ocaml/Makefile.config
-                # runtime-launch-info contains a text header with BINDIR path that
-                # must be relocated so bytecode shebangs resolve ocamlrun correctly
-                - lib/ocaml/runtime-launch-info
 
             # --- CROSS-COMPILER: Cross-compiler lib paths ---
             - if: is_cross_compiler
               then:
                 - lib/ocaml-cross-compilers/*/lib/ocaml/ld.conf
                 - lib/ocaml-cross-compilers/*/lib/ocaml/Makefile.config
-                - lib/ocaml-cross-compilers/*/lib/ocaml/runtime-launch-info
         ignore:
           # --- NATIVE/CROSS-TARGET: Standard bytecode files ---
           - if: is_standard_layout
@@ -496,6 +490,9 @@ outputs:
                     - if: unix or c_compiler in ["vs2022", "zig"]
                       then:
                         - ocamlruni
+                    # Runtime-id-suffixed runtimes (plain names are symlinks).
+                    - ocamlrun*-*
+                    - "*-ocamlrun*-*"
                     - if: is_vs2022
                       then:
                         - default_amd64.manifest
@@ -611,6 +608,7 @@ outputs:
                       then:
                         - ${{ library }}lib/ocaml/libasmrun_shared.so
                         - ${{ library }}lib/ocaml/libcamlrun_shared.so
+                        - ${{ library }}lib/ocaml/lib{caml,asm}run-*.so
 
                 # NATIVE: Also includes ocamldoc directory
                 - if: is_native and has_ocamldoc
@@ -635,6 +633,9 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun
+                    # Runtime-id-suffixed runtimes.
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun*-*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/*-ocamlrun*-*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc.opt
@@ -653,6 +654,7 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun.a
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libasmrun_shared.so
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/libcamlrun_shared.so
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/lib{caml,asm}run-*.so
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/Makefile.config
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/runtime-launch-info
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/sys.ml.in
@@ -668,8 +670,8 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
-                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt.${{ so }}
-                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads.${{ so }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt-*.${{ so }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads-*.${{ so }}
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 

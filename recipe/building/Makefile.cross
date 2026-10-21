@@ -22,6 +22,13 @@
 # sets, and to 1 (zstd enabled) when invoked outside of a recipe build.
 HAS_ZSTD ?= $(or $(OCAML_HAS_ZSTD),1)
 
+# Makefile.common appends ".=<srcdir>" to BUILD_PATH_PREFIX_MAP and the
+# rightmost matching pair wins. This file is included after it, so appending
+# the in-lane cross stdlib mapping here keeps it rightmost.
+ifneq ($(OCAML_XCROSS_PATH_MAP),)
+export BUILD_PATH_PREFIX_MAP := $(BUILD_PATH_PREFIX_MAP):$(OCAML_XCROSS_PATH_MAP)
+endif
+
 # As the cross compiler will be linked with the _build_ version of
 # libcomprmarsh, we cannot rely on the detection of zstd done during `configure`
 # (as it would have detected the _target_ version). So we recover the flags to
@@ -76,6 +83,13 @@ CROSS_AR ?= $(AR)
 # wrapper (cross-ocamlmklib.sh) that uses CROSS_CC/CROSS_AR.
 CROSS_MKLIB ?= ocamlmklib
 
+# With runtime-id suffixing, the wrapper gets -suffixed (a command-line MKLIB
+# replaces upstream's "MKLIB += -suffixed") and the target's TARGET and
+# BYTECODE_RUNTIME_ID through the environment to name dll<name>-<target>-<id>.
+CROSS_MKLIB_CMD = $(CROSS_MKLIB)$(if $(filter true,$(SUFFIXING)), -suffixed)
+export CROSS_MKLIB_TARGET = $(TARGET)
+export CROSS_MKLIB_RUNTIME_ID = $(BYTECODE_RUNTIME_ID)
+
 # CAMLOPT is overridden on the command line: crossopt uses the native ocamlopt
 # from PATH, crosscompiledopt uses the cross-compiler to produce target binaries.
 CAMLOPT ?= ocamlopt
@@ -100,7 +114,7 @@ CROSS_SHARED_LIB_VARS = $(if $(CROSS_MKDLL),MKDLL='$(CROSS_MKDLL)' SUPPORTS_SHAR
 
 CROSS_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
   BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
-  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)" \
+  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB_CMD)" \
   CC="$(CROSS_CC)" AR="$(CROSS_AR)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
   MKEXE="$(CROSS_MKEXE)" MKDLL="$(CROSS_MKDLL)"
 
@@ -120,7 +134,7 @@ NATIVE_CC ?= $(CC)
 # would split into separate make arguments.
 NATIVE_OVERRIDES=OCAMLRUN=ocamlrun NEW_OCAMLRUN=ocamlrun \
   BOOT_OCAMLLEX=ocamllex OCAMLYACC=ocamlyacc \
-  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB)"
+  CAMLC=ocamlc MKLIB="$(CROSS_MKLIB_CMD)"
 
 # NATIVE_COMPILER_OVERRIDES: native compilers built with native tools; no
 # CC="$(CROSS_CC)" because native tools need the BUILD CC.
