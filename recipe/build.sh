@@ -1358,6 +1358,7 @@ TOOLWRAPPER
         TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
         ;;
     esac
+    [[ "${OCAML_ROSETTA_BUILD:-0}" == "1" ]] && TARGET_CONFIG_ARGS+=(--build="${build_alias}")
 
     # libtool adds -m elf64_s390 for s390x targets, which only the s390x ld
     # accepts; with the x86_64 ld its shared-library probe fails.
@@ -1444,13 +1445,13 @@ TOOLWRAPPER
     # BUILD-arch zstd link flags; empty when has_zstd is off so no -lzstd
     # token reaches the native (BUILD-machine) link lines below.
     _BUILD_ZSTD_LIBS=""
-    [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]] && _BUILD_ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+    [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]] && _BUILD_ZSTD_LIBS="-L${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib -lzstd"
 
     # BUILD-arch zstd for Makefile.cross's decompress-only stub, which lets the
     # BUILD-arch compilers of a zstd-free target read compressed .cmi/.cmx.
     # Set regardless of OCAML_HAS_ZSTD; passed only with STDLIB_CMI_PIN_INTREE=1.
-    _BUILD_ZSTD_STUB_CFLAGS="-I${BUILD_PREFIX}/include"
-    _BUILD_ZSTD_STUB_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+    _BUILD_ZSTD_STUB_CFLAGS="-I${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/include"
+    _BUILD_ZSTD_STUB_LIBS="-L${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib -lzstd"
 
     echo "  [4/7] Pre-building bytecode runtime and stdlib with native tools..."
     run_logged "runtime-all" "${MAKE[@]}" runtime-all \
@@ -1577,7 +1578,7 @@ TOOLWRAPPER
       # carry -L${BUILD_PREFIX}/lib. Scoped to this make, not exported build-wide.
       local crossopt_env=()
       [[ "${build_platform:-}" == osx-* ]] \
-        && crossopt_env=(env LIBRARY_PATH="${BUILD_PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}")
+        && crossopt_env=(env LIBRARY_PATH="${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}")
 
       # Serialized: Makefile.cross deletes utils/*.cmi and middle_end/*.cmi mid-build,
       # which races with parallel compile jobs and corrupts what a concurrent ocamlc reads
@@ -2285,11 +2286,44 @@ fi
 
 # --- mode: cross-compiler ---
 if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
+  # osx-64 cross-compiler on an osx-arm64 runner: build as an x86_64 build under
+  # Rosetta, with an x86_64 native ocaml in a side env instead of BUILD_PREFIX.
+  if [[ "${build_platform}" == "osx-arm64" && "${target_platform}" == "osx-64" ]]; then
+    arch -x86_64 /usr/bin/true || { echo "ERROR: Rosetta is required to build osx-64 on osx-arm64"; exit 1; }
+    if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
+      echo "ERROR: an in-lane native build is not supported under Rosetta"
+      exit 1
+    fi
+    conda create -p "${SRC_DIR}/_native_osx-64" --platform osx-64 -c conda-forge --override-channels -y "ocaml_osx-64 ${PKG_VERSION}.*" --quiet 2>&1 | grep -v "^INFO:" || true
+    [[ -x "${SRC_DIR}/_native_osx-64/bin/ocamlopt" ]] || { echo "ERROR: no ocamlopt in ${SRC_DIR}/_native_osx-64"; exit 1; }
+
+    # The side env's activation script bakes bare tool names, which on this runner
+    # resolve to arm64 tools; name the x86_64 toolchain explicitly instead.
+    _rosetta_clang="${CONDA_TOOLCHAIN_HOST}-clang"
+    _rosetta_min="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+    export CONDA_OCAML_AR="$(find_tool "llvm-ar" true)"
+    export CONDA_OCAML_AS="${_rosetta_clang} -c"
+    export CONDA_OCAML_CC="${_rosetta_clang}"
+    export CONDA_OCAML_LD="${CONDA_TOOLCHAIN_HOST}-ld"
+    export CONDA_OCAML_RANLIB="$(find_tool "llvm-ranlib" true)"
+    export CONDA_OCAML_MKEXE="${_rosetta_clang} ${_rosetta_min} -Wl,-rpath,@executable_path/../lib"
+    export CONDA_OCAML_MKDLL="${_rosetta_clang} ${_rosetta_min} -shared -undefined dynamic_lookup"
+
+    build_platform=osx-64
+    build_alias="${host_alias}"
+    CONDA_TOOLCHAIN_BUILD="${CONDA_TOOLCHAIN_HOST}"
+    NATIVE_LIB_PREFIX="${SRC_DIR}/_native_osx-64"
+    OCAML_ROSETTA_BUILD=1
+    echo "  Rosetta build: native ocaml_osx-64 in ${NATIVE_LIB_PREFIX}, build=${build_alias}"
+  fi
+
   # Native OCaml comes from BUILD_PREFIX (the ocaml_$build_platform dependency),
   # or from an in-lane build when that package is not yet published.
   if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
     build_native_in_lane
     NATIVE_PREFIX="${SRC_DIR}/_native_compiler"
+  elif [[ "${OCAML_ROSETTA_BUILD:-0}" == "1" ]]; then
+    NATIVE_PREFIX="${SRC_DIR}/_native_osx-64"
   else
     NATIVE_PREFIX="${BUILD_PREFIX}"
   fi
