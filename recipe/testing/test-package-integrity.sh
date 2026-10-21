@@ -367,9 +367,10 @@ if [[ "${MODE}" == "cross" ]]; then
     echo "ERROR: ${CROSS_OCAMLRUN} does not run on this host"
     exit 1
   fi
-  if "${STRINGS}" "${CROSS_OCAMLRUN}" | grep -q "rattler-build_"; then
+  ocamlrun_strings=$("${STRINGS}" "${CROSS_OCAMLRUN}")
+  if grep -q "rattler-build_" <<< "${ocamlrun_strings}"; then
     echo "ERROR: ocamlrun contains build-time paths"
-    "${STRINGS}" "${CROSS_OCAMLRUN}" | grep "rattler-build_" | head -5
+    grep "rattler-build_" <<< "${ocamlrun_strings}" | head -5
     exit 1
   fi
   for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
