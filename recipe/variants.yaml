@@ -23,9 +23,9 @@ cross_target_platform_:
   - win-64
   - win-arm64
 
-# The label carries earlier 5.4.1 builds; build N resolves against the label's N-1.
+# First 5.5.1 label build: the label has no 5.5.1 yet, so resolve from main only.
 channel_sources:
-  - conda-forge/label/ocaml_experimental,conda-forge
+  - conda-forge
 
 # Uploads from this branch go to the ocaml_experimental label, not main.
 channel_targets:
