@@ -2408,13 +2408,25 @@ EOF
     rm -f "${cross_dir}bin/ocamlrun"
     cp -L "${_native_ocamlrun}" "${cross_dir}bin/ocamlrun"
     chmod 755 "${cross_dir}bin/ocamlrun"
+    # The native binary carries debug info (build-tree paths); drop it on osx and linux.
+    if [[ "${target_platform}" == osx-* ]]; then
+      "$(find_tool "llvm-strip" true)" -S "${cross_dir}bin/ocamlrun"
+    else
+      _build_strip="${NATIVE_STRIP:-}"
+      if [[ -z "${_build_strip}" ]] || ! command -v "${_build_strip}" >/dev/null 2>&1; then
+        echo "ERROR: no build-machine strip tool found (NATIVE_STRIP='${NATIVE_STRIP:-}')"
+        exit 1
+      fi
+      "${_build_strip}" --strip-debug "${cross_dir}bin/ocamlrun"
+    fi
     # Its rpath reaches lib/ only from bin/; on linux the rattler-build relink
     # adds $ORIGIN/../../../../lib for the new location.
-    if [[ "${target_platform}" == osx-* ]] && otool -L "${cross_dir}bin/ocamlrun" | grep -q "@rpath/libzstd"; then
-      if ! otool -l "${cross_dir}bin/ocamlrun" | grep -A2 LC_RPATH | grep -qF "@loader_path/../../../../lib"; then
+    if [[ "${target_platform}" == osx-* ]]; then
+      if otool -L "${cross_dir}bin/ocamlrun" | grep -q "@rpath/libzstd" && \
+         ! otool -l "${cross_dir}bin/ocamlrun" | grep -A2 LC_RPATH | grep -qF "@loader_path/../../../../lib"; then
         install_name_tool -add_rpath "@loader_path/../../../../lib" "${cross_dir}bin/ocamlrun"
-        codesign -f -s - "${cross_dir}bin/ocamlrun" 2>/dev/null || true
       fi
+      codesign -f -s - "${cross_dir}bin/ocamlrun" 2>/dev/null || true
     fi
     echo "    Runtime: ${cross_dir}bin/ocamlrun from ${_native_ocamlrun}"
   done
