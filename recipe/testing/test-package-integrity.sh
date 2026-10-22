@@ -97,6 +97,239 @@ check_ocamlmklib_compiler() {
 }
 
 # ============================================================================
+# HELPER: ocamlmklib must not record -L$PREFIX/lib in .cma/.cmxa
+# conda-forge/ocaml-feedstock#191
+# ============================================================================
+check_ocamlmklib_archive_flags() {
+  local tmpdir archive info extra
+  echo "Checking ocamlmklib archive link flags (#191)..."
+  tmpdir=$(mktemp -d)
+  cat > "${tmpdir}/stub.c" <<'EOF'
+#include <caml/mlvalues.h>
+value ml191_id(value v){return v;}
+EOF
+  echo 'external id : int -> int = "ml191_id"' > "${tmpdir}/m191.ml"
+  if ! (cd "${tmpdir}" && ocamlc -c stub.c \
+        && ocamlc -c m191.ml \
+        && { ! command -v ocamlopt >/dev/null 2>&1 || ocamlopt -c m191.ml; } \
+        && CONDA_BUILD=1 PREFIX="${PREFIX}" ocamlmklib -o m191 stub.o m191.cmo \
+             $(command -v ocamlopt >/dev/null 2>&1 && echo m191.cmx) -L"${PREFIX}/lib"); then
+    echo "ERROR: building m191 with ocamlmklib failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+
+  for archive in m191.cma m191.cmxa; do
+    if [[ ! -f "${tmpdir}/${archive}" ]]; then
+      if [[ "${archive}" == m191.cmxa ]] && ! command -v ocamlopt >/dev/null 2>&1; then
+        continue
+      fi
+      echo "ERROR: ocamlmklib did not produce ${archive}"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    info=$(cd "${tmpdir}" && ocamlobjinfo "${archive}")
+    extra=$(echo "${info}" | grep -E '^Extra C (object files|options)' || true)
+    echo "  ${archive}:"
+    echo "${extra}" | sed 's/^/    /'
+    if echo "${extra}" | grep -qF -e "-L${PREFIX}/lib"; then
+      echo "ERROR: ${archive} records -L${PREFIX}/lib"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    if ! echo "${extra}" | grep -qF -e "-lm191"; then
+      echo "ERROR: ${archive} does not record -lm191"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ${archive}: no -L${PREFIX}/lib, -lm191 recorded"
+  done
+
+  if command -v ocamlopt >/dev/null 2>&1; then
+    if ! (cd "${tmpdir}" && ocamlopt -shared -linkall -I . m191.cmxa -o m191.cmxs); then
+      echo "ERROR: ocamlopt -shared of m191.cmxa failed"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+    echo "  [PASS] ocamlopt -shared m191.cmxa -> m191.cmxs"
+  fi
+  rm -rf "${tmpdir}"
+}
+
+# ============================================================================
+# HELPER: native links must find host-prefix libraries in a conda build
+# The archives no longer record -L (#191); the activation supplies it instead
+# ============================================================================
+check_host_lib_link() {
+  local tmpdir fake ocaml_prefix act
+  echo "Checking native link of a host-prefix library (#191)..."
+  ocaml_prefix="${PREFIX:-${CONDA_PREFIX}}"
+  act="${ocaml_prefix}/etc/conda/activate.d/ocaml_activate.sh"
+  if [[ ! -f "${act}" ]]; then
+    echo "ERROR: activation script not found: ${act}"
+    exit 1
+  fi
+  tmpdir=$(mktemp -d)
+  fake="${tmpdir}/host"
+  mkdir -p "${fake}/lib" "${tmpdir}/w"
+  echo 'int hostdep_one(void){return 1;}' > "${tmpdir}/w/hostdep.c"
+  printf '#include <caml/mlvalues.h>\nint hostdep_one(void);\nvalue m192_one(value v){return Val_int(hostdep_one());}\n' > "${tmpdir}/w/stub.c"
+  echo 'external one : unit -> int = "m192_one"' > "${tmpdir}/w/m192.ml"
+  if ! (cd "${tmpdir}/w" && ocamlc -c hostdep.c \
+        && ocamlmklib -o hostdep hostdep.o \
+        && mv libhostdep.a "${fake}/lib/" \
+        && rm -f dllhostdep.* \
+        && ocamlc -c stub.c \
+        && ocamlc -c m192.ml \
+        && ocamlopt -c m192.ml \
+        && CONDA_BUILD=1 PREFIX="${fake}" ocamlmklib -o m192 stub.o m192.cmo m192.cmx \
+             -L"${fake}/lib" -lhostdep); then
+    echo "ERROR: building m192 with ocamlmklib failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  if [[ ! -f "${tmpdir}/w/m192.cmxa" ]]; then
+    echo "ERROR: ocamlmklib did not produce m192.cmxa"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  if ocamlobjinfo "${tmpdir}/w/m192.cmxa" | grep -qF -e "-L${fake}/lib"; then
+    echo "ERROR: m192.cmxa records -L${fake}/lib"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  # Subshell keeps the host-prefix activation out of the rest of the test
+  # CONDA_PREFIX is the ocaml install (activation derives OCAMLLIB from it)
+  if ! (export CONDA_BUILD=1 PREFIX="${fake}" CONDA_PREFIX="${ocaml_prefix}" \
+        CONDA_BUILD_CROSS_COMPILATION=0 build_platform=native target_platform=native \
+        && unset CONDA_OCAML_MKEXE CONDA_OCAML_MKDLL \
+        && . "${act}" \
+        && cd "${tmpdir}/w" && ocamlopt -shared -linkall -I . m192.cmxa -o m192.cmxs); then
+    echo "ERROR: ocamlopt -shared of m192.cmxa did not find -lhostdep in ${fake}/lib"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  echo "  [PASS] ocamlopt -shared m192.cmxa finds -lhostdep via the activation"
+  # A cross build's PREFIX holds target libraries; the native mkexe/mkdll must not search it
+  if ! (export CONDA_BUILD=1 PREFIX="${fake}" CONDA_PREFIX="${ocaml_prefix}" \
+        CONDA_BUILD_CROSS_COMPILATION=1 build_platform=linux-64 target_platform=linux-s390x \
+        && unset CONDA_OCAML_MKEXE CONDA_OCAML_MKDLL \
+        && . "${act}" \
+        && case "${CONDA_OCAML_MKEXE} ${CONDA_OCAML_MKDLL}" in *"${fake}/lib"*) false ;; esac); then
+    echo "ERROR: cross build: activation put ${fake}/lib into the native mkexe/mkdll"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  echo "  [PASS] cross build: activation leaves the native mkexe/mkdll without ${fake}/lib"
+  rm -rf "${tmpdir}"
+}
+
+# ============================================================================
+# HELPER: macOS runtime libraries and stublibs carry @rpath install names
+# Usage: check_macos_install_names <ocaml_libdir>
+#
+# Only real files are checked; the plain names (libasmrun_shared.so,
+# dllunix.so, ...) are symlinks to them and must not appear as a load command.
+# ============================================================================
+check_macos_install_names() {
+  local libdir="$1" lib real id dep rel plains=" " errs=0 checked=0
+  echo "Checking macOS install names in ${libdir}..."
+  for lib in "${libdir}"/lib*run*.so "${libdir}"/stublibs/dll*.so; do
+    if [[ -L "${lib}" ]]; then
+      plains="${plains}$(basename "${lib}") "
+    fi
+  done
+  for lib in "${libdir}"/lib*run*.so "${libdir}"/stublibs/dll*.so; do
+    if [[ ! -f "${lib}" || -L "${lib}" ]]; then
+      continue
+    fi
+    checked=$((checked + 1))
+    real=$(basename "${lib}")
+    rel="${lib#"${libdir}"/}"
+    id=$(otool -D "${lib}" | sed -n '2p')
+    if [[ "${id}" != "@rpath/${real}" ]]; then
+      echo "ERROR: ${rel}: id '${id}', expected '@rpath/${real}'"
+      errs=1
+    fi
+    while IFS= read -r dep; do
+      case "${dep}" in
+        runtime/*|./*)
+          echo "ERROR: ${rel}: relative load command ${dep}"
+          errs=1
+          continue
+          ;;
+      esac
+      case "${plains}" in
+        *" $(basename "${dep}") "*)
+          echo "ERROR: ${rel}: load command ${dep} names a symlink, not the real file"
+          errs=1
+          ;;
+      esac
+    done < <(otool -L "${lib}" | tail -n +2 | awk '{print $1}')
+  done
+  if [[ "${checked}" -eq 0 ]]; then
+    echo "ERROR: no runtime libraries or stublibs found in ${libdir}"
+    exit 1
+  fi
+  if [[ "${errs}" -ne 0 ]]; then
+    exit 1
+  fi
+  echo "  [PASS] ${checked} libraries: @rpath/<own name> ids, no relative or symlink load commands"
+}
+
+# ============================================================================
+# HELPER: a -runtime-variant _shared executable loads the installed runtime
+# Usage: check_macos_shared_runtime_exe <ocaml_libdir>
+# ============================================================================
+check_macos_shared_runtime_exe() {
+  local libdir="$1" tmpdir exe runtime rp dir resolved="" out
+  echo "Checking a -runtime-variant _shared executable..."
+  tmpdir=$(mktemp -d)
+  exe="${tmpdir}/hello"
+  echo 'let () = print_endline "hello-shared-runtime"' > "${tmpdir}/hello.ml"
+  if ! (cd "${tmpdir}" && ocamlopt -runtime-variant _shared hello.ml -o hello); then
+    echo "ERROR: ocamlopt -runtime-variant _shared failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  runtime=$(otool -L "${exe}" | awk '$1 ~ /^@rpath\/libasmrun/ {print $1; exit}')
+  if [[ -z "${runtime}" ]]; then
+    echo "ERROR: ${exe} does not load libasmrun through @rpath:"
+    otool -L "${exe}" | sed 's/^/    /'
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  echo "  runtime load command: ${runtime}"
+  while IFS= read -r rp; do
+    dir="${rp/#@executable_path/${tmpdir}}"
+    dir="${dir/#@loader_path/${tmpdir}}"
+    if [[ -f "${dir}/${runtime#@rpath/}" ]]; then
+      resolved="${rp}"
+      break
+    fi
+  done < <(otool -l "${exe}" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}')
+  if [[ -z "${resolved}" ]]; then
+    # ocamlopt adds no LC_RPATH for the shared runtime; the user passes one.
+    echo "  no LC_RPATH resolves ${runtime}; relinking with -Wl,-rpath,${libdir}"
+    if ! (cd "${tmpdir}" && ocamlopt -runtime-variant _shared -ccopt "-Wl,-rpath,${libdir}" hello.ml -o hello); then
+      echo "ERROR: ocamlopt -runtime-variant _shared with -rpath failed"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+  else
+    echo "  LC_RPATH ${resolved} resolves ${runtime}"
+  fi
+  if ! out=$("${exe}" 2>&1) || [[ "${out}" != "hello-shared-runtime" ]]; then
+    echo "ERROR: ${exe} did not run correctly:"
+    echo "${out}" | head -10
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  rm -rf "${tmpdir}"
+  echo "  [PASS] -runtime-variant _shared executable runs against ${libdir}"
+}
+
+# ============================================================================
 # CROSS-COMPILER mode
 # ============================================================================
 if [[ "${MODE}" == "cross" ]]; then
@@ -239,14 +472,52 @@ if [[ "${MODE}" == "cross" ]]; then
     echo "ERROR: ${CROSS_OCAMLRUN} does not run on this host"
     exit 1
   fi
-  if "${STRINGS}" "${CROSS_OCAMLRUN}" | grep -q "rattler-build_"; then
+  ocamlrun_strings=$("${STRINGS}" "${CROSS_OCAMLRUN}")
+  if grep -q "rattler-build_" <<< "${ocamlrun_strings}"; then
     echo "ERROR: ocamlrun contains build-time paths"
-    "${STRINGS}" "${CROSS_OCAMLRUN}" | grep "rattler-build_" | head -5
+    grep "rattler-build_" <<< "${ocamlrun_strings}" | head -5
     exit 1
   fi
   for launcher in "${CROSS_PREFIX}/bin/ocamlmklib" "${CROSS_LIBDIR}/expunge"; do
     # C locale: line 2 may be bytecode, which BSD tr rejects as UTF-8
     launch_line=$(sed -n '2p' "${launcher}" | LC_ALL=C tr -d '\0')
+    if [[ "${launch_line}" == "r='"* ]]; then
+      # OCaml 5.5 sh launcher: r=<runtime name>, c=<bindir>/"$r", search fallback
+      launch_r="${launch_line#r=\'}"
+      launch_r="${launch_r%%\'*}"
+      launch_c=$(sed -n '3p' "${launcher}" | LC_ALL=C tr -d '\0')
+      launch_dir=""
+      if [[ "${launch_c}" == "c="* ]]; then
+        launch_dir="${launch_c#c=}"
+        launch_dir="${launch_dir%/\"\$r\"}"
+      fi
+      echo "  ${launcher##*/} launcher:"
+      head -n 12 "${launcher}" | LC_ALL=C tr -d '\0' | sed 's/^/    | /'
+      candidate=""
+      how=""
+      if [[ -n "${launch_dir}" && -f "${launch_dir}/${launch_r}" ]]; then
+        candidate="${launch_dir}/${launch_r}"
+        how="baked bindir"
+      elif [[ -x "$(dirname "${launcher}")/${launch_r}" ]]; then
+        candidate="$(dirname "${launcher}")/${launch_r}"
+        how="next to launcher"
+      else
+        candidate=$(command -v "${launch_r}" || true)
+        how="PATH"
+      fi
+      if [[ -z "${candidate}" || ! -x "${candidate}" ]] \
+          || ! "${candidate}" -version 2>&1 | grep -q "The OCaml runtime"; then
+        echo "ERROR: ${launcher} runtime '${launch_r}' does not resolve to a runnable ocamlrun"
+        echo "  baked bindir: '${launch_dir}', candidate: '${candidate}' (${how})"
+        exit 1
+      fi
+      if [[ "${launcher}" == */ocamlmklib ]] && ! "${launcher}" -version; then
+        echo "ERROR: ${launcher} -version failed"
+        exit 1
+      fi
+      echo "  ${launcher##*/}: runtime ${candidate} (${how})"
+      continue
+    fi
     if [[ "${launch_line}" != 'exec "$(dirname "$0")/'*'ocamlrun" "$0" "$@"' ]]; then
       echo "ERROR: ${launcher} does not launch the cross tree's ocamlrun: ${launch_line}"
       exit 1
@@ -259,6 +530,10 @@ if [[ "${MODE}" == "cross" ]]; then
   echo "Checking ${TARGET}-ocamlmklib compiler resolution..."
   check_ocamlmklib_compiler "${PREFIX}/bin/${TARGET}-ocamlc" "${PREFIX}/bin/${TARGET}-ocamlmklib" \
     "${CROSS_PREFIX}/bin/ocamlc"
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    check_macos_install_names "${CROSS_LIBDIR}"
+  fi
 
 # ============================================================================
 # NATIVE / CROSS-TARGET mode
@@ -346,6 +621,35 @@ else
     echo "  Makefile.config: -L paths clean"
   fi
 
+  # macOS: build-only flags must not ship, and native and cross-target builds
+  # must ship the same link settings.
+  if [[ "$(uname)" == "Darwin" ]]; then
+    echo "Checking macOS Makefile.config settings..."
+    if grep -qE -- '-fuse-ld=lld|-isysroot' "${MAKEFILE_CONFIG}"; then
+      echo "ERROR: Makefile.config contains build-only -fuse-ld=lld or -isysroot:"
+      grep -E -- '-fuse-ld=lld|-isysroot' "${MAKEFILE_CONFIG}" | head -5
+      exit 1
+    fi
+    if ! grep -E '^OC_LDFLAGS=' "${MAKEFILE_CONFIG}" | grep -q -- '-headerpad_max_install_names'; then
+      echo "ERROR: Makefile.config OC_LDFLAGS lacks -headerpad_max_install_names"
+      grep -E '^OC_LDFLAGS=' "${MAKEFILE_CONFIG}" || echo "  (no OC_LDFLAGS line)"
+      exit 1
+    fi
+    if grep -q -- '-lzstd' "${MAKEFILE_CONFIG}" \
+        && ! grep -E '^BYTECCLIBS=' "${MAKEFILE_CONFIG}" | grep -qF '@loader_path/../lib'; then
+      echo "ERROR: Makefile.config BYTECCLIBS lacks the @loader_path/../lib rpath"
+      grep -E '^BYTECCLIBS=' "${MAKEFILE_CONFIG}" || echo "  (no BYTECCLIBS line)"
+      exit 1
+    fi
+    if grep -qE '^ARCH=amd64[[:space:]]*$' "${MAKEFILE_CONFIG}" \
+        && ! grep -qE '^WITH_FRAME_POINTERS=true[[:space:]]*$' "${MAKEFILE_CONFIG}"; then
+      echo "ERROR: x86_64 Makefile.config lacks WITH_FRAME_POINTERS=true"
+      grep -E '^WITH_FRAME_POINTERS=' "${MAKEFILE_CONFIG}" || echo "  (no WITH_FRAME_POINTERS line)"
+      exit 1
+    fi
+    echo "  Makefile.config: macOS settings OK"
+  fi
+
   # --- -config-var checks ---
   if [[ "${CAN_EXECUTE}" == "true" ]]; then
     echo "Checking ocamlc.opt -config-var values..."
@@ -430,6 +734,10 @@ else
         *)
           echo "Checking ocamlmklib compiler resolution..."
           check_ocamlmklib_compiler ocamlc ocamlmklib "${PREFIX}/bin/ocamlc"
+          check_ocamlmklib_archive_flags
+          if command -v ocamlopt >/dev/null 2>&1; then
+            check_host_lib_link
+          fi
           ;;
       esac
     fi
@@ -514,6 +822,13 @@ else
       fi
     else
       echo "  libzstd not linked via @rpath (OK - may be statically linked)"
+    fi
+  fi
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    check_macos_install_names "${PREFIX}/lib/ocaml"
+    if [[ "${MODE}" == "native" && "${CAN_EXECUTE}" == "true" ]]; then
+      check_macos_shared_runtime_exe "${PREFIX}/lib/ocaml"
     fi
   fi
 fi

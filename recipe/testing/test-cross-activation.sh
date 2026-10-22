@@ -15,6 +15,22 @@ else
   echo "  PASS: OCAML_CROSS_TARGET=${OCAML_CROSS_TARGET}"
 fi
 
+# A cross-compiling env (CONDA_BUILD_CROSS_COMPILATION=1, or build_platform !=
+# target_platform) self-activates into cross mode; the tests below start from native
+if [[ "${OCAML_CROSS_MODE:-}" == "cross" ]]; then
+  echo "Self-activation: env started in cross mode"
+  echo "  CONDA_BUILD_CROSS_COMPILATION=${CONDA_BUILD_CROSS_COMPILATION:-<unset>} build_platform=${build_platform:-<unset>} target_platform=${target_platform:-<unset>}"
+  if [[ "${OCAML_CROSS_AUTO:-1}" == "0" ]] || \
+     { [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" != "1" ]] && \
+       { [[ -z "${build_platform:-}" ]] || [[ -z "${target_platform:-}" ]] || [[ "${build_platform}" == "${target_platform}" ]]; }; }; then
+    echo "  FAIL: unexpected cross start (OCAML_CROSS_AUTO='${OCAML_CROSS_AUTO:-<unset>}', no cross-compiling trigger)"
+    ERRORS=$((ERRORS + 1))
+  else
+    echo "  PASS: env self-activated into cross mode"
+  fi
+  ocaml_use_native
+fi
+
 # Test 2: OCAML_CROSS_MODE starts as "native"
 echo "Test 2: Initial mode is native"
 if [[ "${OCAML_CROSS_MODE:-}" != "native" ]]; then

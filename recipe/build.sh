@@ -491,19 +491,7 @@ EOF
     # config.generated.ml, not Makefile.config, so strip build-time -L here;
     # after world.opt the value is compiled in.
     if [[ "${target_platform}" == "osx"* ]]; then
-      local _cfg_ml="utils/config.generated.ml"
-      if [[ -f "${_cfg_ml}" ]]; then
-        local _cvar
-        for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
-          if grep -q "^let ${_cvar} = " "${_cfg_ml}"; then
-            sed -i -E "/^let ${_cvar} = /s#-L[^ \"]+ *##g" "${_cfg_ml}"
-          else
-            echo "  [config-sanitize] WARNING: ${_cvar} not matched in ${_cfg_ml}"
-          fi
-        done
-      else
-        echo "  [config-sanitize] WARNING: ${_cfg_ml} not found"
-      fi
+      strip_build_libdirs_from_config
     fi
   elif [[ "${OCAML_TARGET_TRIPLET}" == *"-pc-"* ]]; then
     # MSVC: keep configure's defaults, which carry required flags (asm = "ml64
@@ -537,23 +525,7 @@ EOF
       _LIB_PREFIX="${PREFIX}"
     fi
 
-    local config_file="Makefile.config"
-
-    # OC_LDFLAGS may not exist: append or create
-    if grep -q '^OC_LDFLAGS=' "${config_file}"; then
-      sed -i "s|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
-    else
-      echo "OC_LDFLAGS=-Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
-    fi
-
-    sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
-    if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
-      sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
-      # BYTECCLIBS for -output-complete-exe (libcamlrun.a contains zstd.o); a
-      # @loader_path rpath survives conda relocation, and the conda-ocaml-mkexe
-      # wrapper adds -L${PREFIX}/lib at runtime.
-      sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
-    fi
+    patch_makefile_config_osx "Makefile.config" "${_LIB_PREFIX}"
   elif [[ "${target_platform}" != "linux"* ]] && [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
     local config_file="Makefile.config"
 
@@ -1159,14 +1131,7 @@ C_EOF
   if [[ "${target_platform}" == "osx"* ]]; then
     echo "  - Verifying rpath for macOS binaries..."
     verify_macos_rpath "${OCAML_INSTALL_PREFIX}/bin" "@loader_path/../lib"
-
-    # Fix install_names to silence rattler-build overlinking warnings; only
-    # packaged output needs it, not temporary build tools.
-    if [[ "${OCAML_INSTALL_PREFIX}" == "${PREFIX}" ]]; then
-      bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_INSTALL_PREFIX}/lib/ocaml"
-    else
-      echo "  - Skipping install_name fixes (build tool, not packaged)"
-    fi
+    strip_macos_debug_map "${OCAML_INSTALL_PREFIX}/bin"
   fi
 
   # conda-ocaml-* wrappers expand CONDA_OCAML_* for tools like Dune
@@ -1301,9 +1266,9 @@ build_cross_compiler() {
     # CROSS_* basenames are the defaults so wrappers are relocatable (resolved via PATH).
     # Pair format: tool_name:ENV_SUFFIX:default_value
     _cross_cc_base=$(basename "${CROSS_CC}")
-    _cross_ar_base=$(basename "${CROSS_AR}")
-    _cross_ld_base=$(basename "${CROSS_LD}")
-    _cross_ranlib_base=$(basename "${CROSS_RANLIB}")
+    _cross_ar_base=$(_unversioned_tool "${CROSS_AR}")
+    _cross_ld_base=$(_unversioned_tool "${CROSS_LD}")
+    _cross_ranlib_base=$(_unversioned_tool "${CROSS_RANLIB}")
     # ASM/MKEXE/MKDLL may contain flags - basename the command, keep the flags
     _cross_asm_base="${CROSS_ASM}"  # already a basename
     _cross_mkexe_base="${CROSS_MKEXE//${CROSS_CC}/${_cross_cc_base}}"
@@ -1362,13 +1327,10 @@ TOOLWRAPPER
     export LDFLAGS="${NATIVE_LDFLAGS}"
     export STRIP="${NATIVE_STRIP}"
 
-    # Per-target configure args (frame pointers not supported on PPC)
+    # Per-target configure args
     declare -a TARGET_CONFIG_ARGS=()
-    case "${CROSS_ARCH}" in
-      arm64|amd64)
-        TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
-        ;;
-    esac
+    supports_frame_pointers "${CROSS_ARCH}" && TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
+    [[ "${OCAML_ROSETTA_BUILD:-0}" == "1" ]] && TARGET_CONFIG_ARGS+=(--build="${build_alias}")
 
     # libtool adds -m elf64_s390 for s390x targets, which only the s390x ld
     # accepts; with the x86_64 ld its shared-library probe fails.
@@ -1455,13 +1417,13 @@ TOOLWRAPPER
     # BUILD-arch zstd link flags; empty when has_zstd is off so no -lzstd
     # token reaches the native (BUILD-machine) link lines below.
     _BUILD_ZSTD_LIBS=""
-    [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]] && _BUILD_ZSTD_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+    [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]] && _BUILD_ZSTD_LIBS="-L${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib -lzstd"
 
     # BUILD-arch zstd for Makefile.cross's decompress-only stub, which lets the
     # BUILD-arch compilers of a zstd-free target read compressed .cmi/.cmx.
     # Set regardless of OCAML_HAS_ZSTD; passed only with STDLIB_CMI_PIN_INTREE=1.
-    _BUILD_ZSTD_STUB_CFLAGS="-I${BUILD_PREFIX}/include"
-    _BUILD_ZSTD_STUB_LIBS="-L${BUILD_PREFIX}/lib -lzstd"
+    _BUILD_ZSTD_STUB_CFLAGS="-I${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/include"
+    _BUILD_ZSTD_STUB_LIBS="-L${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib -lzstd"
 
     echo "  [4/7] Pre-building bytecode runtime and stdlib with native tools..."
     run_logged "runtime-all" "${MAKE[@]}" runtime-all \
@@ -1588,7 +1550,7 @@ TOOLWRAPPER
       # carry -L${BUILD_PREFIX}/lib. Scoped to this make, not exported build-wide.
       local crossopt_env=()
       [[ "${build_platform:-}" == osx-* ]] \
-        && crossopt_env=(env LIBRARY_PATH="${BUILD_PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}")
+        && crossopt_env=(env LIBRARY_PATH="${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}")
 
       # Serialized: Makefile.cross deletes utils/*.cmi and middle_end/*.cmi mid-build,
       # which races with parallel compile jobs and corrupts what a concurrent ocamlc reads
@@ -1630,6 +1592,7 @@ TOOLWRAPPER
       echo "  Verifying rpath for macOS cross-compiler binaries..."
       verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib"
       verify_macos_rpath "${OCAML_CROSS_PREFIX}/bin" "@loader_path/../../../../lib" ocamlrun
+      strip_macos_debug_map "${OCAML_CROSS_PREFIX}/bin"
 
       # silence rattler-build overlinking warnings
       bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_CROSS_LIBDIR}"
@@ -1975,6 +1938,11 @@ EOF
     CONFIG_ARGS+=(ac_cv_func_getentropy=no ac_cv_func_strlcpy=no)
   fi
 
+  # Frame pointers, as the native osx build enables them
+  if [[ "${target_platform}" == "osx-"* ]] && supports_frame_pointers "${CROSS_ARCH}"; then
+    CONFIG_ARGS+=(--enable-frame-pointers)
+  fi
+
   # conda-ocaml-* wrappers are needed during the build
   echo "    Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
   install_conda_ocaml_wrappers "${BUILD_PREFIX}/bin"
@@ -1996,6 +1964,12 @@ EOF
   # conda-ocaml-* wrappers expand CONDA_OCAML_* at runtime and work with
   # Unix.create_process
   patch_config_generated_ml_native
+
+  # The build-time -L would be NUL-padded by conda's prefix rewrite and make
+  # Sys.command fail with EINVAL; strip it before config.ml is compiled.
+  if [[ "${target_platform}" == "osx"* ]]; then
+    strip_build_libdirs_from_config
+  fi
 
   # PowerPC model
   local config_file="utils/config.generated.ml"
@@ -2238,6 +2212,10 @@ if [[ "${BUILD_MODE}" == "native" ]]; then
 
   if is_unix; then
     transfer_to_prefix "${OCAML_NATIVE_INSTALL_PREFIX}" "${OCAML_INSTALL_PREFIX}"
+    # Install names are fixed on the packaged tree, not the staged one.
+    if [[ "${target_platform}" == "osx"* ]]; then
+      bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_INSTALL_PREFIX}/lib/ocaml"
+    fi
   else
     # Windows: cp -rL dereferences symlinks
     cp -rL "${OCAML_NATIVE_INSTALL_PREFIX}/"* "${OCAML_INSTALL_PREFIX}/"
@@ -2289,11 +2267,44 @@ fi
 
 # --- mode: cross-compiler ---
 if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
+  # osx-64 cross-compiler on an osx-arm64 runner: build as an x86_64 build under
+  # Rosetta, with an x86_64 native ocaml in a side env instead of BUILD_PREFIX.
+  if [[ "${build_platform}" == "osx-arm64" && "${target_platform}" == "osx-64" ]]; then
+    arch -x86_64 /usr/bin/true || { echo "ERROR: Rosetta is required to build osx-64 on osx-arm64"; exit 1; }
+    if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
+      echo "ERROR: an in-lane native build is not supported under Rosetta"
+      exit 1
+    fi
+    conda create -p "${SRC_DIR}/_native_osx-64" --platform osx-64 -c conda-forge --override-channels -y "ocaml_osx-64 ${PKG_VERSION}.*" --quiet 2>&1 | grep -v "^INFO:" || true
+    [[ -x "${SRC_DIR}/_native_osx-64/bin/ocamlopt" ]] || { echo "ERROR: no ocamlopt in ${SRC_DIR}/_native_osx-64"; exit 1; }
+
+    # The side env's activation script bakes bare tool names, which on this runner
+    # resolve to arm64 tools; name the x86_64 toolchain explicitly instead.
+    _rosetta_clang="${CONDA_TOOLCHAIN_HOST}-clang"
+    _rosetta_min="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+    export CONDA_OCAML_AR="$(find_tool "llvm-ar" true)"
+    export CONDA_OCAML_AS="${_rosetta_clang} -c"
+    export CONDA_OCAML_CC="${_rosetta_clang}"
+    export CONDA_OCAML_LD="${CONDA_TOOLCHAIN_HOST}-ld"
+    export CONDA_OCAML_RANLIB="$(find_tool "llvm-ranlib" true)"
+    export CONDA_OCAML_MKEXE="${_rosetta_clang} ${_rosetta_min} -Wl,-rpath,@executable_path/../lib"
+    export CONDA_OCAML_MKDLL="${_rosetta_clang} ${_rosetta_min} -shared -undefined dynamic_lookup"
+
+    build_platform=osx-64
+    build_alias="${host_alias}"
+    CONDA_TOOLCHAIN_BUILD="${CONDA_TOOLCHAIN_HOST}"
+    NATIVE_LIB_PREFIX="${SRC_DIR}/_native_osx-64"
+    OCAML_ROSETTA_BUILD=1
+    echo "  Rosetta build: native ocaml_osx-64 in ${NATIVE_LIB_PREFIX}, build=${build_alias}"
+  fi
+
   # Native OCaml comes from BUILD_PREFIX (the ocaml_$build_platform dependency),
   # or from an in-lane build when that package is not yet published.
   if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
     build_native_in_lane
     NATIVE_PREFIX="${SRC_DIR}/_native_compiler"
+  elif [[ "${OCAML_ROSETTA_BUILD:-0}" == "1" ]]; then
+    NATIVE_PREFIX="${SRC_DIR}/_native_osx-64"
   else
     NATIVE_PREFIX="${BUILD_PREFIX}"
   fi
@@ -2346,6 +2357,9 @@ EOF
     # cross tree's ocamlrun, which loads stubs via the ld.conf above: ship the
     # BUILD-arch stubs of the native ocaml in NATIVE_PREFIX, not the target-arch
     # ones from make install. The *nat.so natdynlink stubs stay target-arch.
+    # 5.5 suffixes stub names with triplet and runtime id (dllunixbyt-<triplet>-<id>.so);
+    # the BUILD-arch stub is installed under the target name the .cma files record
+    # and under its own name, which bytecode linked against the native libs records.
     _native_stublibs="${NATIVE_PREFIX}/lib/ocaml/stublibs"
     _byt_stubs=()
     for _s in "${_native_stublibs}"/dll*.so; do
@@ -2355,12 +2369,30 @@ EOF
       echo "ERROR: no BUILD-arch bytecode stubs in ${_native_stublibs}"
       exit 1
     fi
-    mkdir -p "${cross_dir}lib/ocaml/stublibs"
+    _cross_stublibs="${cross_dir}lib/ocaml/stublibs"
+    mkdir -p "${_cross_stublibs}"
+    _stub_pairs=()
     for _s in "${_byt_stubs[@]}"; do
-      rm -f "${cross_dir}lib/ocaml/stublibs/$(basename "${_s}")"
+      _base="${_s##*/}"
+      _stem="${_base%%-*}"
+      [[ "${_stem}" == "${_base}" ]] && _stem="${_base%.so}"
+      _targets=()
+      for _t in "${_cross_stublibs}/${_stem}.so" "${_cross_stublibs}/${_stem}"-*.so; do
+        [[ -e "${_t}" && "${_t}" != *nat.so ]] && _targets+=("${_t}")
+      done
+      [[ " ${_targets[*]} " == *" ${_cross_stublibs}/${_base} "* ]] || _targets+=("${_cross_stublibs}/${_base}")
+      for _t in "${_targets[@]}"; do
+        rm -f "${_t}"
+        cp -L "${_s}" "${_t}"
+        _stub_pairs+=("${_base} -> ${_t##*/}")
+      done
     done
-    cp -L "${_byt_stubs[@]}" "${cross_dir}lib/ocaml/stublibs/"
-    echo "    Stubs: ${_byt_stubs[*]##*/}"
+    echo "    Stubs: ${_stub_pairs[*]}"
+
+    # The stubs were just replaced by BUILD-arch copies carrying raw install names
+    if [[ "${target_platform}" == osx-* ]]; then
+      bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${cross_dir}lib/ocaml"
+    fi
 
     # ocamllex from the cross build is a TARGET-arch executable; dune runs it
     # on the BUILD machine. Ship the build-arch one (ocamlyacc already is).
@@ -2396,13 +2428,25 @@ EOF
     rm -f "${cross_dir}bin/ocamlrun"
     cp -L "${_native_ocamlrun}" "${cross_dir}bin/ocamlrun"
     chmod 755 "${cross_dir}bin/ocamlrun"
+    # The native binary carries debug info (build-tree paths); drop it on osx and linux.
+    if [[ "${target_platform}" == osx-* ]]; then
+      "$(find_tool "llvm-strip" true)" -S "${cross_dir}bin/ocamlrun"
+    else
+      _build_strip="${NATIVE_STRIP:-}"
+      if [[ -z "${_build_strip}" ]] || ! command -v "${_build_strip}" >/dev/null 2>&1; then
+        echo "ERROR: no build-machine strip tool found (NATIVE_STRIP='${NATIVE_STRIP:-}')"
+        exit 1
+      fi
+      "${_build_strip}" --strip-debug "${cross_dir}bin/ocamlrun"
+    fi
     # Its rpath reaches lib/ only from bin/; on linux the rattler-build relink
     # adds $ORIGIN/../../../../lib for the new location.
-    if [[ "${target_platform}" == osx-* ]] && otool -L "${cross_dir}bin/ocamlrun" | grep -q "@rpath/libzstd"; then
-      if ! otool -l "${cross_dir}bin/ocamlrun" | grep -A2 LC_RPATH | grep -qF "@loader_path/../../../../lib"; then
+    if [[ "${target_platform}" == osx-* ]]; then
+      if otool -L "${cross_dir}bin/ocamlrun" | grep -q "@rpath/libzstd" && \
+         ! otool -l "${cross_dir}bin/ocamlrun" | grep -A2 LC_RPATH | grep -qF "@loader_path/../../../../lib"; then
         install_name_tool -add_rpath "@loader_path/../../../../lib" "${cross_dir}bin/ocamlrun"
-        codesign -f -s - "${cross_dir}bin/ocamlrun" 2>/dev/null || true
       fi
+      codesign -f -s - "${cross_dir}bin/ocamlrun" 2>/dev/null || true
     fi
     echo "    Runtime: ${cross_dir}bin/ocamlrun from ${_native_ocamlrun}"
   done
@@ -2486,6 +2530,12 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   OCAML_INSTALL_PREFIX="${PREFIX}"
   transfer_to_prefix "${OCAML_TARGET_INSTALL_PREFIX}" "${OCAML_INSTALL_PREFIX}"
 
+  # Same macOS link settings as the native osx build, applied before the
+  # cleaning step so both builds ship the same result.
+  if [[ "${OCAML_TARGET_TRIPLET}" == *-apple-* ]]; then
+    patch_makefile_config_osx "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
+  fi
+
   echo "  Cleaning build-time paths from final Makefile.config..."
   clean_makefile_config "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
 
@@ -2551,13 +2601,29 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
     # cross-target: the package runs on OCAML_TARGET_PLATFORM, so use that platform's tools
     if [[ "${BUILD_MODE}" == "cross-target" ]]; then
       echo "  (Using TARGET toolchain: ${OCAML_TARGET_TRIPLET}-*)"
-      export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
-      export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
-      export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
-      export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
-      export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
-      export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
+      case "${OCAML_TARGET_TRIPLET}" in
+        *-apple-*)
+          # macOS has no <triplet>-gcc: clang, LLVM archiver, Apple ld64 (as for native osx)
+          _apple_clang="${OCAML_TARGET_TRIPLET}-clang"
+          _apple_min="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+          export CONDA_OCAML_AR="$(find_tool "llvm-ar" true)"
+          export CONDA_OCAML_AS="${_apple_clang} -c"
+          export CONDA_OCAML_CC="${_apple_clang}"
+          export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
+          export CONDA_OCAML_RANLIB="$(find_tool "llvm-ranlib" true)"
+          export CONDA_OCAML_MKEXE="${_apple_clang} ${_apple_min} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
+          export CONDA_OCAML_MKDLL="${_apple_clang} ${_apple_min} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
+          ;;
+        *)
+          export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
+          export CONDA_OCAML_AS="${OCAML_TARGET_TRIPLET}-as"
+          export CONDA_OCAML_CC="${OCAML_TARGET_TRIPLET}-gcc"
+          export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
+          export CONDA_OCAML_RANLIB="${OCAML_TARGET_TRIPLET}-ranlib"
+          export CONDA_OCAML_MKEXE="${OCAML_TARGET_TRIPLET}-gcc"
+          export CONDA_OCAML_MKDLL="${OCAML_TARGET_TRIPLET}-gcc -shared"
+          ;;
+      esac
       export CONDA_OCAML_WINDRES="${OCAML_TARGET_TRIPLET}-windres"
     elif [[ -z "${CONDA_OCAML_AR:-}" ]]; then
       # native mode without the native stage: use triplet-prefixed names from
@@ -2573,13 +2639,13 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       export CONDA_OCAML_RANLIB=$(basename "${RANLIB:-ranlib}")
       # macOS needs rpath for downstream binaries to find libzstd
       if [[ "${target_platform}" == osx-* ]]; then
-        export CONDA_OCAML_MKEXE="${CC:-cc} -Wl,-rpath,@executable_path/../lib"
+        export CONDA_OCAML_MKEXE="${CC:-cc} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
       else
         export CONDA_OCAML_MKEXE="${CC:-cc}"
       fi
       # macOS needs -undefined dynamic_lookup to defer symbol resolution to runtime
       if [[ "${target_platform}" == osx-* ]]; then
-        export CONDA_OCAML_MKDLL="${CC:-cc} -shared -undefined dynamic_lookup"
+        export CONDA_OCAML_MKDLL="${CC:-cc} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
       else
         export CONDA_OCAML_MKDLL="${CC:-cc} -shared"
       fi
@@ -2598,17 +2664,6 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       fi
     }
 
-    # osx: find_tool may resolve a versioned LLVM name (llvm-ar-21) that is absent
-    # once the run env's llvm moves on; bake the unversioned name instead.
-    _unversioned_tool() {
-      local name
-      name=$(basename "$1")
-      if [[ "${target_platform}" == osx-* ]]; then
-        name="${name%%-[0-9]*}"
-      fi
-      echo "${name}"
-    }
-
     for CHANGE in "activate" "deactivate"; do
       mkdir -p "${PREFIX}/etc/conda/${CHANGE}.d"
       # fixed name "ocaml", not PKG_NAME, which varies by output
@@ -2624,12 +2679,12 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       sed -i "s|@MKDLL@|$(_basename_cmd "${CONDA_OCAML_MKDLL}")|g" "${_SCRIPT}"
       sed -i "s|@WINDRES@|$(basename "${CONDA_OCAML_WINDRES:-windres}")|g" "${_SCRIPT}"
       # flexlink search dirs: staged import libs (+ -l list) on win-arm64, and the
-      # conda Library/lib so a bare -lzstd finds zstd.lib on non-MSVC; blank elsewhere
+      # conda Library/lib so flexlink resolves zstd (-lzstd, or the bare zstd.lib MSVC records)
       _flexlink_extra=""
       if [[ "${target_platform}" == "win-arm64" && -f "${SRC_DIR}/_win_arm64_flexlink_libs.txt" ]]; then
         _flexlink_extra="-L%CONDA_PREFIX%/Library/lib/ocaml/flexdll $(cat "${SRC_DIR}/_win_arm64_flexlink_libs.txt")"
       fi
-      if [[ "${OCAML_HAS_ZSTD:-1}" == "1" && "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
+      if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
         _flexlink_extra="${_flexlink_extra:+${_flexlink_extra} }-L%CONDA_PREFIX%/Library/lib"
       fi
       sed -i "s|@FLEXLINK_EXTRA@|${_flexlink_extra}|g" "${_SCRIPT}"
@@ -2660,6 +2715,8 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     [[ -x "${cross_dir}bin/ocamlrun" ]] || { echo "ERROR: no ocamlrun in ${cross_dir}bin"; exit 1; }
     if [[ -f "${cross_dir}lib/ocaml/expunge" ]]; then
       sed -i '2s|^exec ocamlrun |exec "$(dirname "$0")/../../bin/ocamlrun" |' "${cross_dir}lib/ocaml/expunge"
+      # 5.5 launcher searches "$(dirname "$0")/$r"; point r at the cross bin runtime
+      sed -i "2s|^r='ocamlrun|r='../../bin/ocamlrun|" "${cross_dir}lib/ocaml/expunge"
     fi
   done
 

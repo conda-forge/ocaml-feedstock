@@ -73,6 +73,17 @@ apply_cross_patches() {
   fi
 }
 
+# osx: find_tool may resolve a versioned LLVM name (llvm-ar-21) that is absent
+# once the run env's llvm moves on; bake the unversioned name instead.
+_unversioned_tool() {
+  local name
+  name=$(basename "$1")
+  if [[ "${target_platform}" == osx-* ]]; then
+    name="${name%%-[0-9]*}"
+  fi
+  echo "${name}"
+}
+
 # Helper: Find tool with full path (required for macOS to avoid GNU ar)
 # Usage: find_tool <tool_name> [required]
 # Returns: Full path to tool, or exits if required and not found
@@ -142,6 +153,15 @@ get_target_arch() {
     s390x-*) echo "s390x" ;;
     x86_64-*|*-x86_64-*) echo "amd64" ;;
     *) echo "amd64" ;;  # default
+  esac
+}
+
+# Whether OCaml's configure accepts --enable-frame-pointers for an OCaml ARCH
+# Usage: supports_frame_pointers "amd64"
+supports_frame_pointers() {
+  case "$1" in
+    arm64|amd64) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -597,14 +617,14 @@ get_cross_tool_defaults() {
   # CRITICAL: Use CROSS_ASM (not CROSS_AS) - on macOS, ASM includes "-c" flag
   # Without -c, clang tries to link instead of just assembling
   DEFAULT_AS="${CROSS_ASM}"
-  DEFAULT_AR=$(basename "${CROSS_AR}")
-  DEFAULT_LD=$(basename "${CROSS_LD}")
-  DEFAULT_RANLIB=$(basename "${CROSS_RANLIB}")
+  DEFAULT_AR=$(_unversioned_tool "${CROSS_AR}")
+  DEFAULT_LD=$(_unversioned_tool "${CROSS_LD}")
+  DEFAULT_RANLIB=$(_unversioned_tool "${CROSS_RANLIB}")
 
-  if [[ "${target}" == "arm64-"* ]]; then
+  if [[ "${target}" == *-apple-* ]]; then
     # macOS: use lld linker and headerpad for install_name_tool compatibility
     # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
-    DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup \${LDFLAGS}"
+    DEFAULT_MKDLL="${DEFAULT_CC} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup \${LDFLAGS}"
     DEFAULT_MKEXE="${DEFAULT_CC} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib \${LDFLAGS}"
   else
     # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
@@ -683,6 +703,12 @@ clean_makefile_config() {
   local keep='@@OCAML_RELOC_L@@'
 
   [[ -f "${config_file}" ]] || return 0
+
+  # macOS build-only flags: the linker choice and the build host's SDK path
+  # do not apply to a consumer of the installed package.
+  if [[ "${target_platform:-}" == osx-* ]]; then
+    sed -i -E 's#-fuse-ld=[^[:space:]]*##g; s#-isysroot[[:space:]]+[^[:space:]]*##g' "${config_file}"
+  fi
 
   # Build-time path markers to clean (conda-bld, rattler-build, placeholders, env dirs)
   local markers=(
@@ -788,6 +814,39 @@ patch_makefile_opaque_config() {
   fi
 }
 
+# Add the macOS link settings to a Makefile.config: headerpad for
+# install_name_tool, -L<lib_prefix>/lib for zstd, and for -output-complete-exe
+# (libcamlrun.a contains zstd.o) an @loader_path rpath, which survives conda
+# relocation. Each value is appended once, so a second run changes nothing.
+# Usage: patch_makefile_config_osx <config_file> <lib_prefix>
+patch_makefile_config_osx() {
+  local config_file="$1"
+  local lib_prefix="$2"
+  local link_opts="-Wl,-L${lib_prefix}/lib -Wl,-headerpad_max_install_names"
+  local -a appends=("OC_LDFLAGS=${link_opts}" "NATIVECCLINKOPTS=${link_opts}")
+  local entry var value line
+
+  if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
+    appends+=(
+      "NATIVECCLIBS=-L${lib_prefix}/lib -lzstd"
+      "BYTECCLIBS=-Wl,-rpath,@loader_path/../lib -lzstd"
+    )
+  fi
+
+  # OC_LDFLAGS may not exist
+  if ! grep -q '^OC_LDFLAGS=' "${config_file}"; then
+    echo "OC_LDFLAGS=${link_opts}" >> "${config_file}"
+  fi
+
+  for entry in "${appends[@]}"; do
+    var="${entry%%=*}"
+    value="${entry#*=}"
+    line=$(grep -m1 "^${var}=" "${config_file}" || true)
+    [[ "${line}" == *"${value}"* ]] && continue
+    sed -i "s|^${var}=\(.*\)|${var}=\1 ${value}|" "${config_file}"
+  done
+}
+
 # Clean embedded binary paths and -L flags from Makefile.config after configure
 # Removes non-relocatable build-time tool paths baked in by configure.
 # Usage: patch_makefile_config_post_configure
@@ -852,15 +911,16 @@ install_conda_ocaml_wrappers() {
 
 # Set up DYLD_FALLBACK_LIBRARY_PATH for macOS so OCaml can find libzstd at runtime
 # IMPORTANT: Uses FALLBACK (not DYLD_LIBRARY_PATH) - FALLBACK doesn't override system libs
-# For cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler
+# For cross-compilation: BUILD_PREFIX has x86_64 libs for native compiler, or
+# NATIVE_LIB_PREFIX when the build host runs the native compiler under Rosetta
 # For native build: PREFIX has same-arch libs
 # Usage: setup_dyld_fallback
 # Uses globals: target_platform, CONDA_BUILD_CROSS_COMPILATION, BUILD_PREFIX, PREFIX,
-#               DYLD_FALLBACK_LIBRARY_PATH
+#               NATIVE_LIB_PREFIX (optional), DYLD_FALLBACK_LIBRARY_PATH
 setup_dyld_fallback() {
   if [[ "${target_platform}" == "osx"* ]]; then
     if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
-      export DYLD_FALLBACK_LIBRARY_PATH="${BUILD_PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+      export DYLD_FALLBACK_LIBRARY_PATH="${NATIVE_LIB_PREFIX:-${BUILD_PREFIX}}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     else
       export DYLD_FALLBACK_LIBRARY_PATH="${PREFIX}/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
     fi
@@ -906,6 +966,23 @@ verify_macos_rpath() {
   done
 }
 
+# Strip ld64 debug-map stab entries (they embed build-tree paths) from the
+# Mach-O native-code executables. Bytecode and -custom executables are skipped:
+# stripping would drop their appended bytecode.
+# Usage: strip_macos_debug_map <binary_dir>
+strip_macos_debug_map() {
+  local binary_dir="$1"
+  local strip_tool binary
+
+  strip_tool=$(find_tool "llvm-strip" true)
+  for binary in "${binary_dir}"/*.opt; do
+    [[ -f "${binary}" && ! -L "${binary}" ]] || continue
+    file "${binary}" 2>/dev/null | grep -q "Mach-O" || continue
+    "${strip_tool}" -S "${binary}"
+    codesign -f -s - "${binary}" 2>/dev/null || true
+  done
+}
+
 # ==============================================================================
 # config.generated.ml Patching
 # ==============================================================================
@@ -925,6 +1002,27 @@ patch_config_generated_ml_native() {
   sed -i 's/^let mkexe = .*/let mkexe = {|conda-ocaml-mkexe|}/' "$config_file"
   sed -i 's/^let mkdll = .*/let mkdll = {|conda-ocaml-mkdll|}/' "$config_file"
   sed -i 's/^let mkmaindll = .*/let mkmaindll = {|conda-ocaml-mkdll|}/' "$config_file"
+}
+
+# Strip build-time -L directories from the link-library settings compiled into
+# Config (-config-var reads config.generated.ml, not Makefile.config).
+# Usage: strip_build_libdirs_from_config
+# Operates on utils/config.generated.ml in the current directory
+strip_build_libdirs_from_config() {
+  local _cfg_ml="utils/config.generated.ml"
+  local _cvar
+
+  if [[ ! -f "${_cfg_ml}" ]]; then
+    echo "  [config-sanitize] WARNING: ${_cfg_ml} not found"
+    return 0
+  fi
+  for _cvar in bytecomp_c_libraries native_c_libraries compression_c_libraries; do
+    if grep -q "^let ${_cvar} = " "${_cfg_ml}"; then
+      sed -i -E "/^let ${_cvar} = /s#-L[^ \"]+ *##g" "${_cfg_ml}"
+    else
+      echo "  [config-sanitize] WARNING: ${_cvar} not matched in ${_cfg_ml}"
+    fi
+  done
 }
 
 # ==============================================================================

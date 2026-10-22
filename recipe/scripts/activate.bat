@@ -8,7 +8,7 @@
 )
 @set "OCAMLLIB=%OCAML_PREFIX%\lib\ocaml"
 
-@REM flexlink search dirs and import libs (blank for MSVC and builds without zstd)
+@REM flexlink search dirs and import libs (blank for builds without zstd)
 @set "_OCAML_FLEXLINK_EXTRA=@FLEXLINK_EXTRA@"
 @if defined _OCAML_FLEXLINK_EXTRA (
      @set "_OCAML_FLEXLINK_ACTIVE=1"

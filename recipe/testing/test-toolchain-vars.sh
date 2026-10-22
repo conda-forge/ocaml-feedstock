@@ -24,6 +24,17 @@ for var in CONDA_OCAML_CC CONDA_OCAML_AS CONDA_OCAML_AR CONDA_OCAML_MKDLL; do
 done
 echo "PASS: All CONDA_OCAML_* variables are set"
 
+# macOS: install_name_tool relinks of downstream .cmxs/executables need header padding
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    for var in CONDA_OCAML_MKEXE CONDA_OCAML_MKDLL; do
+        if [[ "${!var:-}" != *-headerpad_max_install_names* ]]; then
+            echo "FAIL: $var lacks -headerpad_max_install_names: ${!var:-<not set>}"
+            exit 1
+        fi
+    done
+    echo "PASS: CONDA_OCAML_MKEXE/MKDLL carry -headerpad_max_install_names"
+fi
+
 # Test 2: Verify ocamlopt -config shows wrapper script references
 echo ""
 echo "Test 2: ocamlopt -config uses conda-ocaml-* wrapper scripts"

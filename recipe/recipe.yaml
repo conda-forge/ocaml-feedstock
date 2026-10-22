@@ -1,9 +1,9 @@
 context:
-  build_number: 0
+  build_number: 1
   min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
-  bootstrap: true
+  bootstrap: false
   version: 5.5.1
   flexdll_version: "0.44"
 
@@ -124,6 +124,10 @@ source:
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
         then: patches/0002-ocamlmklib-conda-env-vars.patch
+      # Keeps $PREFIX/lib out of what ocamlmklib records in .cma/.cmxa
+      # (conda-forge/ocaml-feedstock#191).
+      - if: unix
+        then: patches/0003-ocamlmklib-no-prefix-lib-in-archives.patch
       # Teaches configure to accept the aarch64-w64-mingw32 triple and select
       # the mingw64arm flexdll chain.
       - if: cross_target_platform_ == "win-arm64"
@@ -224,9 +228,13 @@ outputs:
         down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
       dynamic_linking:
         missing_dso_allowlist:
-          - if: is_cross_compiler and aarch64
+          # The cross tree's target objects need the target's loader, which only the target system has.
+          - if: is_cross_compiler and linux
             then:
-              - ld-linux-aarch64.${{ so }}.1
+              - "ld-linux-*.so*"
+              - "ld64.so.*"
+              - "**/ld-linux-*.so*"
+              - "**/ld64.so.*"
           - if: osx
             then:
               - /usr/lib/libSystem.B.dylib
@@ -431,7 +439,7 @@ outputs:
     # TESTS
     # ========================================================================
     tests:
-      # The cross-compiler's test env needs ocaml_<build_platform> of this
+      # The cross-compiler's test env needs ocaml_<target_platform> of this
       # version, which is unpublished while bootstrapping, so it cannot solve.
       - if: not (bootstrap and is_cross_compiler)
         then:
@@ -627,6 +635,9 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlobjinfo.opt
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlopt.opt
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun
+                    # Runtime-id-suffixed runtimes.
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocamlrun*-*
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/*-ocamlrun*-*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/bin/ocaml
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/shims/ocamlc.opt
@@ -661,8 +672,8 @@ outputs:
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/threads/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/unix/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dll*.${{ so }}
-                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt.${{ so }}
-                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads.${{ so }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllunixbyt-*.${{ so }}
+                    - lib/ocaml-cross-compilers/${{ target_triplet }}/lib/ocaml/stublibs/dllthreads-*.${{ so }}
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/share/doc/ocaml/*
                     - lib/ocaml-cross-compilers/${{ target_triplet }}/share/man/man1/*
 
@@ -811,7 +822,7 @@ outputs:
               - if: is_cross_compiler
                 then: |
                   cd testing
-                  ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }}
+                  ./test-cross-compilers.sh ${{ version }} ${{ target_platform }} ${{ target_platform }} ${{ target_triplet }}
                 else: echo "Not a cross-compiler package"
             files:
               recipe:
@@ -824,13 +835,13 @@ outputs:
 
           # ----------------------------------------------------------------------
           # CROSS-COMPILER: .cmi interop with the native compiler, the one check
-          # that needs ocaml_<build_platform>, which is not a run dep
+          # that needs ocaml_<target_platform>, which is not a run dep
           # ----------------------------------------------------------------------
           - script:
               - if: is_cross_compiler
                 then: |
                   cd testing
-                  ./test-cross-compilers.sh ${{ version }} ${{ build_platform }} ${{ target_platform }} ${{ target_triplet }} native-interop
+                  ./test-cross-compilers.sh ${{ version }} ${{ target_platform }} ${{ target_platform }} ${{ target_triplet }} native-interop
                 else: echo "Not a cross-compiler package"
             files:
               recipe:
@@ -839,7 +850,7 @@ outputs:
               run:
                 - if: is_cross_compiler
                   then:
-                    - ocaml_${{ build_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
+                    - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
