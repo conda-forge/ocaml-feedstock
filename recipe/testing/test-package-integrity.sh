@@ -225,6 +225,111 @@ check_host_lib_link() {
 }
 
 # ============================================================================
+# HELPER: macOS runtime libraries and stublibs carry @rpath install names
+# Usage: check_macos_install_names <ocaml_libdir>
+#
+# Only real files are checked; the plain names (libasmrun_shared.so,
+# dllunix.so, ...) are symlinks to them and must not appear as a load command.
+# ============================================================================
+check_macos_install_names() {
+  local libdir="$1" lib real id dep rel plains=" " errs=0 checked=0
+  echo "Checking macOS install names in ${libdir}..."
+  for lib in "${libdir}"/lib*run*.so "${libdir}"/stublibs/dll*.so; do
+    if [[ -L "${lib}" ]]; then
+      plains="${plains}$(basename "${lib}") "
+    fi
+  done
+  for lib in "${libdir}"/lib*run*.so "${libdir}"/stublibs/dll*.so; do
+    if [[ ! -f "${lib}" || -L "${lib}" ]]; then
+      continue
+    fi
+    checked=$((checked + 1))
+    real=$(basename "${lib}")
+    rel="${lib#"${libdir}"/}"
+    id=$(otool -D "${lib}" | sed -n '2p')
+    if [[ "${id}" != "@rpath/${real}" ]]; then
+      echo "ERROR: ${rel}: id '${id}', expected '@rpath/${real}'"
+      errs=1
+    fi
+    while IFS= read -r dep; do
+      case "${dep}" in
+        runtime/*|./*)
+          echo "ERROR: ${rel}: relative load command ${dep}"
+          errs=1
+          continue
+          ;;
+      esac
+      case "${plains}" in
+        *" $(basename "${dep}") "*)
+          echo "ERROR: ${rel}: load command ${dep} names a symlink, not the real file"
+          errs=1
+          ;;
+      esac
+    done < <(otool -L "${lib}" | tail -n +2 | awk '{print $1}')
+  done
+  if [[ "${checked}" -eq 0 ]]; then
+    echo "ERROR: no runtime libraries or stublibs found in ${libdir}"
+    exit 1
+  fi
+  if [[ "${errs}" -ne 0 ]]; then
+    exit 1
+  fi
+  echo "  [PASS] ${checked} libraries: @rpath/<own name> ids, no relative or symlink load commands"
+}
+
+# ============================================================================
+# HELPER: a -runtime-variant _shared executable loads the installed runtime
+# Usage: check_macos_shared_runtime_exe <ocaml_libdir>
+# ============================================================================
+check_macos_shared_runtime_exe() {
+  local libdir="$1" tmpdir exe runtime rp dir resolved="" out
+  echo "Checking a -runtime-variant _shared executable..."
+  tmpdir=$(mktemp -d)
+  exe="${tmpdir}/hello"
+  echo 'let () = print_endline "hello-shared-runtime"' > "${tmpdir}/hello.ml"
+  if ! (cd "${tmpdir}" && ocamlopt -runtime-variant _shared hello.ml -o hello); then
+    echo "ERROR: ocamlopt -runtime-variant _shared failed"
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  runtime=$(otool -L "${exe}" | awk '$1 ~ /^@rpath\/libasmrun/ {print $1; exit}')
+  if [[ -z "${runtime}" ]]; then
+    echo "ERROR: ${exe} does not load libasmrun through @rpath:"
+    otool -L "${exe}" | sed 's/^/    /'
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  echo "  runtime load command: ${runtime}"
+  while IFS= read -r rp; do
+    dir="${rp/#@executable_path/${tmpdir}}"
+    dir="${dir/#@loader_path/${tmpdir}}"
+    if [[ -f "${dir}/${runtime#@rpath/}" ]]; then
+      resolved="${rp}"
+      break
+    fi
+  done < <(otool -l "${exe}" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}')
+  if [[ -z "${resolved}" ]]; then
+    # ocamlopt adds no LC_RPATH for the shared runtime; the user passes one.
+    echo "  no LC_RPATH resolves ${runtime}; relinking with -Wl,-rpath,${libdir}"
+    if ! (cd "${tmpdir}" && ocamlopt -runtime-variant _shared -ccopt "-Wl,-rpath,${libdir}" hello.ml -o hello); then
+      echo "ERROR: ocamlopt -runtime-variant _shared with -rpath failed"
+      rm -rf "${tmpdir}"
+      exit 1
+    fi
+  else
+    echo "  LC_RPATH ${resolved} resolves ${runtime}"
+  fi
+  if ! out=$("${exe}" 2>&1) || [[ "${out}" != "hello-shared-runtime" ]]; then
+    echo "ERROR: ${exe} did not run correctly:"
+    echo "${out}" | head -10
+    rm -rf "${tmpdir}"
+    exit 1
+  fi
+  rm -rf "${tmpdir}"
+  echo "  [PASS] -runtime-variant _shared executable runs against ${libdir}"
+}
+
+# ============================================================================
 # CROSS-COMPILER mode
 # ============================================================================
 if [[ "${MODE}" == "cross" ]]; then
@@ -425,6 +530,10 @@ if [[ "${MODE}" == "cross" ]]; then
   echo "Checking ${TARGET}-ocamlmklib compiler resolution..."
   check_ocamlmklib_compiler "${PREFIX}/bin/${TARGET}-ocamlc" "${PREFIX}/bin/${TARGET}-ocamlmklib" \
     "${CROSS_PREFIX}/bin/ocamlc"
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    check_macos_install_names "${CROSS_LIBDIR}"
+  fi
 
 # ============================================================================
 # NATIVE / CROSS-TARGET mode
@@ -713,6 +822,13 @@ else
       fi
     else
       echo "  libzstd not linked via @rpath (OK - may be statically linked)"
+    fi
+  fi
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    check_macos_install_names "${PREFIX}/lib/ocaml"
+    if [[ "${MODE}" == "native" && "${CAN_EXECUTE}" == "true" ]]; then
+      check_macos_shared_runtime_exe "${PREFIX}/lib/ocaml"
     fi
   fi
 fi

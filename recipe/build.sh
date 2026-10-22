@@ -1132,14 +1132,6 @@ C_EOF
     echo "  - Verifying rpath for macOS binaries..."
     verify_macos_rpath "${OCAML_INSTALL_PREFIX}/bin" "@loader_path/../lib"
     strip_macos_debug_map "${OCAML_INSTALL_PREFIX}/bin"
-
-    # Fix install_names to silence rattler-build overlinking warnings; only
-    # packaged output needs it, not temporary build tools.
-    if [[ "${OCAML_INSTALL_PREFIX}" == "${PREFIX}" ]]; then
-      bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_INSTALL_PREFIX}/lib/ocaml"
-    else
-      echo "  - Skipping install_name fixes (build tool, not packaged)"
-    fi
   fi
 
   # conda-ocaml-* wrappers expand CONDA_OCAML_* for tools like Dune
@@ -2220,6 +2212,10 @@ if [[ "${BUILD_MODE}" == "native" ]]; then
 
   if is_unix; then
     transfer_to_prefix "${OCAML_NATIVE_INSTALL_PREFIX}" "${OCAML_INSTALL_PREFIX}"
+    # Install names are fixed on the packaged tree, not the staged one.
+    if [[ "${target_platform}" == "osx"* ]]; then
+      bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${OCAML_INSTALL_PREFIX}/lib/ocaml"
+    fi
   else
     # Windows: cp -rL dereferences symlinks
     cp -rL "${OCAML_NATIVE_INSTALL_PREFIX}/"* "${OCAML_INSTALL_PREFIX}/"
