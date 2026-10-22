@@ -1,8 +1,8 @@
 context:
   # At least main + 100 so label builds never share a filename with main builds
-  build_number: 101
-  # First 5.5.1 label build: the label has no 5.5.1 yet, so floor on main build 0
-  min_prev_build: 0
+  build_number: 102
+  # Floor on the previous label build of this version
+  min_prev_build: ${{ build_number - 1 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
   bootstrap: false
