@@ -2389,6 +2389,11 @@ EOF
     done
     echo "    Stubs: ${_stub_pairs[*]}"
 
+    # The stubs were just replaced by BUILD-arch copies carrying raw install names
+    if [[ "${target_platform}" == osx-* ]]; then
+      bash "${RECIPE_DIR}/building/fix-macos-install-names.sh" "${cross_dir}lib/ocaml"
+    fi
+
     # ocamllex from the cross build is a TARGET-arch executable; dune runs it
     # on the BUILD machine. Ship the build-arch one (ocamlyacc already is).
     _native_ocamllex="${NATIVE_PREFIX}/bin/ocamllex.opt"
