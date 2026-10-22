@@ -525,23 +525,7 @@ EOF
       _LIB_PREFIX="${PREFIX}"
     fi
 
-    local config_file="Makefile.config"
-
-    # OC_LDFLAGS may not exist: append or create
-    if grep -q '^OC_LDFLAGS=' "${config_file}"; then
-      sed -i "s|^OC_LDFLAGS=\(.*\)|OC_LDFLAGS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
-    else
-      echo "OC_LDFLAGS=-Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names" >> "${config_file}"
-    fi
-
-    sed -i "s|^NATIVECCLINKOPTS=\(.*\)|NATIVECCLINKOPTS=\1 -Wl,-L${_LIB_PREFIX}/lib -Wl,-headerpad_max_install_names|" "${config_file}"
-    if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
-      sed -i "s|^NATIVECCLIBS=\(.*\)|NATIVECCLIBS=\1 -L${_LIB_PREFIX}/lib -lzstd|" "${config_file}"
-      # BYTECCLIBS for -output-complete-exe (libcamlrun.a contains zstd.o); a
-      # @loader_path rpath survives conda relocation, and the conda-ocaml-mkexe
-      # wrapper adds -L${PREFIX}/lib at runtime.
-      sed -i "s|^BYTECCLIBS=\(.*\)|BYTECCLIBS=\1 -Wl,-rpath,@loader_path/../lib -lzstd|" "${config_file}"
-    fi
+    patch_makefile_config_osx "Makefile.config" "${_LIB_PREFIX}"
   elif [[ "${target_platform}" != "linux"* ]] && [[ "${OCAML_TARGET_TRIPLET}" != *"-pc-"* ]]; then
     local config_file="Makefile.config"
 
@@ -1351,13 +1335,9 @@ TOOLWRAPPER
     export LDFLAGS="${NATIVE_LDFLAGS}"
     export STRIP="${NATIVE_STRIP}"
 
-    # Per-target configure args (frame pointers not supported on PPC)
+    # Per-target configure args
     declare -a TARGET_CONFIG_ARGS=()
-    case "${CROSS_ARCH}" in
-      arm64|amd64)
-        TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
-        ;;
-    esac
+    supports_frame_pointers "${CROSS_ARCH}" && TARGET_CONFIG_ARGS+=(--enable-frame-pointers)
     [[ "${OCAML_ROSETTA_BUILD:-0}" == "1" ]] && TARGET_CONFIG_ARGS+=(--build="${build_alias}")
 
     # libtool adds -m elf64_s390 for s390x targets, which only the s390x ld
@@ -1966,6 +1946,11 @@ EOF
     CONFIG_ARGS+=(ac_cv_func_getentropy=no ac_cv_func_strlcpy=no)
   fi
 
+  # Frame pointers, as the native osx build enables them
+  if [[ "${target_platform}" == "osx-"* ]] && supports_frame_pointers "${CROSS_ARCH}"; then
+    CONFIG_ARGS+=(--enable-frame-pointers)
+  fi
+
   # conda-ocaml-* wrappers are needed during the build
   echo "    Installing conda-ocaml-* wrapper scripts to BUILD_PREFIX..."
   install_conda_ocaml_wrappers "${BUILD_PREFIX}/bin"
@@ -2544,6 +2529,12 @@ if [[ "${BUILD_MODE}" == "cross-target" ]]; then
   OCAML_INSTALL_PREFIX="${PREFIX}"
   transfer_to_prefix "${OCAML_TARGET_INSTALL_PREFIX}" "${OCAML_INSTALL_PREFIX}"
 
+  # Same macOS link settings as the native osx build, applied before the
+  # cleaning step so both builds ship the same result.
+  if [[ "${OCAML_TARGET_TRIPLET}" == *-apple-* ]]; then
+    patch_makefile_config_osx "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
+  fi
+
   echo "  Cleaning build-time paths from final Makefile.config..."
   clean_makefile_config "${OCAML_INSTALL_PREFIX}/lib/ocaml/Makefile.config" "${OCAML_INSTALL_PREFIX}"
 
@@ -2619,8 +2610,8 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
           export CONDA_OCAML_CC="${_apple_clang}"
           export CONDA_OCAML_LD="${OCAML_TARGET_TRIPLET}-ld"
           export CONDA_OCAML_RANLIB="$(find_tool "llvm-ranlib" true)"
-          export CONDA_OCAML_MKEXE="${_apple_clang} ${_apple_min} -Wl,-rpath,@executable_path/../lib"
-          export CONDA_OCAML_MKDLL="${_apple_clang} ${_apple_min} -shared -undefined dynamic_lookup"
+          export CONDA_OCAML_MKEXE="${_apple_clang} ${_apple_min} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
+          export CONDA_OCAML_MKDLL="${_apple_clang} ${_apple_min} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
           ;;
         *)
           export CONDA_OCAML_AR="${OCAML_TARGET_TRIPLET}-ar"
@@ -2647,13 +2638,13 @@ if [[ "${BUILD_MODE}" == "native" ]] || [[ "${BUILD_MODE}" == "cross-target" ]];
       export CONDA_OCAML_RANLIB=$(basename "${RANLIB:-ranlib}")
       # macOS needs rpath for downstream binaries to find libzstd
       if [[ "${target_platform}" == osx-* ]]; then
-        export CONDA_OCAML_MKEXE="${CC:-cc} -Wl,-rpath,@executable_path/../lib"
+        export CONDA_OCAML_MKEXE="${CC:-cc} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib"
       else
         export CONDA_OCAML_MKEXE="${CC:-cc}"
       fi
       # macOS needs -undefined dynamic_lookup to defer symbol resolution to runtime
       if [[ "${target_platform}" == osx-* ]]; then
-        export CONDA_OCAML_MKDLL="${CC:-cc} -shared -undefined dynamic_lookup"
+        export CONDA_OCAML_MKDLL="${CC:-cc} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup"
       else
         export CONDA_OCAML_MKDLL="${CC:-cc} -shared"
       fi
