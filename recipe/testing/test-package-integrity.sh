@@ -512,6 +512,35 @@ else
     echo "  Makefile.config: -L paths clean"
   fi
 
+  # macOS: build-only flags must not ship, and native and cross-target builds
+  # must ship the same link settings.
+  if [[ "$(uname)" == "Darwin" ]]; then
+    echo "Checking macOS Makefile.config settings..."
+    if grep -qE -- '-fuse-ld=lld|-isysroot' "${MAKEFILE_CONFIG}"; then
+      echo "ERROR: Makefile.config contains build-only -fuse-ld=lld or -isysroot:"
+      grep -E -- '-fuse-ld=lld|-isysroot' "${MAKEFILE_CONFIG}" | head -5
+      exit 1
+    fi
+    if ! grep -E '^OC_LDFLAGS=' "${MAKEFILE_CONFIG}" | grep -q -- '-headerpad_max_install_names'; then
+      echo "ERROR: Makefile.config OC_LDFLAGS lacks -headerpad_max_install_names"
+      grep -E '^OC_LDFLAGS=' "${MAKEFILE_CONFIG}" || echo "  (no OC_LDFLAGS line)"
+      exit 1
+    fi
+    if grep -q -- '-lzstd' "${MAKEFILE_CONFIG}" \
+        && ! grep -E '^BYTECCLIBS=' "${MAKEFILE_CONFIG}" | grep -qF '@loader_path/../lib'; then
+      echo "ERROR: Makefile.config BYTECCLIBS lacks the @loader_path/../lib rpath"
+      grep -E '^BYTECCLIBS=' "${MAKEFILE_CONFIG}" || echo "  (no BYTECCLIBS line)"
+      exit 1
+    fi
+    if grep -qE '^ARCH=amd64[[:space:]]*$' "${MAKEFILE_CONFIG}" \
+        && ! grep -qE '^WITH_FRAME_POINTERS=true[[:space:]]*$' "${MAKEFILE_CONFIG}"; then
+      echo "ERROR: x86_64 Makefile.config lacks WITH_FRAME_POINTERS=true"
+      grep -E '^WITH_FRAME_POINTERS=' "${MAKEFILE_CONFIG}" || echo "  (no WITH_FRAME_POINTERS line)"
+      exit 1
+    fi
+    echo "  Makefile.config: macOS settings OK"
+  fi
+
   # --- -config-var checks ---
   if [[ "${CAN_EXECUTE}" == "true" ]]; then
     echo "Checking ocamlc.opt -config-var values..."
