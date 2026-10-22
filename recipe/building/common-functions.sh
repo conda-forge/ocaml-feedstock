@@ -156,6 +156,15 @@ get_target_arch() {
   esac
 }
 
+# Whether OCaml's configure accepts --enable-frame-pointers for an OCaml ARCH
+# Usage: supports_frame_pointers "amd64"
+supports_frame_pointers() {
+  case "$1" in
+    arm64|amd64) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Get target platform from triplet
 # Usage: get_target_platform "aarch64-conda-linux-gnu" -> "linux-aarch64"
 get_target_platform() {
@@ -615,7 +624,7 @@ get_cross_tool_defaults() {
   if [[ "${target}" == *-apple-* ]]; then
     # macOS: use lld linker and headerpad for install_name_tool compatibility
     # Add rpath so downstream binaries can find libzstd in ${CONDA_PREFIX}/lib
-    DEFAULT_MKDLL="${DEFAULT_CC} -shared -undefined dynamic_lookup \${LDFLAGS}"
+    DEFAULT_MKDLL="${DEFAULT_CC} -shared -Wl,-headerpad_max_install_names -undefined dynamic_lookup \${LDFLAGS}"
     DEFAULT_MKEXE="${DEFAULT_CC} -Wl,-headerpad_max_install_names -Wl,-rpath,@executable_path/../lib \${LDFLAGS}"
   else
     # Linux: -Wl,-E exports symbols for dlopen (required by ocamlnat)
@@ -694,6 +703,12 @@ clean_makefile_config() {
   local keep='@@OCAML_RELOC_L@@'
 
   [[ -f "${config_file}" ]] || return 0
+
+  # macOS build-only flags: the linker choice and the build host's SDK path
+  # do not apply to a consumer of the installed package.
+  if [[ "${target_platform:-}" == osx-* ]]; then
+    sed -i -E 's#-fuse-ld=[^[:space:]]*##g; s#-isysroot[[:space:]]+[^[:space:]]*##g' "${config_file}"
+  fi
 
   # Build-time path markers to clean (conda-bld, rattler-build, placeholders, env dirs)
   local markers=(
@@ -797,6 +812,39 @@ patch_makefile_opaque_config() {
   if ! grep -q "^utils/config.cmi" Makefile; then
     printf '\nutils/config.cmi utils/config.cmo utils/config.cmx: override OC_COMMON_COMPFLAGS += -opaque\n' >> Makefile
   fi
+}
+
+# Add the macOS link settings to a Makefile.config: headerpad for
+# install_name_tool, -L<lib_prefix>/lib for zstd, and for -output-complete-exe
+# (libcamlrun.a contains zstd.o) an @loader_path rpath, which survives conda
+# relocation. Each value is appended once, so a second run changes nothing.
+# Usage: patch_makefile_config_osx <config_file> <lib_prefix>
+patch_makefile_config_osx() {
+  local config_file="$1"
+  local lib_prefix="$2"
+  local link_opts="-Wl,-L${lib_prefix}/lib -Wl,-headerpad_max_install_names"
+  local -a appends=("OC_LDFLAGS=${link_opts}" "NATIVECCLINKOPTS=${link_opts}")
+  local entry var value line
+
+  if [[ "${OCAML_HAS_ZSTD:-1}" == "1" ]]; then
+    appends+=(
+      "NATIVECCLIBS=-L${lib_prefix}/lib -lzstd"
+      "BYTECCLIBS=-Wl,-rpath,@loader_path/../lib -lzstd"
+    )
+  fi
+
+  # OC_LDFLAGS may not exist
+  if ! grep -q '^OC_LDFLAGS=' "${config_file}"; then
+    echo "OC_LDFLAGS=${link_opts}" >> "${config_file}"
+  fi
+
+  for entry in "${appends[@]}"; do
+    var="${entry%%=*}"
+    value="${entry#*=}"
+    line=$(grep -m1 "^${var}=" "${config_file}" || true)
+    [[ "${line}" == *"${value}"* ]] && continue
+    sed -i "s|^${var}=\(.*\)|${var}=\1 ${value}|" "${config_file}"
+  done
 }
 
 # Clean embedded binary paths and -L flags from Makefile.config after configure
