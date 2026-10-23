@@ -1,10 +1,10 @@
 context:
-  build_number: 1
+  build_number: 0
   min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
   bootstrap: false
-  version: 5.5.1
+  version: "5.5.2"
   flexdll_version: "0.44"
 
   dot: ${{ "./" if unix else "" }}
@@ -107,7 +107,7 @@ recipe:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: ae47728d0a876665ccc7b745e3a8d8c9ca5ba63c4f7a11d4db6cdbd1dbeef4bb
+    sha256: bb3ffef5e4fce4f04915b9f254f570663311e1f227fd669aa87a5ef7de9a1523
     patches:
       # Fix header include order bug where atomic_load_acquire/atomic_store_release
       # macros are undefined when mlvalues.h is included before platform.h.
@@ -123,13 +123,11 @@ source:
       - patches/fix-cross-bytecode-toplevel-primitives.patch
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
-        then: patches/0002-ocamlmklib-conda-env-vars.patch
+        then:
       # Keeps $PREFIX/lib out of what ocamlmklib records in .cma/.cmxa
       # (conda-forge/ocaml-feedstock#191).
-      - if: unix
-        then: patches/0003-ocamlmklib-no-prefix-lib-in-archives.patch
-      # Teaches configure to accept the aarch64-w64-mingw32 triple and select
-      # the mingw64arm flexdll chain.
+          - patches/0002-ocamlmklib-conda-env-vars.patch
+          - patches/0003-ocamlmklib-no-prefix-lib-in-archives.patch
       - if: cross_target_platform_ == "win-arm64"
         then: patches/add-aarch64-w64-mingw32-support.patch
       # clang defines __GNUC__ but its __builtin_setjmp is unusable on Windows,
@@ -511,10 +509,10 @@ outputs:
                 - if: is_native
                   then:
                     - ocamldebug
-                - if: is_native and has_ocamldoc
-                  then:
-                    - ocamldoc
-                    - ocamldoc.opt
+                    - if: has_ocamldoc
+                      then:
+                        - ocamldoc
+                        - ocamldoc.opt
 
                 # CROSS-COMPILER: Prefixed cross tools
                 - if: is_cross_compiler
@@ -914,8 +912,7 @@ outputs:
             - if: unix
               then:
                 - testing/test-helpers.sh
-            - if: not unix
-              then:
+              else:
                 - testing/run-with-timeout.ps1
                 - testing/load-dll.ps1
                 - testing/pe_reloc_check.ml
