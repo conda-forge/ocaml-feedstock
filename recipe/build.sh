@@ -308,6 +308,12 @@ build_native() {
   export CONDA_OCAML_AS="${NATIVE_ASM}"
   export CONDA_OCAML_MKEXE="${NATIVE_MKEXE}"
   export CONDA_OCAML_MKDLL="${NATIVE_MKDLL}"
+  # Rosetta: BUILD_PREFIX is arm64 and conda-ocaml-mkexe appends -L<BUILD_PREFIX>/lib
+  # after these flags; ld64 stops at the first -lzstd, so the x86_64 -L goes first.
+  if [[ "${OCAML_ROSETTA_BUILD:-0}" == "1" ]]; then
+    export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${NATIVE_LIB_PREFIX}/lib"
+    export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL} -L${NATIVE_LIB_PREFIX}/lib"
+  fi
   # non-unix: windres for resource compilation
   export CONDA_OCAML_WINDRES="${NATIVE_WINDRES:-windres}"
 
@@ -2304,6 +2310,10 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     else
       NATIVE_LIB_PREFIX="${SRC_DIR}/_native_osx-64"
     fi
+    # conda-ocaml-mkexe appends -L<its own prefix>/lib, which is arm64 for the
+    # BUILD_PREFIX copy; ld64 stops at the first -lzstd, so the x86_64 -L goes first.
+    export CONDA_OCAML_MKEXE="${CONDA_OCAML_MKEXE} -L${NATIVE_LIB_PREFIX}/lib"
+    export CONDA_OCAML_MKDLL="${CONDA_OCAML_MKDLL} -L${NATIVE_LIB_PREFIX}/lib"
     export OCAML_ROSETTA_BUILD=1
     echo "  Rosetta build: x86_64 native libs in ${NATIVE_LIB_PREFIX}, build=${build_alias}"
   fi
