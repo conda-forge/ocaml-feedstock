@@ -2090,6 +2090,11 @@ EOF
       )
     fi
 
+    # Ship ocamldoc and ocamldebug; win-arm64 is configured --disable-ocamldoc.
+    if [[ "${target_platform}" != "win-arm64" ]]; then
+      CROSSCOMPILEDOPT_ARGS+=( CROSS_BUILD_OCAMLDOC=1 )
+    fi
+
     # Same zstd-free condition as the crossopt leg: this stage packages the
     # target binaries, so otherlibrariesopt and ocamltoolsopt must also write
     # stdlib .cmi files with the in-tree ocamlc, not the zstd-enabled PATH one.
@@ -2155,7 +2160,12 @@ STRIPDEBUG
   "${OCAML_PREFIX}/bin/ocamlc" -o tools/stripdebug tools/stripdebug.ml
   rm -f tools/stripdebug.ml tools/stripdebug.cmi tools/stripdebug.cmo
 
-  run_logged "installcross" "${MAKE[@]}" installcross
+  # Same condition as the crosscompiledopt leg above.
+  local _install_doc_args=()
+  if [[ "${target_platform}" != "win-arm64" ]]; then
+    _install_doc_args=( CROSS_BUILD_OCAMLDOC=1 )
+  fi
+  run_logged "installcross" "${MAKE[@]}" installcross ${_install_doc_args[@]+"${_install_doc_args[@]}"}
 
   fix_installed_big_endian_header "${CROSS_PLATFORM}" "${OCAML_INSTALL_PREFIX}/lib/ocaml/caml/m.h" || exit 1
 

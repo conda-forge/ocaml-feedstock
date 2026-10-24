@@ -513,8 +513,9 @@ outputs:
                             - flexlink.opt
                         - conda-ocaml-windres
 
-                # NATIVE only: not built when cross-compiling
-                - if: is_native
+                # NATIVE/CROSS-TARGET: debugger and ocamldoc (win-arm64, the
+                # has_ocamldoc=false target, builds neither when cross-compiled)
+                - if: is_native or (is_cross_target and has_ocamldoc)
                   then:
                     - ocamldebug
                     - if: has_ocamldoc
@@ -618,8 +619,8 @@ outputs:
                         - ${{ library }}lib/ocaml/libcamlrun_shared.so
                         - ${{ library }}lib/ocaml/lib{caml,asm}run-*.so
 
-                # NATIVE: Also includes ocamldoc directory
-                - if: is_native and has_ocamldoc
+                # NATIVE/CROSS-TARGET: Also includes ocamldoc directory
+                - if: is_standard_layout and has_ocamldoc
                   then:
                     - ${{ library }}lib/ocaml/ocamldoc/*
 
