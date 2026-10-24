@@ -660,6 +660,20 @@ endif
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
 	  fi; \
 	done
+ifeq ($(STDLIB_CMI_PIN_INTREE),1)
+	# With a zstd-enabled PATH ocamlc (bootstrap off) the bytecode compiler objects
+	# above carry compressed debug events, which the zstd-free target compiler and
+	# runtime cannot read. Rebuild them, the compilerlibs .cma and ocamlc with the
+	# in-tree compiler. It runs from a copy because the ocamlc relink overwrites
+	# ocamlc. The .cmi are compressed too, so .cmo, .cma and .cmi are redone; the
+	# .cmx are rebuilt afterwards. stdlib/*.cmi are kept.
+	cp ocamlc$(EXE) _ocamlc.pin
+	rm -f $(foreach l,ocamlcommon ocamlbytecomp ocamlmiddleend ocamloptcomp ocamltoplevel,$($(l)_CMO_FILES) $($(l)_CMO_FILES:.cmo=.cmi)) \
+	  $(addsuffix .cma,$(COMPILERLIBS))
+	$(MAKE) $(addsuffix .cma,$(COMPILERLIBS)) ocamlc$(EXE) $(CROSS_COMPILER_OVERRIDES) \
+	  CAMLC="$(RUN_TARGET) $(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/_ocamlc.pin $(STDLIBFLAGS)" $(OLDS)
+	rm -f _ocamlc.pin
+endif
 	# We now build the compiler libs again, but for target this time
 	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
 	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
