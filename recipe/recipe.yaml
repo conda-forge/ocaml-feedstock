@@ -117,6 +117,9 @@ source:
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
+      # macOS amd64 -runtime-variant _shared: keep caml_apply*/caml_curry* global
+      # so libasmrun_shared.so can resolve them from the executable.
+      - patches/fix-macos-amd64-shared-runtime-symbols.patch
       # Request marshal compression only when the runtime supports it (no zstd
       # on linux-s390x), so output_value never asks an unsupported runtime.
       - patches/compression-only-when-supported.patch
