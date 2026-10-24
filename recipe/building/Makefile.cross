@@ -668,8 +668,9 @@ endif
 ifeq ($(CROSS_BUILD_OCAMLDOC),1)
 	# ocamldoc.opt links the target compilerlibs rebuilt above and ocamldebug the
 	# target otherlibs/unix, so both come last. WITH_DEBUGGER is configure's
-	# value ("ocamldebug", or empty when sockets are unsupported).
-	$(MAKE) ocamldoc ocamldoc.opt $(WITH_DEBUGGER) $(CROSSCOMPILED_COMPILERLIBS_OVERRIDES) BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
+	# value ("ocamldebug", or empty when sockets are unsupported). The pinned
+	# zstd-free ocamlc must read the plain in-tree stdlib, not BUILD_PREFIX's.
+	$(if $(filter 1,$(STDLIB_CMI_PIN_INTREE)),OCAMLLIB="$(LIBDIR)") $(MAKE) ocamldoc ocamldoc.opt $(WITH_DEBUGGER) $(CROSSCOMPILED_COMPILERLIBS_OVERRIDES) BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 endif
 
 # crosscompiledruntime: build the runtime for the TARGET after crosscompiledopt.
