@@ -518,8 +518,9 @@ EOF
 
   if [[ "${target_platform}" == "osx"* ]]; then
     # Cross builds use BUILD_PREFIX (x86_64 libs for the native compiler);
-    # native osx-64 uses PREFIX (same arch).
-    if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" ]]; then
+    # native osx-64 uses PREFIX (same arch), as does a Rosetta build, whose
+    # BUILD_PREFIX is arm64.
+    if [[ "${CONDA_BUILD_CROSS_COMPILATION:-0}" == "1" && "${OCAML_ROSETTA_BUILD:-0}" != "1" ]]; then
       _LIB_PREFIX="${BUILD_PREFIX}"
     else
       _LIB_PREFIX="${PREFIX}"
@@ -2035,6 +2036,11 @@ EOF
     if [[ "${target_platform}" == "linux-"* ]]; then
       _mkexe_val="${_mkexe_val} -L${PREFIX}/lib"
     fi
+    # ld64 -S omits the debug map, whose N_OSO entries would record the staging
+    # paths of the linked archives. Exported override only, for the same reason.
+    if [[ "${target_platform}" == "osx-"* ]]; then
+      _mkexe_val="${_mkexe_val} -Wl,-S"
+    fi
     export "CONDA_OCAML_${_tgt_id}_MKEXE=${_mkexe_val}"
   fi
   if [[ -n "${CROSS_MKDLL:-}" ]]; then
@@ -2271,12 +2277,10 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
   # Rosetta, with an x86_64 native ocaml in a side env instead of BUILD_PREFIX.
   if [[ "${build_platform}" == "osx-arm64" && "${target_platform}" == "osx-64" ]]; then
     arch -x86_64 /usr/bin/true || { echo "ERROR: Rosetta is required to build osx-64 on osx-arm64"; exit 1; }
-    if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
-      echo "ERROR: an in-lane native build is not supported under Rosetta"
-      exit 1
+    if [[ "${OCAML_NATIVE_IN_LANE:-0}" != "1" ]]; then
+      conda create -p "${SRC_DIR}/_native_osx-64" --platform osx-64 -c conda-forge --override-channels -y "ocaml_osx-64 ${PKG_VERSION}.*" --quiet 2>&1 | grep -v "^INFO:" || true
+      [[ -x "${SRC_DIR}/_native_osx-64/bin/ocamlopt" ]] || { echo "ERROR: no ocamlopt in ${SRC_DIR}/_native_osx-64"; exit 1; }
     fi
-    conda create -p "${SRC_DIR}/_native_osx-64" --platform osx-64 -c conda-forge --override-channels -y "ocaml_osx-64 ${PKG_VERSION}.*" --quiet 2>&1 | grep -v "^INFO:" || true
-    [[ -x "${SRC_DIR}/_native_osx-64/bin/ocamlopt" ]] || { echo "ERROR: no ocamlopt in ${SRC_DIR}/_native_osx-64"; exit 1; }
 
     # The side env's activation script bakes bare tool names, which on this runner
     # resolve to arm64 tools; name the x86_64 toolchain explicitly instead.
@@ -2293,9 +2297,15 @@ if [[ "${BUILD_MODE}" == "cross-compiler" ]]; then
     build_platform=osx-64
     build_alias="${host_alias}"
     CONDA_TOOLCHAIN_BUILD="${CONDA_TOOLCHAIN_HOST}"
-    NATIVE_LIB_PREFIX="${SRC_DIR}/_native_osx-64"
-    OCAML_ROSETTA_BUILD=1
-    echo "  Rosetta build: native ocaml_osx-64 in ${NATIVE_LIB_PREFIX}, build=${build_alias}"
+    # NATIVE_LIB_PREFIX is a C library dir (libzstd), so it must be x86_64: the
+    # side env, or ${PREFIX} (x86_64 zstd is a host dep) when built in-lane.
+    if [[ "${OCAML_NATIVE_IN_LANE:-0}" == "1" ]]; then
+      NATIVE_LIB_PREFIX="${PREFIX}"
+    else
+      NATIVE_LIB_PREFIX="${SRC_DIR}/_native_osx-64"
+    fi
+    export OCAML_ROSETTA_BUILD=1
+    echo "  Rosetta build: x86_64 native libs in ${NATIVE_LIB_PREFIX}, build=${build_alias}"
   fi
 
   # Native OCaml comes from BUILD_PREFIX (the ocaml_$build_platform dependency),
