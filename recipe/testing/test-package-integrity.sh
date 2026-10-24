@@ -281,8 +281,37 @@ check_macos_install_names() {
 # HELPER: a -runtime-variant _shared executable loads the installed runtime
 # Usage: check_macos_shared_runtime_exe <ocaml_libdir>
 # ============================================================================
+_diag_shared_runtime_exe() {
+  local exe="$1" libdir="$2" runtime="$3" relinked="$4" lib dtmp
+  local -a extra=()
+  [[ "${relinked}" == "1" ]] && extra=(-ccopt "-Wl,-rpath,${libdir}")
+  echo "=== shared-runtime diagnostics ==="
+  ocamlopt -config | grep -E '^(architecture|model|system|native_c_compiler|native_c_libraries|mkexe|mkdll|flambda)' || true
+  echo "--- otool -L"
+  otool -L "${exe}" || true
+  echo "--- LC_RPATH"
+  otool -l "${exe}" | grep -A2 LC_RPATH || true
+  echo "--- nm -gU exe"
+  nm -gU "${exe}" | grep -E 'caml_apply|caml_curry|caml_program|caml_start_program' || true
+  echo "--- nm -m exe caml_apply3"
+  nm -m "${exe}" | grep caml_apply3 || true
+  lib="${libdir}/${runtime#@rpath/}"
+  echo "--- runtime lib ${lib}"
+  nm -u "${lib}" | grep caml_apply || true
+  nm -m "${lib}" | grep caml_apply3 || true
+  echo "--- re-run with DYLD_PRINT_*"
+  DYLD_PRINT_LIBRARIES=1 DYLD_PRINT_BINDINGS=1 "${exe}" 2>&1 | tail -40 || true
+  echo "--- relink with -verbose -S"
+  dtmp=$(mktemp -d) || return 0
+  echo 'let () = print_endline "hello-shared-runtime"' > "${dtmp}/hello.ml"
+  (cd "${dtmp}" && ocamlopt -verbose -S -runtime-variant _shared "${extra[@]}" hello.ml -o hello) || true
+  { find "${dtmp}" "${TMPDIR:-/tmp}" -maxdepth 3 \( -name '*startup*.s' -o -name 'camlstartup*.s' \) 2>/dev/null \
+      | xargs grep -h caml_apply 2>/dev/null | head -40; } || true
+  rm -rf "${dtmp}"
+}
+
 check_macos_shared_runtime_exe() {
-  local libdir="$1" tmpdir exe runtime rp dir resolved="" out
+  local libdir="$1" tmpdir exe runtime rp dir resolved="" out relinked=0
   echo "Checking a -runtime-variant _shared executable..."
   tmpdir=$(mktemp -d)
   exe="${tmpdir}/hello"
@@ -316,12 +345,14 @@ check_macos_shared_runtime_exe() {
       rm -rf "${tmpdir}"
       exit 1
     fi
+    relinked=1
   else
     echo "  LC_RPATH ${resolved} resolves ${runtime}"
   fi
   if ! out=$("${exe}" 2>&1) || [[ "${out}" != "hello-shared-runtime" ]]; then
     echo "ERROR: ${exe} did not run correctly:"
     echo "${out}" | head -10
+    _diag_shared_runtime_exe "${exe}" "${libdir}" "${runtime}" "${relinked}" || true
     rm -rf "${tmpdir}"
     exit 1
   fi
