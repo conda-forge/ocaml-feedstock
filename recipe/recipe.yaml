@@ -1,10 +1,10 @@
 context:
-  build_number: 1
+  build_number: 0
   min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
-  bootstrap: false
-  version: 5.5.1
+  bootstrap: ${{ false or build_number == 0 }}
+  version: "5.5.2"
   flexdll_version: "0.44"
 
   dot: ${{ "./" if unix else "" }}
@@ -63,6 +63,9 @@ context:
   is_cross_compiler: ${{ cross_target_platform_ != target_platform and (cross_build_platform == target_platform or cross_build_platform_alt == target_platform) }}
   is_cross_target: ${{ cross_target_platform_ == target_platform and build_platform != target_platform }}
   is_standard_layout: ${{ is_native or is_cross_target }}
+  # osx-64 packages are tested on osx-arm64 runners; the test scripts run them
+  # as native and fail when Rosetta 2 is missing (can_run_target_binaries).
+  is_rosetta_target: ${{ is_cross_target and target_platform == "osx-64" }}
   # OCaml 5.5 has no native-code backend for arm64 Windows, so that target is
   # bytecode-only whatever the toolchain: no ocamlopt, no .opt drivers and no
   # native runtime or nat libraries.
@@ -107,13 +110,16 @@ recipe:
 
 source:
   - url: https://github.com/ocaml/ocaml/archive/refs/tags/${{ version }}.tar.gz
-    sha256: ae47728d0a876665ccc7b745e3a8d8c9ca5ba63c4f7a11d4db6cdbd1dbeef4bb
+    sha256: bb3ffef5e4fce4f04915b9f254f570663311e1f227fd669aa87a5ef7de9a1523
     patches:
       # Fix header include order bug where atomic_load_acquire/atomic_store_release
       # macros are undefined when mlvalues.h is included before platform.h.
       # The macros were guarded by CAML_INTERNALS, but public headers include
       # camlatomic.h, setting the include guard before CAML_INTERNALS is defined.
       - patches/fix-camlatomic-include-order.patch
+      # macOS amd64 -runtime-variant _shared: keep caml_apply*/caml_curry* global
+      # so libasmrun_shared.so can resolve them from the executable.
+      - patches/fix-macos-amd64-shared-runtime-symbols.patch
       # Request marshal compression only when the runtime supports it (no zstd
       # on linux-s390x), so output_value never asks an unsupported runtime.
       - patches/compression-only-when-supported.patch
@@ -123,11 +129,11 @@ source:
       - patches/fix-cross-bytecode-toplevel-primitives.patch
       # Only apply on Unix - Windows uses flexlink which shouldn't be overridden
       - if: unix
-        then: patches/0002-ocamlmklib-conda-env-vars.patch
-      # Keeps $PREFIX/lib out of what ocamlmklib records in .cma/.cmxa
-      # (conda-forge/ocaml-feedstock#191).
-      - if: unix
-        then: patches/0003-ocamlmklib-no-prefix-lib-in-archives.patch
+        then:
+          - patches/0002-ocamlmklib-conda-env-vars.patch
+          # Keeps $PREFIX/lib out of what ocamlmklib records in .cma/.cmxa
+          # (conda-forge/ocaml-feedstock#191).
+          - patches/0003-ocamlmklib-no-prefix-lib-in-archives.patch
       # Teaches configure to accept the aarch64-w64-mingw32 triple and select
       # the mingw64arm flexdll chain.
       - if: cross_target_platform_ == "win-arm64"
@@ -507,14 +513,15 @@ outputs:
                             - flexlink.opt
                         - conda-ocaml-windres
 
-                # NATIVE only: not built when cross-compiling
-                - if: is_native
+                # NATIVE/CROSS-TARGET: debugger and ocamldoc (win-arm64, the
+                # has_ocamldoc=false target, builds neither when cross-compiled)
+                - if: is_native or (is_cross_target and has_ocamldoc)
                   then:
                     - ocamldebug
-                - if: is_native and has_ocamldoc
-                  then:
-                    - ocamldoc
-                    - ocamldoc.opt
+                    - if: has_ocamldoc
+                      then:
+                        - ocamldoc
+                        - ocamldoc.opt
 
                 # CROSS-COMPILER: Prefixed cross tools
                 - if: is_cross_compiler
@@ -612,8 +619,8 @@ outputs:
                         - ${{ library }}lib/ocaml/libcamlrun_shared.so
                         - ${{ library }}lib/ocaml/lib{caml,asm}run-*.so
 
-                # NATIVE: Also includes ocamldoc directory
-                - if: is_native and has_ocamldoc
+                # NATIVE/CROSS-TARGET: Also includes ocamldoc directory
+                - if: is_standard_layout and has_ocamldoc
                   then:
                     - ${{ library }}lib/ocaml/ocamldoc/*
 
@@ -686,13 +693,21 @@ outputs:
                   export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
               - if: is_native
                 then: cd testing && ${{ dot }}test-package-integrity.${{ sh }}
-              - if: is_cross_target
+              - if: is_cross_target and not is_rosetta_target
                 then: cd testing && ./test-package-integrity.sh cross-target
+              - if: is_rosetta_target
+                then: |
+                  cd testing
+                  . ./test-helpers.sh
+                  can_run_target_binaries ${{ target_platform }} || exit 1
+                  ./test-package-integrity.sh
               - if: is_cross_compiler
                 then: cd testing && ./test-package-integrity.sh cross ${{ target_triplet }}
             files:
               recipe:
                 - testing/test-package-integrity.${{ sh }}
+                - if: is_rosetta_target
+                  then: testing/test-helpers.sh
             requirements:
               build:
                 - ${{ m2 }}grep
@@ -726,10 +741,19 @@ outputs:
           - script:
               - if: is_native
                 then: cd testing && ${{ dot }}test-tool-versions.${{ sh }} ${{ version }} ${{ native_mode }}
-                else: echo "Skipping tool version tests"
+              - if: is_rosetta_target
+                then: |
+                  cd testing
+                  . ./test-helpers.sh
+                  can_run_target_binaries ${{ target_platform }} || exit 1
+                  ./test-tool-versions.sh ${{ version }} ${{ native_mode }}
+              - if: not is_native and not is_rosetta_target
+                then: echo "Skipping tool version tests"
             files:
               recipe:
                 - testing/test-tool-versions.${{ sh }}
+                - if: is_rosetta_target
+                  then: testing/test-helpers.sh
             requirements:
               build:
                 - ${{ m2 }}grep
@@ -740,10 +764,19 @@ outputs:
           - script:
               - if: is_native and unix
                 then: cd testing && ${{ dot }}test-native-only-tools.sh ${{ version }}
-                else: echo "Skipping native-only tools"
+              - if: is_rosetta_target
+                then: |
+                  cd testing
+                  . ./test-helpers.sh
+                  can_run_target_binaries ${{ target_platform }} || exit 1
+                  ./test-native-only-tools.sh ${{ version }}
+              - if: not (is_native and unix) and not is_rosetta_target
+                then: echo "Skipping native-only tools"
             files:
               recipe:
                 - testing/test-native-only-tools.sh
+                - if: is_rosetta_target
+                  then: testing/test-helpers.sh
             requirements:
               build:
                 - ${{ m2 }}grep
@@ -760,13 +793,21 @@ outputs:
                   export OCAML_QEMU=qemu-execve-${{ qemu_arch }}
               - if: is_native and unix
                 then: cd testing && ./test-compiler-wrappers.sh
-              - if: is_cross_target
+              - if: is_cross_target and not is_rosetta_target
                 then: cd testing && ./test-compiler-wrappers.sh cross-target
+              - if: is_rosetta_target
+                then: |
+                  cd testing
+                  . ./test-helpers.sh
+                  can_run_target_binaries ${{ target_platform }} || exit 1
+                  ./test-compiler-wrappers.sh
               - if: not (is_native and unix) and not is_cross_target
                 then: echo "Skipping wrapper tests"
             files:
               recipe:
                 - testing/test-compiler-wrappers.sh
+                - if: is_rosetta_target
+                  then: testing/test-helpers.sh
             requirements:
               build:
                 - if: is_qemuable
@@ -778,10 +819,19 @@ outputs:
           - script:
               - if: is_native and unix
                 then: cd testing && bash ./test-ocamlpath-prepend.sh
-                else: echo "Skipping OCAMLPATH prepend tests"
+              - if: is_rosetta_target
+                then: |
+                  cd testing
+                  . ./test-helpers.sh
+                  can_run_target_binaries ${{ target_platform }} || exit 1
+                  bash ./test-ocamlpath-prepend.sh
+              - if: not (is_native and unix) and not is_rosetta_target
+                then: echo "Skipping OCAMLPATH prepend tests"
             files:
               recipe:
                 - testing/test-ocamlpath-prepend.sh
+                - if: is_rosetta_target
+                  then: testing/test-helpers.sh
 
           # ----------------------------------------------------------------------
           # CROSS-COMPILER: Activation script tests (ocaml_use_cross/ocaml_use_native)
@@ -914,8 +964,7 @@ outputs:
             - if: unix
               then:
                 - testing/test-helpers.sh
-            - if: not unix
-              then:
+              else:
                 - testing/run-with-timeout.ps1
                 - testing/load-dll.ps1
                 - testing/pe_reloc_check.ml
