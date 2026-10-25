@@ -660,6 +660,20 @@ endif
 	    cp "$$f" "$(LIBDIR)/stublibs/"; \
 	  fi; \
 	done
+ifeq ($(STDLIB_CMI_PIN_INTREE),1)
+	# With a zstd-enabled PATH ocamlc (bootstrap off) the bytecode compiler objects
+	# above carry compressed debug events, which the zstd-free target compiler and
+	# runtime cannot read. Rebuild them, the compilerlibs .cma and ocamlc with the
+	# in-tree compiler. It runs from a copy because the ocamlc relink overwrites
+	# ocamlc. The .cmi are compressed too, so .cmo, .cma and .cmi are redone; the
+	# .cmx are rebuilt afterwards. stdlib/*.cmi are kept.
+	cp ocamlc$(EXE) _ocamlc.pin
+	rm -f $(foreach l,ocamlcommon ocamlbytecomp ocamlmiddleend ocamloptcomp ocamltoplevel,$($(l)_CMO_FILES) $($(l)_CMO_FILES:.cmo=.cmi)) \
+	  $(addsuffix .cma,$(COMPILERLIBS))
+	$(MAKE) $(addsuffix .cma,$(COMPILERLIBS)) ocamlc$(EXE) $(CROSS_COMPILER_OVERRIDES) \
+	  CAMLC="$(RUN_TARGET) $(abspath $(ROOTDIR))/runtime/ocamlrun $(abspath $(ROOTDIR))/_ocamlc.pin $(STDLIBFLAGS)" $(OLDS)
+	rm -f _ocamlc.pin
+endif
 	# We now build the compiler libs again, but for target this time
 	rm -f $(ocamlcommon_NCOBJS) $(ocamlmiddleend_NCOBJS) \
 	  $(ocamlbytecomp_NCOBJS) $(ocamloptcomp_NCOBJS) \
@@ -668,8 +682,9 @@ endif
 ifeq ($(CROSS_BUILD_OCAMLDOC),1)
 	# ocamldoc.opt links the target compilerlibs rebuilt above and ocamldebug the
 	# target otherlibs/unix, so both come last. WITH_DEBUGGER is configure's
-	# value ("ocamldebug", or empty when sockets are unsupported).
-	$(MAKE) ocamldoc ocamldoc.opt $(WITH_DEBUGGER) $(CROSSCOMPILED_COMPILERLIBS_OVERRIDES) BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
+	# value ("ocamldebug", or empty when sockets are unsupported). The pinned
+	# zstd-free ocamlc must read the plain in-tree stdlib, not BUILD_PREFIX's.
+	$(if $(filter 1,$(STDLIB_CMI_PIN_INTREE)),OCAMLLIB="$(LIBDIR)") $(MAKE) ocamldoc ocamldoc.opt $(WITH_DEBUGGER) $(CROSSCOMPILED_COMPILERLIBS_OVERRIDES) BEST_OCAMLC=ocamlc BEST_OCAMLOPT=$(CAMLOPT) $(OLDS) $(NATIVE_OTHERLIBS_CAMLC_PIN)
 endif
 
 # crosscompiledruntime: build the runtime for the TARGET after crosscompiledopt.
