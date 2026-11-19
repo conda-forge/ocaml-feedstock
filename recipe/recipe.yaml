@@ -309,13 +309,7 @@ outputs:
             - ${{ compiler("m2w64_c") }}
             - ${{ stdlib("m2w64_c") }}
           else:
-            - if: unix or c_compiler == "vs"
-              then:
-                - ${{ compiler("c") }}
-              else:
-                # the global pinning sets c_compiler_version 2022 for non-unix,
-                # which only applies to the vs compiler
-                - ${{ c_compiler }}_${{ target_platform }}
+            - ${{ compiler("zig") if c_compiler == "zig" else compiler("c") }}
             - ${{ stdlib("c") }}
         - ${{ m2 }}bash >=5.2
         - ${{ m2 }}file
