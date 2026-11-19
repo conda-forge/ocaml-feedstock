@@ -1,102 +1,7 @@
-About ocaml-packages-feedstock
+About ocaml-compiler-feedstock
 ==============================
 
 Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/ocaml-feedstock/blob/main/LICENSE.txt)
-
-
-About ocaml-packages
---------------------
-
-Home: https://ocaml.org/
-
-Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
-
-Summary: Objective Caml (OCaml) is an implementation of the ML language.
-
-Development: https://github.com/ocaml/ocaml
-
-Documentation: https://ocaml.org/docs/
-
-OCaml is an implementation of the ML language, based on the Caml Light
-dialect extended with a complete class-based object system and a powerful
-module system in the style of Standard ML.
-
-OCaml comprises two compilers. One generates bytecode which is then
-interpreted by a C program. This compiler runs quickly, generates compact
-code with moderate memory requirements, and is portable to essentially any
-32 or 64 bit Unix platform. Performance of generated programs is quite good
-for a bytecoded implementation.  This compiler can be used either as a
-standalone, batch-oriented compiler that produces standalone programs, or as
-an interactive, toplevel-based system.
-
-The other compiler generates high-performance native code for a number of
-processors. Compilation takes longer and generates bigger code, but the
-generated programs deliver excellent performance, while retaining the
-moderate memory requirements of the bytecode compiler.
-
-
-About ocaml-compiler
---------------------
-
-Home: https://ocaml.org/
-
-Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
-
-Summary: Objective Caml (OCaml) is an implementation of the ML language.
-
-Development: https://github.com/ocaml/ocaml
-
-Documentation: https://ocaml.org/docs/
-
-OCaml is an implementation of the ML language, based on the Caml Light
-dialect extended with a complete class-based object system and a powerful
-module system in the style of Standard ML.
-
-OCaml comprises two compilers. One generates bytecode which is then
-interpreted by a C program. This compiler runs quickly, generates compact
-code with moderate memory requirements, and is portable to essentially any
-32 or 64 bit Unix platform. Performance of generated programs is quite good
-for a bytecoded implementation.  This compiler can be used either as a
-standalone, batch-oriented compiler that produces standalone programs, or as
-an interactive, toplevel-based system.
-
-The other compiler generates high-performance native code for a number of
-processors. Compilation takes longer and generates bigger code, but the
-generated programs deliver excellent performance, while retaining the
-moderate memory requirements of the bytecode compiler.
-
-About ocaml_win-64
-------------------
-
-Home: https://ocaml.org/
-
-Package license: LGPL-2.1-only WITH OCaml-LGPL-linking-exception
-
-Summary: Objective Caml (OCaml) is an implementation of the ML language.
-
-Development: https://github.com/ocaml/ocaml
-
-Documentation: https://ocaml.org/docs/
-
-OCaml is an implementation of the ML language, based on the Caml Light
-dialect extended with a complete class-based object system and a powerful
-module system in the style of Standard ML.
-
-OCaml comprises two compilers. One generates bytecode which is then
-interpreted by a C program. This compiler runs quickly, generates compact
-code with moderate memory requirements, and is portable to essentially any
-32 or 64 bit Unix platform. Performance of generated programs is quite good
-for a bytecoded implementation.  This compiler can be used either as a
-standalone, batch-oriented compiler that produces standalone programs, or as
-an interactive, toplevel-based system.
-
-The other compiler generates high-performance native code for a number of
-processors. Compilation takes longer and generates bigger code, but the
-generated programs deliver excellent performance, while retaining the
-moderate memory requirements of the bytecode compiler.
-
-About ocaml_win-arm64
----------------------
 
 Home: https://ocaml.org/
 
@@ -137,38 +42,6 @@ Current build status
       </a>
     </td>
   </tr>
-    
-  <tr>
-    <td>Azure</td>
-    <td>
-      <details>
-        <summary>
-          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main">
-          </a>
-        </summary>
-        <table>
-          <thead><tr><th>Variant</th><th>Status</th></tr></thead>
-          <tbody><tr>
-              <td>osx_64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>osx_arm64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_" alt="variant">
-                </a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </details>
-    </td>
-  </tr>
 </table>
 
 Current release info
@@ -180,10 +53,10 @@ Current release info
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) |
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) |
 
-Installing ocaml-packages
+Installing ocaml-compiler
 =========================
 
-Installing `ocaml-packages` from the `conda-forge/label/ocaml_vs` channel can be achieved by adding `conda-forge/label/ocaml_vs` to your channels with:
+Installing `ocaml-compiler` from the `conda-forge/label/ocaml_vs` channel can be achieved by adding `conda-forge/label/ocaml_vs` to your channels with:
 
 ```
 conda config --add channels conda-forge/label/ocaml_vs
@@ -312,17 +185,17 @@ Terminology
                   produce the finished article (built conda distributions)
 
 
-Updating ocaml-packages-feedstock
+Updating ocaml-compiler-feedstock
 =================================
 
-If you would like to improve the ocaml-packages recipe or build a new
+If you would like to improve the ocaml-compiler recipe or build a new
 package version, please fork this repository and submit a PR. Upon submission,
 your changes will be run on the appropriate platforms to give the reviewer an
 opportunity to confirm that the changes result in a successful build. Once
 merged, the recipe will be re-built and uploaded automatically to the
 `conda-forge` channel, whereupon the built conda packages will be available for
 everybody to install and use from the `conda-forge` channel.
-Note that all branches in the conda-forge/ocaml-packages-feedstock are
+Note that all branches in the conda-forge/ocaml-compiler-feedstock are
 immediately built and any created packages are uploaded, so PRs should be based
 on branches in forks, and branches in the main repository should only be used to
 build distinct package versions.
