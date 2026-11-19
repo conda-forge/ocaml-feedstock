@@ -14,6 +14,13 @@ c_compiler_version:
 
 # This branch publishes only the non-unix lanes to the ocaml_vs label.
 cross_target_platform_:
+  # - linux-64
+  # - linux-aarch64
+  # - linux-ppc64le
+  # - linux-riscv64
+  # - linux-s390x
+  # - osx-64
+  # - osx-arm64
   - win-64
   - win-arm64
 
