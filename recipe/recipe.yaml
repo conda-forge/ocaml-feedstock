@@ -1,5 +1,5 @@
 context:
-  build_number: 1
+  build_number: 2
   min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
@@ -198,7 +198,9 @@ outputs:
       run:
         - ${{ pin_subpackage("ocaml_" ~ cross_target_platform_, exact=True) }}
       run_exports:
-        - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+        - if: unix
+          then: ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+          else: ${{ pin_subpackage("ocaml", upper_bound="x.x.x", build=cc ~ "_*") }}
     tests:
       - package_contents:
           strict: true
