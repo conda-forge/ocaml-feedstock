@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Test tools only available on native builds (not cross-compiled)
-# ocamldoc, ocamldebug are not built during cross-compilation
+# Test ocamldoc, ocamldebug (shipped by native and cross-target packages;
+# run only where target binaries can execute)
 
 set -euo pipefail
 
