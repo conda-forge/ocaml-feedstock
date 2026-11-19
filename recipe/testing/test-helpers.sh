@@ -75,6 +75,25 @@ run_target() {
   fi
 }
 
+# True when this host can execute binaries built for platform $1 as if native:
+# an osx-64 package on an osx-arm64 host with Rosetta 2. Rosetta runs x86_64
+# Mach-O images and their children transparently, so no arch prefix is needed.
+# Returns false otherwise; the caller fails on a false return. A missing
+# Rosetta is reported with an error message.
+can_run_target_binaries() {
+  [[ "${1:-}" == "osx-64" ]] || return 1
+  # uname -m reports x86_64 inside a translated shell; hw.optional.arm64 does not.
+  if [[ "$(uname -s)" != "Darwin" || "$(sysctl -n hw.optional.arm64 2>/dev/null)" != "1" ]]; then
+    echo "ERROR: osx-64 binaries are expected to run under Rosetta 2 on an arm64 host" >&2
+    return 1
+  fi
+  if arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "ERROR: Rosetta 2 is required to run osx-64 binaries on this arm64 host" >&2
+  return 1
+}
+
 # Under qemu the conda-ocaml-* wrappers are native scripts, which cannot exec
 # a target-arch tool themselves. They word-split CONDA_OCAML_* unquoted, so the
 # emulator is put in front of each target tool. Call this again after

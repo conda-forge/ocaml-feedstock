@@ -42,52 +42,6 @@ Current build status
       </a>
     </td>
   </tr>
-    
-  <tr>
-    <td>Azure</td>
-    <td>
-      <details>
-        <summary>
-          <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-            <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main">
-          </a>
-        </summary>
-        <table>
-          <thead><tr><th>Variant</th><th>Status</th></tr></thead>
-          <tbody><tr>
-              <td>osx_64_cross_target_platform_osx-64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-64" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>osx_64_cross_target_platform_osx-arm64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_64_cross_target_platform_osx-arm64" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>osx_arm64_cross_target_platform_osx-64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_cross_target_platform_osx-64" alt="variant">
-                </a>
-              </td>
-            </tr><tr>
-              <td>osx_arm64_cross_target_platform_osx-arm64</td>
-              <td>
-                <a href="https://dev.azure.com/conda-forge/feedstock-builds/_build/latest?definitionId=4652&branchName=main">
-                  <img src="https://dev.azure.com/conda-forge/feedstock-builds/_apis/build/status/ocaml-feedstock?branchName=main&jobName=osx&configuration=osx%20osx_arm64_cross_target_platform_osx-arm64" alt="variant">
-                </a>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </details>
-    </td>
-  </tr>
 </table>
 
 Current release info
@@ -95,25 +49,17 @@ Current release info
 
 | Name | Downloads | Version | Platforms |
 | --- | --- | --- | --- |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml-green.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml.svg)](https://anaconda.org/conda-forge/ocaml) |
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml--compiler-green.svg)](https://anaconda.org/conda-forge/ocaml-compiler) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml-compiler.svg)](https://anaconda.org/conda-forge/ocaml-compiler) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml-compiler.svg)](https://anaconda.org/conda-forge/ocaml-compiler) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml-compiler.svg)](https://anaconda.org/conda-forge/ocaml-compiler) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--64-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-64.svg)](https://anaconda.org/conda-forge/ocaml_linux-64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--aarch64-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-aarch64.svg)](https://anaconda.org/conda-forge/ocaml_linux-aarch64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--ppc64le-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-ppc64le.svg)](https://anaconda.org/conda-forge/ocaml_linux-ppc64le) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--riscv64-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-riscv64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-riscv64.svg)](https://anaconda.org/conda-forge/ocaml_linux-riscv64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-riscv64.svg)](https://anaconda.org/conda-forge/ocaml_linux-riscv64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-riscv64.svg)](https://anaconda.org/conda-forge/ocaml_linux-riscv64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__linux--s390x-green.svg)](https://anaconda.org/conda-forge/ocaml_linux-s390x) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_linux-s390x.svg)](https://anaconda.org/conda-forge/ocaml_linux-s390x) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_linux-s390x.svg)](https://anaconda.org/conda-forge/ocaml_linux-s390x) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_linux-s390x.svg)](https://anaconda.org/conda-forge/ocaml_linux-s390x) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-64.svg)](https://anaconda.org/conda-forge/ocaml_osx-64) |
-| [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__osx--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_osx-arm64.svg)](https://anaconda.org/conda-forge/ocaml_osx-arm64) |
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-64.svg)](https://anaconda.org/conda-forge/ocaml_win-64) |
 | [![Conda Recipe](https://img.shields.io/badge/recipe-ocaml__win--arm64-green.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Version](https://img.shields.io/conda/vn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) | [![Conda Platforms](https://img.shields.io/conda/pn/conda-forge/ocaml_win-arm64.svg)](https://anaconda.org/conda-forge/ocaml_win-arm64) |
 
 Installing ocaml-compiler
 =========================
 
-Installing `ocaml-compiler` from the `conda-forge/label/ocaml_experimental` channel can be achieved by adding `conda-forge/label/ocaml_experimental` to your channels with:
+Installing `ocaml-compiler` from the `conda-forge/label/ocaml_vs` channel can be achieved by adding `conda-forge/label/ocaml_vs` to your channels with:
 
 ```
-conda config --add channels conda-forge/label/ocaml_experimental
+conda config --add channels conda-forge/label/ocaml_vs
 conda config --set channel_priority strict
 ```
 
@@ -124,7 +70,7 @@ How to use
 <summary>With conda</summary>
 
 ```
-conda install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_linux-s390x ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
+conda install ocaml-compiler ocaml_win-64 ocaml_win-arm64
 ```
 
 </details>
@@ -133,7 +79,7 @@ conda install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linu
 <summary>With mamba</summary>
 
 ```
-mamba install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_linux-s390x ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
+mamba install ocaml-compiler ocaml_win-64 ocaml_win-arm64
 ```
 
 </details>
@@ -143,9 +89,9 @@ mamba install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linu
 
 ```
 # for adding to your local project
-pixi add ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_linux-s390x ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
+pixi add ocaml-compiler ocaml_win-64 ocaml_win-arm64
 # for installing globally
-pixi global install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocaml_linux-ppc64le ocaml_linux-riscv64 ocaml_linux-s390x ocaml_osx-64 ocaml_osx-arm64 ocaml_win-64 ocaml_win-arm64
+pixi global install ocaml-compiler ocaml_win-64 ocaml_win-arm64
 ```
 
 </details>
@@ -153,13 +99,13 @@ pixi global install ocaml ocaml-compiler ocaml_linux-64 ocaml_linux-aarch64 ocam
 Search package versions
 -----------------------
 
-It is possible to list all of the versions of `ocaml` available on your platform:
+It is possible to list all of the versions of `ocaml-compiler` available on your platform:
 
 <details>
 <summary>With conda</summary>
 
 ```
-conda search ocaml --channel conda-forge/label/ocaml_experimental
+conda search ocaml-compiler --channel conda-forge/label/ocaml_vs
 ```
 
 </details>
@@ -168,7 +114,7 @@ conda search ocaml --channel conda-forge/label/ocaml_experimental
 <summary>With mamba</summary>
 
 ```
-mamba search ocaml --channel conda-forge/label/ocaml_experimental
+mamba search ocaml-compiler --channel conda-forge/label/ocaml_vs
 ```
 
 </details>
@@ -177,7 +123,7 @@ mamba search ocaml --channel conda-forge/label/ocaml_experimental
 <summary>With pixi</summary>
 
 ```
-pixi search ocaml --channel conda-forge/label/ocaml_experimental
+pixi search ocaml-compiler --channel conda-forge/label/ocaml_vs
 ```
 
 </details>
@@ -187,13 +133,13 @@ pixi search ocaml --channel conda-forge/label/ocaml_experimental
 
 ```
 # Search all versions available on your platform:
-mamba repoquery search ocaml --channel conda-forge/label/ocaml_experimental
+mamba repoquery search ocaml-compiler --channel conda-forge/label/ocaml_vs
 
-# List packages depending on `ocaml`:
-mamba repoquery whoneeds ocaml --channel conda-forge/label/ocaml_experimental
+# List packages depending on `ocaml-compiler`:
+mamba repoquery whoneeds ocaml-compiler --channel conda-forge/label/ocaml_vs
 
-# List dependencies of `ocaml`:
-mamba repoquery depends ocaml --channel conda-forge/label/ocaml_experimental
+# List dependencies of `ocaml-compiler`:
+mamba repoquery depends ocaml-compiler --channel conda-forge/label/ocaml_vs
 ```
 
 </details>

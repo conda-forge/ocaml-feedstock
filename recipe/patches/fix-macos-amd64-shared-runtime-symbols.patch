@@ -1,0 +1,16 @@
+# macOS amd64: with -runtime-variant _shared, libasmrun_shared.so needs
+# caml_apply*/caml_curry* from the executable (flat namespace), so they
+# must not be emitted as private_extern.
+#
+--- a/asmcomp/amd64/emit.mlp
++++ b/asmcomp/amd64/emit.mlp
+@@ -892,6 +892,9 @@
+   add_def_symbol fundecl.fun_name;
+   if system = S_macosx
+   && not !Clflags.output_c_object
++  (* -runtime-variant _shared: libasmrun_shared.so references caml_apply*
++     from the executable, so they must stay exported. *)
++  && !Clflags.runtime_variant <> "_shared"
+   && is_generic_function fundecl.fun_name
+   then (* PR#4690 *)
+     D.private_extern (emit_symbol fundecl.fun_name)

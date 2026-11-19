@@ -1,11 +1,13 @@
 c_compiler:
 - gcc
+c_compiler_version:
+- '2022'
 c_stdlib:
 - vs
 channel_sources:
-- conda-forge/label/ocaml_experimental,conda-forge
+- conda-forge
 channel_targets:
-- conda-forge ocaml_experimental
+- conda-forge ocaml_vs
 cross_target_platform_:
 - win-64
 m2w64_c_compiler:
