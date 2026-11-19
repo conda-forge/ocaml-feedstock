@@ -1,7 +1,7 @@
 c_compiler:
   - if: not unix and x86_64
     then:
-      - vs2022
+      - vs
       - gcc
   - if: not unix and arm64
     then:
