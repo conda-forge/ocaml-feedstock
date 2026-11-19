@@ -309,7 +309,13 @@ outputs:
             - ${{ compiler("m2w64_c") }}
             - ${{ stdlib("m2w64_c") }}
           else:
-            - ${{ compiler("c") }}
+            # The global pinning versions the non-unix compiler as `vs 2022`,
+            # which does not match the vs2022/zig packages selected here.
+            - if: unix
+              then:
+                - ${{ compiler("c") }}
+              else:
+                - ${{ c_compiler }}_${{ target_platform }}
             - ${{ stdlib("c") }}
         - ${{ m2 }}bash >=5.2
         - ${{ m2 }}file
@@ -441,7 +447,7 @@ outputs:
         # so consumers bring compiler("c") themselves.
         - if: is_standard_layout and is_vs2022
           then:
-            - ${{ compiler("c") }}
+            - ${{ c_compiler }}_${{ target_platform }}
 
     # ========================================================================
     # TESTS
@@ -977,7 +983,7 @@ outputs:
             - ${{ m2 }}file
             - ${{ m2 }}grep
             - if: is_vs2022
-              then: ${{ compiler("c") }}
+              then: ${{ c_compiler }}_${{ target_platform }}
 
       # ----------------------------------------------------------------------
       # compiler-libs native link (issue #132)
@@ -1022,7 +1028,7 @@ outputs:
               then: ${{ qemu_pkg }}
             - ${{ m2 }}grep
             - if: is_vs2022
-              then: ${{ compiler("c") }}
+              then: ${{ c_compiler }}_${{ target_platform }}
 
 about:
   homepage: https://ocaml.org/
