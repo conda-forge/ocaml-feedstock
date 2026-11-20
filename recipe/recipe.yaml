@@ -1,5 +1,5 @@
 context:
-  build_number: 1
+  build_number: 2
   min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
@@ -15,8 +15,8 @@ context:
   xt: ${{ "" if unix else ".exe" }}
   # Indirection so the autotick bot's compiler-stub regex only rewrites this line
   cc: ${{ c_compiler }}
-  # True on the win-64 vs2022 track
-  is_vs2022: ${{ not unix and c_compiler == "vs2022" }}
+  # True on the win-64 vs track
+  is_vs: ${{ not unix and c_compiler == "vs" }}
 
   # ===========================================================================
   # GCC-style derived values (not variant keys - keeps filenames clean)
@@ -33,7 +33,7 @@ context:
       "x86_64-apple-darwin13.4.0"   if cross_target_platform_ == "osx-64"                            else
       "arm64-apple-darwin20.0.0"    if cross_target_platform_ == "osx-arm64"                         else
       "x86_64-w64-mingw32"          if cross_target_platform_ == "win-64" and cc == "gcc"    else
-      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and cc == "vs2022" else
+      "x86_64-pc-windows"           if cross_target_platform_ == "win-64" and cc == "vs"     else
       "aarch64-w64-mingw32"         if cross_target_platform_ == "win-arm64" and cc == "zig" else
       "unknown"
     }}
@@ -169,7 +169,7 @@ source:
           # lld-link turns into a stray out-of-order .reloc block.
           - if: cross_target_platform_ == "win-arm64"
             then: patches/flexdll-arm64-sort-coff-relocs.patch
-  - if: is_vs2022
+  - if: is_vs
     then:
       url: https://github.com/ocaml/winpthreads/archive/d635af4d9bcce7f268b3e3c44f414611bbc66381.tar.gz
       sha256: f390e421dfbc3e5182cbe98832f23c946863349719db9a5439d578875a262193
@@ -191,14 +191,16 @@ outputs:
       skip: cross_target_platform_ != target_platform
       noarch: generic
       script: echo "OCaml metapackage"
-      # Down-prioritize the vs2022 track so the solver prefers gcc on win-64
+      # Down-prioritize the vs track so the solver prefers gcc on win-64
       variant:
-        down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
+        down_prioritize_variant: ${{ 1 if is_vs else 0 }}
     requirements:
       run:
         - ${{ pin_subpackage("ocaml_" ~ cross_target_platform_, exact=True) }}
       run_exports:
-        - ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+        - if: unix
+          then: ${{ pin_subpackage("ocaml", upper_bound="x.x.x") }}
+          else: ${{ pin_subpackage("ocaml", upper_bound="x.x.x", build=cc ~ "_*") }}
     tests:
       - package_contents:
           strict: true
@@ -229,9 +231,9 @@ outputs:
           # under qemu-user. Empty on lanes where is_qemuable is false, so inert there.
           OCAML_QEMU: "${{ ('qemu-execve-' ~ qemu_arch) if is_qemuable else '' }}"
       skip: not (is_native or is_cross_compiler or is_cross_target)
-      # Down-prioritize the vs2022 track so the solver prefers gcc on win-64
+      # Down-prioritize the vs track so the solver prefers gcc on win-64
       variant:
-        down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
+        down_prioritize_variant: ${{ 1 if is_vs else 0 }}
       dynamic_linking:
         missing_dso_allowlist:
           # The cross tree's target objects need the target's loader, which only the target system has.
@@ -291,7 +293,7 @@ outputs:
               - ucrt >=10.0.20348.0
           # the vs runtime packages, without the vs activation package that
           # stdlib("c") would pull into every downstream host env
-          - if: is_vs2022
+          - if: is_vs
             then:
               - vc >=14.3,<15
               - vc14_runtime >=14.44.35208
@@ -307,7 +309,7 @@ outputs:
             - ${{ compiler("m2w64_c") }}
             - ${{ stdlib("m2w64_c") }}
           else:
-            - ${{ compiler("c") }}
+            - ${{ compiler("zig") if c_compiler == "zig" else compiler("c") }}
             - ${{ stdlib("c") }}
         - ${{ m2 }}bash >=5.2
         - ${{ m2 }}file
@@ -434,10 +436,10 @@ outputs:
         - if: osx
           then:
             - lld >=${{ c_compiler_version }}
-        # The vs2022 activation runs vcvars. As a run dep it lands in every env
+        # The vs activation runs vcvars. As a run dep it lands in every env
         # holding ocaml (build and host) and runs twice, overflowing cmd.exe,
         # so consumers bring compiler("c") themselves.
-        - if: is_standard_layout and is_vs2022
+        - if: is_standard_layout and is_vs
           then:
             - ${{ compiler("c") }}
 
@@ -495,13 +497,13 @@ outputs:
                         - ocamlopt.opt
                         - ocamlopt.byte
                         - ocamloptp
-                    - if: unix or c_compiler in ["vs2022", "zig"]
+                    - if: unix or c_compiler in ["vs", "zig"]
                       then:
                         - ocamlruni
                     # Runtime-id-suffixed runtimes (plain names are symlinks).
                     - ocamlrun*-*
                     - "*-ocamlrun*-*"
-                    - if: is_vs2022
+                    - if: is_vs
                       then:
                         - default_amd64.manifest
                     - if: not unix
@@ -604,7 +606,7 @@ outputs:
                             - ${{ library }}lib/ocaml/std_exit.obj
                             - ${{ library }}lib/ocaml/stdlib.lib
                         # flexdll ships a different initer object per toolchain.
-                        - if: c_compiler == "vs2022"
+                        - if: c_compiler == "vs"
                           then:
                             - ${{ library }}lib/ocaml/flexdll/flexdll_initer_msvc64.obj
                             - ${{ library }}lib/ocaml/flexdll/flexdll_msvc64.obj
@@ -913,9 +915,9 @@ outputs:
       string: ${{ cc ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
       skip: cross_target_platform_ != target_platform
       script: echo "Toolchain meta-package"
-      # Down-prioritize the vs2022 track so the solver prefers gcc on win-64
+      # Down-prioritize the vs track so the solver prefers gcc on win-64
       variant:
-        down_prioritize_variant: ${{ 1 if is_vs2022 else 0 }}
+        down_prioritize_variant: ${{ 1 if is_vs else 0 }}
     requirements:
       run:
         - ${{ pin_subpackage('ocaml', exact=True) }}
@@ -974,7 +976,7 @@ outputs:
               then: ${{ qemu_pkg }}
             - ${{ m2 }}file
             - ${{ m2 }}grep
-            - if: is_vs2022
+            - if: is_vs
               then: ${{ compiler("c") }}
 
       # ----------------------------------------------------------------------
@@ -1019,7 +1021,7 @@ outputs:
             - if: is_qemuable
               then: ${{ qemu_pkg }}
             - ${{ m2 }}grep
-            - if: is_vs2022
+            - if: is_vs
               then: ${{ compiler("c") }}
 
 about:

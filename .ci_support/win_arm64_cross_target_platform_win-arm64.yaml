@@ -1,5 +1,7 @@
 c_compiler:
 - zig
+c_compiler_version:
+- '2022'
 c_stdlib:
 - vs
 channel_sources:
@@ -10,5 +12,9 @@ cross_target_platform_:
 - win-arm64
 target_platform:
 - win-arm64
+zig_compiler:
+- zig
+zig_compiler_version:
+- 0.17.0
 zstd:
 - '1.5'
