@@ -1,10 +1,9 @@
 context:
-  # At least main + 100 so label builds never share a filename with main builds
-  build_number: 102
-  # First ocaml_vs label build: floors on main build 1
-  min_prev_build: 1
-  # When true, cross lanes build the native (and cross) compiler in-lane.
-  bootstrap: false
+  build_number: 2
+  min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
+  # True while this version's ocaml_<x> packages are unpublished: cross lanes
+  # then build the native (and cross) compiler in-lane.
+  bootstrap: ${{ false or build_number == 0 }}
   version: "5.5.2"
   flexdll_version: "0.44"
 
@@ -310,13 +309,7 @@ outputs:
             - ${{ compiler("m2w64_c") }}
             - ${{ stdlib("m2w64_c") }}
           else:
-            - if: unix or c_compiler == "vs"
-              then:
-                - ${{ compiler("c") }}
-              else:
-                # the global pinning sets c_compiler_version 2022 for non-unix,
-                # which only applies to the vs compiler
-                - ${{ c_compiler }}_${{ target_platform }}
+            - ${{ compiler("zig") if c_compiler == "zig" else compiler("c") }}
             - ${{ stdlib("c") }}
         - ${{ m2 }}bash >=5.2
         - ${{ m2 }}file

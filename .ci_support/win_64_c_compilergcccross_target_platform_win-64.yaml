@@ -7,7 +7,7 @@ c_stdlib:
 channel_sources:
 - conda-forge
 channel_targets:
-- conda-forge ocaml_vs
+- conda-forge main
 cross_target_platform_:
 - win-64
 m2w64_c_compiler:
