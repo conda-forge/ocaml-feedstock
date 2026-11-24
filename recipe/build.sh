@@ -1813,6 +1813,28 @@ EOF
 
 # --- build_cross_target(): native compiler cross-compiled with the BUILD_PREFIX cross-compiler ---
 
+# The target compiler-libs .cmx (stage-3 source tree) must be byte-identical to
+# the stage-2 cross compiler's installed copy ($1), else ocamlobjinfo CRCs differ.
+check_compiler_libs_consistency() {
+  local cross_cl="$1/compiler-libs" f unit built
+  local -a bad=()
+  local n=0
+  for f in "${cross_cl}"/*.cmx; do
+    [[ -f "${f}" ]] || continue
+    unit=$(basename "${f}")
+    built=$(find utils parsing typing lambda bytecomp middle_end asmcomp driver file_formats toplevel \
+      -name "${unit}" -print -quit 2>/dev/null)
+    [[ -n "${built}" ]] || continue
+    n=$((n + 1))
+    cmp -s "${f}" "${built}" || bad+=("${unit%.cmx}")
+  done
+  if [[ ${#bad[@]} -gt 0 ]]; then
+    echo "ERROR: cross-compiler/target compiler-libs .cmx mismatch: ${bad[*]}"
+    exit 1
+  fi
+  echo "  compiler-libs .cmx match the cross compiler (${n} units)"
+}
+
 build_cross_target() {
   local -a CONFIG_ARGS=("${CONFIG_ARGS[@]}")
 
@@ -2108,6 +2130,8 @@ EOF
     # this make, not exported build-wide.
     run_logged "crosscompiledopt" env LIBRARY_PATH="${PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
   )
+
+  check_compiler_libs_consistency "${OCAMLLIB}"
 
   echo "  [4/5] Building crosscompiledruntime ==="
 
