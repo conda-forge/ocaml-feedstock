@@ -1848,6 +1848,39 @@ check_compiler_libs_consistency() {
     exit 1
   fi
   if [[ ${#bad[@]} -gt 0 ]]; then
+    local lg
+    for lg in crossopt crosscompiledopt; do
+      echo "--- typing/path.ml compile lines in ${LOG_DIR}/${lg}.log"
+      if [[ -f "${LOG_DIR}/${lg}.log" ]]; then
+        grep -F 'typing/path.ml' "${LOG_DIR}/${lg}.log" | head -10 || true
+      else
+        echo "(no ${lg}.log)"
+      fi
+    done
+    echo "--- OCaml environment"
+    env | grep -E '^(OCAMLPARAM|OCAMLRUNPARAM|OCAMLLIB|CAMLOPT|OCAMLFIND)' | head -10 || true
+    case "$1" in
+      "${BUILD_PREFIX}"/*) echo "--- cross copy compared: $1 (under BUILD_PREFIX)" ;;
+      "${SRC_DIR}/_xcross_compiler"/*) echo "--- cross copy compared: $1 (under SRC_DIR/_xcross_compiler)" ;;
+      *) echo "--- cross copy compared: $1 (elsewhere)" ;;
+    esac
+    local hasher="md5sum" h_built h_cross
+    command -v md5sum > /dev/null 2>&1 || hasher="shasum -a 256"
+    echo "--- parsing/lexer in the stage-3 tree"
+    ls -l parsing/lexer.ml parsing/lexer.mll 2>&1 | head -10 || true
+    ${hasher} parsing/lexer.ml 2>&1 | head -10 || true
+    head -3 parsing/lexer.ml 2>&1 || true
+    if [[ -f "${cross_cl}/lexer.ml" ]]; then
+      h_built=$(${hasher} < parsing/lexer.ml)
+      h_cross=$(${hasher} < "${cross_cl}/lexer.ml")
+      if [[ "${h_built}" == "${h_cross}" ]]; then
+        echo "cross compiler-libs/lexer.ml: equal (${h_cross%% *})"
+      else
+        echo "cross compiler-libs/lexer.ml: different (${h_cross%% *})"
+      fi
+    else
+      echo "(no ${cross_cl}/lexer.ml)"
+    fi
     echo "ERROR: cross-compiler/target compiler-libs .cmx mismatch: ${bad[*]}"
     exit 1
   fi
