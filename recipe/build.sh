@@ -1813,26 +1813,45 @@ EOF
 
 # --- build_cross_target(): native compiler cross-compiled with the BUILD_PREFIX cross-compiler ---
 
-# The target compiler-libs .cmx (stage-3 source tree) must be byte-identical to
+# The compiler-libs.common .cmx (stage-3 source tree) must be byte-identical to
 # the stage-2 cross compiler's installed copy ($1), else ocamlobjinfo CRCs differ.
+# The unit list is the cross ocamlcommon.cmxa's members; the ocamlc driver unit
+# (main.cmx) is not part of it. ocamlobjinfo is the build machine's.
 check_compiler_libs_consistency() {
-  local cross_cl="$1/compiler-libs" f unit built
+  local cross_cl="$1/compiler-libs" f p unit built name oi
   local -a bad=()
   local n=0
-  for f in "${cross_cl}"/*.cmx; do
+  oi="${OCAML_PREFIX}/bin/ocamlobjinfo.opt"
+  [[ -x "${oi}" ]] || oi="${OCAML_PREFIX}/bin/ocamlobjinfo"
+  if [[ ! -x "${oi}" ]]; then
+    echo "ERROR: compiler-libs guard: no ocamlobjinfo at ${OCAML_PREFIX}/bin"
+    exit 1
+  fi
+  while read -r name; do
+    unit="${name,}.cmx"
+    f="${cross_cl}/${unit}"
     [[ -f "${f}" ]] || continue
-    unit=$(basename "${f}")
     built=$(find utils parsing typing lambda bytecomp middle_end asmcomp driver file_formats toplevel \
       -name "${unit}" -print -quit 2>/dev/null)
     [[ -n "${built}" ]] || continue
     n=$((n + 1))
-    cmp -s "${f}" "${built}" || bad+=("${unit%.cmx}")
-  done
+    if ! cmp -s "${f}" "${built}"; then
+      bad+=("${unit%.cmx}")
+      for p in "${f}" "${built}"; do
+        echo "--- ${unit}: ${p}"
+        "${oi}" "${p}" | sed -n '/^Name:/p;/^CRC of implementation/p;/^Implementations imported/,$p' | head -40 || true
+      done
+    fi
+  done < <("${oi}" "${cross_cl}/ocamlcommon.cmxa" | sed -n 's/^Name: //p')
+  if [[ ${n} -eq 0 ]]; then
+    echo "ERROR: compiler-libs guard checked 0 units (ocamlcommon.cmxa members not found in the stage-3 tree)"
+    exit 1
+  fi
   if [[ ${#bad[@]} -gt 0 ]]; then
     echo "ERROR: cross-compiler/target compiler-libs .cmx mismatch: ${bad[*]}"
     exit 1
   fi
-  echo "  compiler-libs .cmx match the cross compiler (${n} units)"
+  echo "  compiler-libs.common .cmx match the cross compiler (${n} units)"
 }
 
 build_cross_target() {
