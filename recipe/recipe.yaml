@@ -921,8 +921,10 @@ outputs:
                   then:
                     - ocaml_${{ cross_target_platform_ }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
                     - ${{ cc }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
-                    - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
-                    - binutils_impl_${{ cross_target_platform_ }}
+                    - if: linux
+                      then:
+                        - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
+                        - binutils_impl_${{ cross_target_platform_ }}
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler
