@@ -1,5 +1,5 @@
 context:
-  build_number: 2
+  build_number: 3
   min_prev_build: ${{ build_number - 1 if build_number > 0 else 0 }}
   # True while this version's ocaml_<x> packages are unpublished: cross lanes
   # then build the native (and cross) compiler in-lane.
@@ -903,6 +903,28 @@ outputs:
                 - if: is_cross_compiler
                   then:
                     - ocaml_${{ target_platform }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
+
+          # ----------------------------------------------------------------------
+          # CROSS-TARGET: target compiler-libs vs the cross compiler's, as a
+          # downstream ppx build uses them. CONDA_PREFIX is the build env.
+          # ----------------------------------------------------------------------
+          - script:
+              - if: is_cross_target and unix
+                then: cd testing && bash ./test-cross-target-compiler-libs.sh ${{ target_triplet }}
+                else: echo "Skipping cross-target compiler-libs test"
+            files:
+              recipe:
+                - testing/test-cross-target-compiler-libs.sh
+            requirements:
+              build:
+                - if: is_cross_target and unix
+                  then:
+                    - ocaml_${{ cross_target_platform_ }}[version="${{ version }}.*", build_number=">=${{ min_prev_build }}"]
+                    - ${{ cc }}_impl_${{ cross_target_platform_ }} ${{ cross_c_compiler_version }}*
+                    - if: linux
+                      then:
+                        - sysroot_${{ cross_target_platform_ }} ${{ cross_stdlib_version }}.*
+                        - binutils_impl_${{ cross_target_platform_ }}
 
   # ==========================================================================
   # TOOLCHAIN META-PACKAGE: ocaml-compiler

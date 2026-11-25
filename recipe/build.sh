@@ -1562,6 +1562,7 @@ TOOLWRAPPER
       # Serialized: Makefile.cross deletes utils/*.cmi and middle_end/*.cmi mid-build,
       # which races with parallel compile jobs and corrupts what a concurrent ocamlc reads
       run_logged "crossopt" "${crossopt_env[@]}" "${MAKE[@]}" crossopt "${CROSSOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j1
+      record_lexer_state stage2 crossopt
 
       # --- Install crossopt ---
       echo "  [6/7] Installing cross-compiler via 'make installcross'..."
@@ -1812,6 +1813,107 @@ EOF
 }
 
 # --- build_cross_target(): native compiler cross-compiled with the BUILD_PREFIX cross-compiler ---
+
+# Record parsing/lexer.ml (md5, size, first line) and the ocamllex line from
+# log $2 into ${LOG_DIR}/$1-lexer.txt. Diagnostic only; never fails.
+record_lexer_state() {
+  {
+    echo "lexer.ml: $( (md5sum parsing/lexer.ml 2>/dev/null || md5 -q parsing/lexer.ml 2>/dev/null) | cut -d' ' -f1 ) $(wc -c < parsing/lexer.ml 2>/dev/null) bytes"
+    echo "first line: $(head -1 parsing/lexer.ml 2>/dev/null)"
+    grep -E 'ocamllex.*lexer\.mll' "${LOG_DIR}/$2.log" 2>/dev/null | head -3
+  } > "${LOG_DIR}/$1-lexer.txt" 2>/dev/null || true
+}
+
+# The compiler-libs.common .cmx (stage-3 source tree) must be byte-identical to
+# the stage-2 cross compiler's installed copy ($1), else ocamlobjinfo CRCs differ.
+# The unit list is the cross ocamlcommon.cmxa's members; the ocamlc driver unit
+# (main.cmx) is not part of it. ocamlobjinfo is the build machine's.
+check_compiler_libs_consistency() {
+  local cross_cl="$1/compiler-libs" f p unit built name oi
+  local -a bad=()
+  local n=0
+  oi="${OCAML_PREFIX}/bin/ocamlobjinfo.opt"
+  [[ -x "${oi}" ]] || oi="${OCAML_PREFIX}/bin/ocamlobjinfo"
+  if [[ ! -x "${oi}" ]]; then
+    echo "ERROR: compiler-libs guard: no ocamlobjinfo at ${OCAML_PREFIX}/bin"
+    exit 1
+  fi
+  while read -r name; do
+    unit="${name,}.cmx"
+    f="${cross_cl}/${unit}"
+    [[ -f "${f}" ]] || continue
+    built=$(find utils parsing typing lambda bytecomp middle_end asmcomp driver file_formats toplevel \
+      -name "${unit}" -print -quit 2>/dev/null)
+    [[ -n "${built}" ]] || continue
+    n=$((n + 1))
+    if ! cmp -s "${f}" "${built}"; then
+      bad+=("${unit%.cmx}")
+      for p in "${f}" "${built}"; do
+        echo "--- ${unit}: ${p}"
+        "${oi}" "${p}" | sed -n '/^Name:/p;/^CRC of implementation/p;/^Implementations imported/,$p' | head -40 || true
+      done
+    fi
+  done < <("${oi}" "${cross_cl}/ocamlcommon.cmxa" | sed -n 's/^Name: //p')
+  if [[ ${n} -eq 0 ]]; then
+    echo "ERROR: compiler-libs guard checked 0 units (ocamlcommon.cmxa members not found in the stage-3 tree)"
+    exit 1
+  fi
+  local cx_sz st_sz op_n
+  cx_sz=$(wc -c < "${cross_cl}/lexer.cmx" 2>/dev/null || echo '?')
+  st_sz=$(wc -c < parsing/lexer.cmx 2>/dev/null || echo '?')
+  op_n=$( (grep -h -- ' -opaque' "${LOG_DIR}"/*.log 2>/dev/null | grep -- ' -c ' | grep -v utils/config | wc -l) || true)
+  echo "compiler-libs check: lexer.cmx cross=${cx_sz//[[:space:]]/} stage3=${st_sz//[[:space:]]/}, -opaque compiles outside utils/config: ${op_n//[[:space:]]/}"
+  # Skip when a published cross copy (not built in this job) carries the stub lexer.cmx.
+  cx_sz=${cx_sz//[[:space:]]/}
+  st_sz=${st_sz//[[:space:]]/}
+  if [[ $1 != "${SRC_DIR}/_xcross_compiler"* ]] \
+     && [[ ${cx_sz} =~ ^[0-9]+$ ]] && [[ ${st_sz} =~ ^[0-9]+$ ]] \
+     && [[ ${cx_sz} -lt 5000 ]] && [[ ${st_sz} -ge 5000 ]]; then
+    echo "[SKIP] compiler-libs guard: the cross copy ($1) is a published package with the opaque stub lexer.cmx (${cx_sz} bytes vs ${st_sz}); the comparison needs a cross package from build 3 or later"
+    return 0
+  fi
+  if [[ ${#bad[@]} -gt 0 ]]; then
+    local lg cx_f st_f pat u
+    for u in lexer path; do
+      cx_f="${cross_cl}/${u}.cmx"
+      st_f=$(find utils parsing typing -name "${u}.cmx" -print -quit 2>/dev/null || true)
+      for p in "${cx_f}" "${st_f}"; do
+        echo "--- full ocamlobjinfo ${p} ($(wc -c < "${p}" 2>/dev/null || echo '?') bytes)"
+        "${oi}" "${p}" 2>&1 | head -80 || true
+      done
+      echo "--- ${u}.cmx differing bytes (cmp -l): $(cmp -l "${cx_f}" "${st_f}" 2>/dev/null | wc -l || true)"
+    done
+    echo "--- ${LOG_DIR}"
+    ls -l "${LOG_DIR}" 2>&1 | head -60 || true
+    for lg in "${LOG_DIR}"/*; do
+      [[ -f "${lg}" ]] || continue
+      for pat in '(ocamlopt(\.opt)?|ocamlrun|run-target\.sh).*typing/path\.ml' \
+                 '(ocamlopt(\.opt)?|ocamlrun|run-target\.sh).*parsing/lexer\.ml' \
+                 'ocamllex.*lexer\.mll'; do
+        echo "--- ${lg##*/}: /${pat}/"
+        grep -E "${pat}" "${lg}" 2>/dev/null | head -5 | sed "s#^#${lg##*/}: #" || true
+      done
+    done
+    echo "--- OCaml environment"
+    env | grep -E '^(OCAMLPARAM|OCAMLRUNPARAM|OCAMLLIB|CAMLOPT|OCAMLFIND)' | head -10 || true
+    case "$1" in
+      "${BUILD_PREFIX}"/*) echo "--- cross copy compared: $1 (under BUILD_PREFIX)" ;;
+      "${SRC_DIR}/_xcross_compiler"/*) echo "--- cross copy compared: $1 (under SRC_DIR/_xcross_compiler)" ;;
+      *) echo "--- cross copy compared: $1 (elsewhere)" ;;
+    esac
+    echo "--- stage-2 lexer record"
+    if [[ -f "${LOG_DIR}/stage2-lexer.txt" ]]; then
+      cat "${LOG_DIR}/stage2-lexer.txt" || true
+    else
+      echo "(stage 2 did not run in this job)"
+    fi
+    echo "--- stage-3 lexer record"
+    cat "${LOG_DIR}/stage3-lexer.txt" 2>&1 || true
+    echo "ERROR: cross-compiler/target compiler-libs .cmx mismatch: ${bad[*]}"
+    exit 1
+  fi
+  echo "  compiler-libs.common .cmx match the cross compiler (${n} units)"
+}
 
 build_cross_target() {
   local -a CONFIG_ARGS=("${CONFIG_ARGS[@]}")
@@ -2108,6 +2210,9 @@ EOF
     # this make, not exported build-wide.
     run_logged "crosscompiledopt" env LIBRARY_PATH="${PREFIX}/lib${LIBRARY_PATH:+:${LIBRARY_PATH}}" "${MAKE[@]}" crosscompiledopt "${CROSSCOMPILEDOPT_ARGS[@]}" "${COMPRESSED_MARSHALING_OVERRIDE}" -j"${CPU_COUNT}"
   )
+
+  record_lexer_state stage3 crosscompiledopt
+  check_compiler_libs_consistency "${OCAMLLIB}"
 
   echo "  [4/5] Building crosscompiledruntime ==="
 
