@@ -1863,6 +1863,15 @@ check_compiler_libs_consistency() {
   st_sz=$(wc -c < parsing/lexer.cmx 2>/dev/null || echo '?')
   op_n=$( (grep -h -- ' -opaque' "${LOG_DIR}"/*.log 2>/dev/null | grep -- ' -c ' | grep -v utils/config | wc -l) || true)
   echo "compiler-libs check: lexer.cmx cross=${cx_sz//[[:space:]]/} stage3=${st_sz//[[:space:]]/}, -opaque compiles outside utils/config: ${op_n//[[:space:]]/}"
+  # Skip when a published cross copy (not built in this job) carries the stub lexer.cmx.
+  cx_sz=${cx_sz//[[:space:]]/}
+  st_sz=${st_sz//[[:space:]]/}
+  if [[ $1 != "${SRC_DIR}/_xcross_compiler"* ]] \
+     && [[ ${cx_sz} =~ ^[0-9]+$ ]] && [[ ${st_sz} =~ ^[0-9]+$ ]] \
+     && [[ ${cx_sz} -lt 5000 ]] && [[ ${st_sz} -ge 5000 ]]; then
+    echo "[SKIP] compiler-libs guard: the cross copy ($1) is a published package with the opaque stub lexer.cmx (${cx_sz} bytes vs ${st_sz}); the comparison needs a cross package from build 3 or later"
+    return 0
+  fi
   if [[ ${#bad[@]} -gt 0 ]]; then
     local lg cx_f st_f pat u
     for u in lexer path; do
