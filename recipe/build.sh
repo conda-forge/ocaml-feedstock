@@ -1858,6 +1858,11 @@ check_compiler_libs_consistency() {
     echo "ERROR: compiler-libs guard checked 0 units (ocamlcommon.cmxa members not found in the stage-3 tree)"
     exit 1
   fi
+  local cx_sz st_sz op_n
+  cx_sz=$(wc -c < "${cross_cl}/lexer.cmx" 2>/dev/null || echo '?')
+  st_sz=$(wc -c < parsing/lexer.cmx 2>/dev/null || echo '?')
+  op_n=$( (grep -h -- ' -opaque' "${LOG_DIR}"/*.log 2>/dev/null | grep -- ' -c ' | grep -v utils/config | wc -l) || true)
+  echo "compiler-libs check: lexer.cmx cross=${cx_sz//[[:space:]]/} stage3=${st_sz//[[:space:]]/}, -opaque compiles outside utils/config: ${op_n//[[:space:]]/}"
   if [[ ${#bad[@]} -gt 0 ]]; then
     local lg cx_f st_f pat u
     for u in lexer path; do

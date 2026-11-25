@@ -805,12 +805,12 @@ patch_checkstack_cc() {
 # Compile utils/config with -opaque. Config bakes per-build paths, so without
 # it every unit importing Config records an implementation CRC that changes on
 # each rebuild. override keeps the flag when a caller sets OC_COMMON_COMPFLAGS
-# on the make command line.
+# on the make command line; private keeps the flag off the targets' prerequisites.
 # Usage: patch_makefile_opaque_config
 # Operates on Makefile in the current directory
 patch_makefile_opaque_config() {
   if ! grep -q "^utils/config.cmi" Makefile; then
-    printf '\nutils/config.cmi utils/config.cmo utils/config.cmx: override OC_COMMON_COMPFLAGS += -opaque\n' >> Makefile
+    printf '\nutils/config.cmi utils/config.cmo utils/config.cmx: override private OC_COMMON_COMPFLAGS += -opaque\n' >> Makefile
   fi
 }
 
