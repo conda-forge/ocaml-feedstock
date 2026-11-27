@@ -17,4 +17,4 @@ zig_compiler:
 zig_compiler_version:
 - 0.17.0
 zstd:
-- '1.5'
+- '1.6'
